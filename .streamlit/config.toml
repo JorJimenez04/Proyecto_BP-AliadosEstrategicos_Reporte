@@ -1,0 +1,21 @@
+[theme]
+base                     = "dark"
+backgroundColor          = "#111827"
+secondaryBackgroundColor = "#1e2433"
+primaryColor             = "#5fe9d0"
+textColor                = "#f9fafb"
+font                     = "sans serif"
+
+[server]
+# Anti-clickjacking: Railway ya maneja TLS, pero reforzamos a nivel app
+enableCORS              = false
+enableXsrfProtection    = true
+# Desactivar cabecera que revela la versión de Streamlit
+maxUploadSize           = 10
+
+[browser]
+gatherUsageStats        = false
+
+[runner]
+# Evitar que Streamlit inspeccione archivos fuera de /app
+magicEnabled            = false

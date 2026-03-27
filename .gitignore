@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Variables de entorno (¡NUNCA subir al repo!)
+.env
+
+# Base de datos local SQLite
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Jupyter (si aplica)
+.ipynb_checkpoints/

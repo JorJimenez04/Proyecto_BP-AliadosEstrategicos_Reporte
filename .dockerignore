@@ -1,0 +1,41 @@
+# ── Entornos virtuales ────────────────────────────────────────
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ── Variables de entorno (NUNCA al contenedor) ────────────────
+.env
+.env.*
+!.env.example
+
+# ── Base de datos local (Railway usa PostgreSQL) ───────────────
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Git y CI ──────────────────────────────────────────────────
+.git/
+.gitignore
+.github/
+
+# ── Documentación (no necesaria en producción) ────────────────
+*.md
+ESTRUCTURA.md
+README.md
+
+# ── Herramientas de desarrollo ────────────────────────────────
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.code-workspace
