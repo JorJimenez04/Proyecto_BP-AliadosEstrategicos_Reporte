@@ -149,6 +149,10 @@ def authenticate(username: str, password: str) -> dict | None:
 
         # Modo desarrollo: acepta la password de ENV o la de fallback
         if stored_hash == "PLACEHOLDER_HASH":
+            from config.settings import APP_ENV as _APP_ENV
+            # PLACEHOLDER_HASH solo es válido en desarrollo — bloquear siempre en producción
+            if _APP_ENV == "production":
+                return None
             fallback = os.getenv("ADMIN_PASSWORD", "Admin@AdamoServices2025!")
             if password in (fallback, "admin"):
                 return dict(row)

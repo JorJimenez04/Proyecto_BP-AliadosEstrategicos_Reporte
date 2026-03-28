@@ -81,10 +81,12 @@ def get_session() -> Session:
 def init_database() -> None:
     """
     Inicializa la base de datos ejecutando el script SQL de migración inicial.
-    Crea las tablas, índices y triggers si no existen.
-    Compatible con SQLite (desarrollo) y PostgreSQL (producción/Railway).
+    Selecciona el script correcto según el motor (SQLite o PostgreSQL).
     """
-    migration_file = BASE_DIR / "db" / "migrations" / "001_initial_schema.sql"
+    if _IS_POSTGRES:
+        migration_file = BASE_DIR / "db" / "migrations" / "001_initial_schema_pg.sql"
+    else:
+        migration_file = BASE_DIR / "db" / "migrations" / "001_initial_schema.sql"
 
     if not migration_file.exists():
         raise FileNotFoundError(f"Script de migración no encontrado: {migration_file}")
@@ -94,16 +96,25 @@ def init_database() -> None:
 
     sql_script = migration_file.read_text(encoding="utf-8")
 
-    # PostgreSQL soporta IF NOT EXISTS en DDL — ejecutar en bloque único
-    # SQLite también lo acepta, pero lo dividimos por sentencia para robustez
-    with engine.connect() as conn:
-        statements = [s.strip() for s in sql_script.split(";") if s.strip()]
-        for statement in statements:
-            try:
-                conn.execute(text(statement))
-            except Exception as e:
-                logger.warning(f"Sentencia omitida (probablemente ya existe): {e}")
-        conn.commit()
+    if _IS_POSTGRES:
+        # Ejecutar el script completo en un único cursor para soportar
+        # bloques plpgsql ($$...END;...$$) que contienen ";" internos.
+        raw_conn = engine.raw_connection()
+        try:
+            with raw_conn.cursor() as cur:
+                cur.execute(sql_script)
+            raw_conn.commit()
+        finally:
+            raw_conn.close()
+    else:
+        with engine.connect() as conn:
+            statements = [s.strip() for s in sql_script.split(";") if s.strip()]
+            for statement in statements:
+                try:
+                    conn.execute(text(statement))
+                except Exception as e:
+                    logger.warning(f"Sentencia omitida (probablemente ya existe): {e}")
+            conn.commit()
 
     # Actualizar el hash de la password del admin seed
     _seed_admin_user()

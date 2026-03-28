@@ -47,8 +47,8 @@ def _get_logos() -> tuple[Path | None, Path | None]:
     return logo_sidebar, logo_icono
 
 from config.settings import (
-    APP_NAME, EstadosAliado, TiposAliado, NivelesRiesgo,
-    EstadosSARLAFT, Roles
+    APP_NAME, APP_ENV, EstadosAliado, TiposAliado, NivelesRiesgo,
+    EstadosSARLAFT, Roles, SECRET_KEY_IS_DEFAULT
 )
 from db.database import get_session, health_check
 from db.repositories.partner_repo import PartnerRepository
@@ -1426,6 +1426,16 @@ def page_auditoria(user: dict):
 def main():
     from app.auth.login import require_auth
     user = require_auth()   # detiene la ejecución y muestra login si no autenticado
+
+    # ── Advertencia de seguridad visible solo en desarrollo con clave insegura ──
+    if SECRET_KEY_IS_DEFAULT and APP_ENV != "production":
+        st.warning(
+            "🔓 **Modo Desarrollo** — `SECRET_KEY` no está configurada o usa el valor "
+            "por defecto. Las cookies de sesión **no están firmadas de forma segura**. "
+            "Configura `SECRET_KEY` en tus variables de entorno antes de desplegar.",
+            icon="⚠️",
+        )
+
     page = sidebar(user)
 
     if page == "📊 Dashboard":

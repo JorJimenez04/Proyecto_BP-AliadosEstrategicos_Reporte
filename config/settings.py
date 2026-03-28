@@ -31,7 +31,59 @@ DATA_DIR: Path = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
 
 # ── Seguridad ─────────────────────────────────────────────
-SECRET_KEY: str = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+import logging as _logging
+_log = _logging.getLogger(__name__)
+
+# Valor de desarrollo por defecto — jamás usar en producción
+_DEV_FALLBACK_KEY: str = "dev-secret-key-change-in-production"
+
+# Conjunto de claves inseguras/plantilla conocidas
+_INSECURE_KEYS: frozenset[str] = frozenset({
+    _DEV_FALLBACK_KEY,
+    "REEMPLAZAR_CON_SALIDA_DE_token_urlsafe_32",
+    "secret", "changeme", "admin", "password", "123456",
+})
+
+_MIN_KEY_LEN: int = 43          # token_urlsafe(32) → exactamente 43 chars URL-safe
+_raw_secret:  str = os.getenv("SECRET_KEY", "")
+
+if APP_ENV == "production":
+    # ── Validación bloqueante: el proceso no puede arrancar sin una clave segura ──
+    _sec_errors: list[str] = []
+    if not _raw_secret:
+        _sec_errors.append(
+            "SECRET_KEY no está definida. "
+            "Agrégala en las Variables de Entorno del proyecto en Railway."
+        )
+    elif _raw_secret in _INSECURE_KEYS:
+        _sec_errors.append(
+            "SECRET_KEY usa un valor de plantilla inseguro. "
+            "Genera una nueva con: "
+            'python -c "import secrets; print(secrets.token_urlsafe(32))"'
+        )
+    elif len(_raw_secret) < _MIN_KEY_LEN:
+        _sec_errors.append(
+            f"SECRET_KEY demasiado corta ({len(_raw_secret)} chars). "
+            f"Mínimo requerido: {_MIN_KEY_LEN} chars (token_urlsafe(32))."
+        )
+    if _sec_errors:
+        raise RuntimeError(
+            "[AdamoServices] INICIO BLOQUEADO — Configuración de seguridad inválida "
+            f"(APP_ENV=production):\n"
+            + "\n".join(f"  ✗ {e}" for e in _sec_errors)
+        )
+    SECRET_KEY: str       = _raw_secret
+    SECRET_KEY_IS_DEFAULT: bool = False
+else:
+    # ── Modo desarrollo: permite el fallback, pero lo registra en logs ──
+    SECRET_KEY = _raw_secret if _raw_secret else _DEV_FALLBACK_KEY
+    SECRET_KEY_IS_DEFAULT: bool = (not _raw_secret) or (_raw_secret in _INSECURE_KEYS)
+    if SECRET_KEY_IS_DEFAULT:
+        _log.warning(
+            "[AdamoServices] SECRET_KEY usa el valor de desarrollo. "
+            "Configure una clave segura antes de desplegar en producción."
+        )
+
 SESSION_TIMEOUT_MINUTES: int = int(os.getenv("SESSION_TIMEOUT_MINUTES", "60"))
 
 # ── Roles del sistema ─────────────────────────────────────
