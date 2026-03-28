@@ -253,4 +253,4 @@ VALUES (
     'PLACEHOLDER_HASH',           -- Reemplazado por database.py con bcrypt
     'admin'
 )
-ON CONFLICT (username) DO NOTHING;
+ON CONFLICT DO NOTHING;
