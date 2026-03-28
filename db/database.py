@@ -1,54 +1,32 @@
 """
 db/database.py
 Gestor de conexión a la base de datos — AdamoServices Partner Manager.
-Soporta SQLite (desarrollo) y PostgreSQL (producción - Railway) vía SQLAlchemy.
+Motor: PostgreSQL vía SQLAlchemy.
 Ejecutar directamente para inicializar el esquema: python -m db.database
 """
 
 import logging
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.engine import Engine
-from sqlalchemy.pool import NullPool, QueuePool
+from sqlalchemy.pool import QueuePool
 
 from config.settings import DATABASE_URL, BASE_DIR, DEBUG
 
 logger = logging.getLogger(__name__)
 
-_IS_POSTGRES = DATABASE_URL.startswith(("postgresql", "postgres"))
-
-# ── Motor SQLAlchemy ──────────────────────────────────────────
-# Railway / PostgreSQL: pool de conexiones eficiente.
-# SQLite local: NullPool (no requiere pool, evita problemas de threading).
-if _IS_POSTGRES:
-    # Normalizar esquema postgres:// → postgresql:// (Railway usa postgres://)
-    _db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    engine = create_engine(
-        _db_url,
-        poolclass=QueuePool,
-        pool_size=5,          # Conexiones simultáneas mantenidas
-        max_overflow=10,      # Conexiones adicionales bajo carga
-        pool_timeout=30,      # Tiempo máximo de espera por conexión (s)
-        pool_recycle=1800,    # Reciclar conexiones cada 30 min (evita timeout Railway)
-        pool_pre_ping=True,   # Verifica conexiones antes de usarlas
-        echo=DEBUG,
-    )
-else:
-    engine = create_engine(
-        DATABASE_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=NullPool,
-        echo=DEBUG,
-    )
-
-# ── Activar WAL y claves foráneas en SQLite ───────────────────
-@event.listens_for(Engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    if not _IS_POSTGRES:
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.close()
+# ── Motor SQLAlchemy (PostgreSQL) ─────────────────────────────
+# Normalizar esquema postgres:// → postgresql:// (Railway usa postgres://)
+_db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+engine = create_engine(
+    _db_url,
+    poolclass=QueuePool,
+    pool_size=5,          # Conexiones simultáneas mantenidas
+    max_overflow=10,      # Conexiones adicionales bajo carga
+    pool_timeout=30,      # Tiempo máximo de espera por conexión (s)
+    pool_recycle=1800,    # Reciclar conexiones cada 30 min (evita timeout Railway)
+    pool_pre_ping=True,   # Verifica conexiones antes de usarlas
+    echo=DEBUG,
+)
 
 
 # ── Fábrica de sesiones ───────────────────────────────────────
@@ -81,40 +59,25 @@ def get_session() -> Session:
 def init_database() -> None:
     """
     Inicializa la base de datos ejecutando el script SQL de migración inicial.
-    Selecciona el script correcto según el motor (SQLite o PostgreSQL).
     """
-    if _IS_POSTGRES:
-        migration_file = BASE_DIR / "db" / "migrations" / "001_initial_schema_pg.sql"
-    else:
-        migration_file = BASE_DIR / "db" / "migrations" / "001_initial_schema.sql"
+    migration_file = BASE_DIR / "db" / "migrations" / "001_initial_schema_pg.sql"
 
     if not migration_file.exists():
         raise FileNotFoundError(f"Script de migración no encontrado: {migration_file}")
 
-    backend = "PostgreSQL" if _IS_POSTGRES else "SQLite"
-    logger.info(f"[AdamoServices] Inicializando base de datos ({backend})...")
+    logger.info("[AdamoServices] Inicializando base de datos (PostgreSQL)...")
 
     sql_script = migration_file.read_text(encoding="utf-8")
 
-    if _IS_POSTGRES:
-        # Ejecutar el script completo en un único cursor para soportar
-        # bloques plpgsql ($$...END;...$$) que contienen ";" internos.
-        raw_conn = engine.raw_connection()
-        try:
-            with raw_conn.cursor() as cur:
-                cur.execute(sql_script)
-            raw_conn.commit()
-        finally:
-            raw_conn.close()
-    else:
-        with engine.connect() as conn:
-            statements = [s.strip() for s in sql_script.split(";") if s.strip()]
-            for statement in statements:
-                try:
-                    conn.execute(text(statement))
-                except Exception as e:
-                    logger.warning(f"Sentencia omitida (probablemente ya existe): {e}")
-            conn.commit()
+    # Ejecutar el script completo en un único cursor para soportar
+    # bloques plpgsql ($$...END;...$$) que contienen ";" internos.
+    raw_conn = engine.raw_connection()
+    try:
+        with raw_conn.cursor() as cur:
+            cur.execute(sql_script)
+        raw_conn.commit()
+    finally:
+        raw_conn.close()
 
     # Actualizar el hash de la password del admin seed
     _seed_admin_user()
@@ -174,40 +137,20 @@ def _seed_admin_user() -> None:
         # Paso 2: si no había PLACEHOLDER_HASH, el usuario ya existía previamente.
         # Asegurarse de que existe con el username correcto.
         if updated == 0:
-            if _IS_POSTGRES:
-                conn.execute(
-                    text("""
-                        INSERT INTO usuarios (username, nombre_completo, email, password_hash, rol)
-                        VALUES (:username, :nombre, :email, :hash, 'admin')
-                        ON CONFLICT (username) DO UPDATE
-                            SET password_hash   = CASE
-                                                      WHEN usuarios.password_hash = 'PLACEHOLDER_HASH'
-                                                      THEN EXCLUDED.password_hash
-                                                      ELSE usuarios.password_hash
-                                                  END,
-                                nombre_completo = EXCLUDED.nombre_completo
-                    """),
-                    params,
-                )
-            else:
-                conn.execute(
-                    text("""
-                        INSERT OR IGNORE INTO usuarios
-                            (username, nombre_completo, email, password_hash, rol)
-                        VALUES (:username, :nombre, :email, :hash, 'admin')
-                    """),
-                    params,
-                )
-                conn.execute(
-                    text("""
-                        UPDATE usuarios
-                        SET password_hash   = :hash,
-                            nombre_completo = :nombre
-                        WHERE username = :username
-                          AND password_hash = 'PLACEHOLDER_HASH'
-                    """),
-                    params,
-                )
+            conn.execute(
+                text("""
+                    INSERT INTO usuarios (username, nombre_completo, email, password_hash, rol)
+                    VALUES (:username, :nombre, :email, :hash, 'admin')
+                    ON CONFLICT (username) DO UPDATE
+                        SET password_hash   = CASE
+                                                  WHEN usuarios.password_hash = 'PLACEHOLDER_HASH'
+                                                  THEN EXCLUDED.password_hash
+                                                  ELSE usuarios.password_hash
+                                              END,
+                            nombre_completo = EXCLUDED.nombre_completo
+                """),
+                params,
+            )
 
         conn.commit()
 
@@ -227,6 +170,5 @@ def health_check() -> bool:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     init_database()
-    backend = "PostgreSQL" if _IS_POSTGRES else "SQLite"
-    safe_url = DATABASE_URL if not _IS_POSTGRES else DATABASE_URL.split("@")[-1]  # ocultar credenciales
-    print(f"✅ [AdamoServices] Base de datos ({backend}) inicializada. Host: {safe_url}")
+    safe_url = DATABASE_URL.split("@")[-1]  # ocultar credenciales
+    print(f"✅ [AdamoServices] Base de datos (PostgreSQL) inicializada. Host: {safe_url}")

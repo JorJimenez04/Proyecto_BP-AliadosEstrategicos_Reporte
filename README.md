@@ -7,7 +7,7 @@ Desarrollada por el área de Compliance de AdamoServices.
 
 - **Lenguaje:** Python 3.10+
 - **Frontend:** Streamlit
-- **Base de Datos:** SQLite (local) → PostgreSQL (Railway en producción)
+- **Base de Datos:** PostgreSQL (Docker local, Railway en producción)
 - **Autenticación:** Basada en roles (RBAC)
 - **Auditoría:** Log completo de cambios para cumplimiento regulatorio
 
@@ -50,34 +50,60 @@ Prospecto → En Calificación → Onboarding → Activo → Suspendido → Term
 | `comercial`      | Crear prospectos. Editar campos comerciales.              |
 | `consulta`       | Solo lectura.                                             |
 
-## Instalación
+## Ejecución en Local
+
+**Requisito previo:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) instalado y en ejecución (solo para la BD).
+
+**1. Levantar PostgreSQL**
 
 ```bash
-# 1. Clonar repositorio
+docker compose up -d
+```
+
+**2. Preparar entorno Python**
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # macOS/Linux
+
+pip install -r requirements.txt
+```
+
+**3. Crear `.env` en la raíz del proyecto**
+
+```env
+APP_ENV=development
+SECRET_KEY=cualquier_string_de_desarrollo_local
+ADMIN_USERNAME=jorge_jimenez
+ADMIN_PASSWORD=AdamoCompliance_2026!
+ADMIN_EMAIL=compliance@adamoservices.co
+DATABASE_URL=postgresql://adamo:adamo_dev_2026@localhost:5432/adamoservices
+```
+
+**4. Inicializar BD y ejecutar**
+
+```bash
+python -m db.database
+streamlit run app/main.py
+```
+
+Acceder en `http://localhost:8501`.
+
+Para detener la BD: `docker compose down`
+
+## Instalación (resumen mínimo)
+
+```bash
 git clone https://github.com/tu-org/adamoservices-partner-manager.git
 cd adamoservices-partner-manager
-
-# 2. Crear entorno virtual
-python -m venv .venv
-.venv\Scripts\activate  # Windows
-
-# 3. Instalar dependencias
+python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
-
-# 4. Configurar variables de entorno
-copy .env.example .env
-# Editar .env con tus valores
-
-# 5. Inicializar base de datos
-python -m db.database
-
-# 6. Ejecutar aplicación
-python -m streamlit run app/main.py
 ```
 
 ## Variables de Entorno
 
-Ver `.env.example` para la lista completa de variables requeridas.
+Ver `.env.example` para la lista completa y descripción de cada variable.
 
 ## Cumplimiento Regulatorio
 

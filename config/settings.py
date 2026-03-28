@@ -21,14 +21,13 @@ APP_ENV: str = os.getenv("APP_ENV", "development")
 DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
 
 # ── Base de Datos ─────────────────────────────────────────
-DATABASE_URL: str = os.getenv(
-    "DATABASE_URL",
-    f"sqlite:///{BASE_DIR / 'data' / 'adamoservices.db'}"
-)
-
-# Directorio donde se almacena la BD SQLite local
-DATA_DIR: Path = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
+DATABASE_URL: str = os.getenv("DATABASE_URL", "")
+if not DATABASE_URL:
+    raise EnvironmentError(
+        "DATABASE_URL no está configurada. "
+        "Define la URL de PostgreSQL en el archivo .env (desarrollo) "
+        "o en las Variables de Railway (producción)."
+    )
 
 # ── Seguridad ─────────────────────────────────────────────
 import logging as _logging
