@@ -204,16 +204,18 @@ class PartnerRepository:
 
     def get_revisiones_proximas(self, dias: int = 30) -> list[dict]:
         """Aliados cuya revisión SARLAFT vence en los próximos N días."""
+        from datetime import date, timedelta
+        fecha_limite = (date.today() + timedelta(days=dias)).isoformat()
         rows = self.session.execute(
             text("""
                 SELECT id, nombre_razon_social, nit, nivel_riesgo,
                        fecha_proxima_revision, estado_sarlaft
                 FROM aliados
-                WHERE fecha_proxima_revision <= DATE('now', :dias_str)
+                WHERE fecha_proxima_revision <= :fecha_limite
                   AND estado_pipeline = 'Activo'
                 ORDER BY fecha_proxima_revision ASC
             """),
-            {"dias_str": f"+{dias} days"},
+            {"fecha_limite": fecha_limite},
         ).mappings().all()
         return [dict(r) for r in rows]
 
