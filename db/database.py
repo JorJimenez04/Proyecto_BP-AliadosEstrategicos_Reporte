@@ -126,11 +126,12 @@ def _seed_admin_user() -> None:
     """
     Crea o actualiza el usuario administrador seed usando las variables de entorno.
 
-    Lógica:
-    1. Si ya existe un usuario con el username configurado → solo actualiza el hash
-       si aún tiene PLACEHOLDER_HASH (evita sobreescribir passwords reales).
-    2. Si no existe → inserta el usuario completo con hash bcrypt.
-    3. Limpia cualquier fila residual con PLACEHOLDER_HASH que no sea el admin real.
+    Estrategia (para evitar conflictos de UNIQUE en username y email):
+    1. UPDATE la fila con PLACEHOLDER_HASH → la convierte en el usuario final
+       (maneja el caso de renombrar 'admin' → ADMIN_USERNAME).
+    2. Si ninguna fila tenía PLACEHOLDER_HASH (la BD ya estaba inicializada),
+       intenta INSERT del usuario final. Si el username ya existe, actualiza
+       el hash solo si aún era PLACEHOLDER_HASH.
     """
     import bcrypt
     import os
@@ -145,54 +146,69 @@ def _seed_admin_user() -> None:
         bcrypt.gensalt(rounds=12)
     ).decode("utf-8")
 
-    upsert_sql = """
-        INSERT INTO usuarios (username, nombre_completo, email, password_hash, rol)
-        VALUES (:username, :nombre, :email, :hash, 'admin')
-        ON CONFLICT (username) DO UPDATE
-            SET password_hash   = CASE
-                                      WHEN usuarios.password_hash = 'PLACEHOLDER_HASH'
-                                      THEN EXCLUDED.password_hash
-                                      ELSE usuarios.password_hash
-                                  END,
-                email           = EXCLUDED.email,
-                nombre_completo = EXCLUDED.nombre_completo
-    """ if _IS_POSTGRES else """
-        INSERT OR IGNORE INTO usuarios (username, nombre_completo, email, password_hash, rol)
-        VALUES (:username, :nombre, :email, :hash, 'admin')
-    """
+    params = {
+        "username": admin_username,
+        "nombre":   admin_name,
+        "email":    admin_email,
+        "hash":     password_hash,
+    }
 
     with engine.connect() as conn:
-        conn.execute(
-            text(upsert_sql),
-            {
-                "username": admin_username,
-                "nombre":   admin_name,
-                "email":    admin_email,
-                "hash":     password_hash,
-            }
+        # Paso 1: actualizar cualquier fila con PLACEHOLDER_HASH.
+        # Esto convierte el seed SQL ('admin') en el usuario real configurado
+        # sin generar conflictos de email duplicado.
+        result = conn.execute(
+            text("""
+                UPDATE usuarios
+                SET username        = :username,
+                    nombre_completo = :nombre,
+                    email           = :email,
+                    password_hash   = :hash,
+                    rol             = 'admin'
+                WHERE password_hash = 'PLACEHOLDER_HASH'
+            """),
+            params,
         )
-        # SQLite: si el usuario ya existía con PLACEHOLDER_HASH, actualizarlo
-        if not _IS_POSTGRES:
-            conn.execute(
-                text("""
-                    UPDATE usuarios
-                    SET password_hash   = :hash,
-                        email           = :email,
-                        nombre_completo = :nombre
-                    WHERE username = :username
-                      AND password_hash = 'PLACEHOLDER_HASH'
-                """),
-                {
-                    "hash":     password_hash,
-                    "email":    admin_email,
-                    "nombre":   admin_name,
-                    "username": admin_username,
-                }
-            )
-        # Eliminar cualquier fila seed residual con PLACEHOLDER_HASH (username 'admin' del SQL)
-        conn.execute(
-            text("DELETE FROM usuarios WHERE password_hash = 'PLACEHOLDER_HASH'")
-        )
+        updated = result.rowcount
+
+        # Paso 2: si no había PLACEHOLDER_HASH, el usuario ya existía previamente.
+        # Asegurarse de que existe con el username correcto.
+        if updated == 0:
+            if _IS_POSTGRES:
+                conn.execute(
+                    text("""
+                        INSERT INTO usuarios (username, nombre_completo, email, password_hash, rol)
+                        VALUES (:username, :nombre, :email, :hash, 'admin')
+                        ON CONFLICT (username) DO UPDATE
+                            SET password_hash   = CASE
+                                                      WHEN usuarios.password_hash = 'PLACEHOLDER_HASH'
+                                                      THEN EXCLUDED.password_hash
+                                                      ELSE usuarios.password_hash
+                                                  END,
+                                nombre_completo = EXCLUDED.nombre_completo
+                    """),
+                    params,
+                )
+            else:
+                conn.execute(
+                    text("""
+                        INSERT OR IGNORE INTO usuarios
+                            (username, nombre_completo, email, password_hash, rol)
+                        VALUES (:username, :nombre, :email, :hash, 'admin')
+                    """),
+                    params,
+                )
+                conn.execute(
+                    text("""
+                        UPDATE usuarios
+                        SET password_hash   = :hash,
+                            nombre_completo = :nombre
+                        WHERE username = :username
+                          AND password_hash = 'PLACEHOLDER_HASH'
+                    """),
+                    params,
+                )
+
         conn.commit()
 
 
