@@ -124,8 +124,13 @@ def init_database() -> None:
 
 def _seed_admin_user() -> None:
     """
-    Reemplaza el placeholder del admin con un hash bcrypt real
-    tomando la password de las variables de entorno.
+    Crea o actualiza el usuario administrador seed usando las variables de entorno.
+
+    Lógica:
+    1. Si ya existe un usuario con el username configurado → solo actualiza el hash
+       si aún tiene PLACEHOLDER_HASH (evita sobreescribir passwords reales).
+    2. Si no existe → inserta el usuario completo con hash bcrypt.
+    3. Limpia cualquier fila residual con PLACEHOLDER_HASH que no sea el admin real.
     """
     import bcrypt
     import os
@@ -140,22 +145,53 @@ def _seed_admin_user() -> None:
         bcrypt.gensalt(rounds=12)
     ).decode("utf-8")
 
+    upsert_sql = """
+        INSERT INTO usuarios (username, nombre_completo, email, password_hash, rol)
+        VALUES (:username, :nombre, :email, :hash, 'admin')
+        ON CONFLICT (username) DO UPDATE
+            SET password_hash   = CASE
+                                      WHEN usuarios.password_hash = 'PLACEHOLDER_HASH'
+                                      THEN EXCLUDED.password_hash
+                                      ELSE usuarios.password_hash
+                                  END,
+                email           = EXCLUDED.email,
+                nombre_completo = EXCLUDED.nombre_completo
+    """ if _IS_POSTGRES else """
+        INSERT OR IGNORE INTO usuarios (username, nombre_completo, email, password_hash, rol)
+        VALUES (:username, :nombre, :email, :hash, 'admin')
+    """
+
     with engine.connect() as conn:
         conn.execute(
-            text("""
-                UPDATE usuarios
-                SET password_hash = :hash,
-                    email         = :email,
-                    nombre_completo = :nombre
-                WHERE username = :username
-                  AND password_hash = 'PLACEHOLDER_HASH'
-            """),
+            text(upsert_sql),
             {
-                "hash":     password_hash,
-                "email":    admin_email,
-                "nombre":   admin_name,
                 "username": admin_username,
+                "nombre":   admin_name,
+                "email":    admin_email,
+                "hash":     password_hash,
             }
+        )
+        # SQLite: si el usuario ya existía con PLACEHOLDER_HASH, actualizarlo
+        if not _IS_POSTGRES:
+            conn.execute(
+                text("""
+                    UPDATE usuarios
+                    SET password_hash   = :hash,
+                        email           = :email,
+                        nombre_completo = :nombre
+                    WHERE username = :username
+                      AND password_hash = 'PLACEHOLDER_HASH'
+                """),
+                {
+                    "hash":     password_hash,
+                    "email":    admin_email,
+                    "nombre":   admin_name,
+                    "username": admin_username,
+                }
+            )
+        # Eliminar cualquier fila seed residual con PLACEHOLDER_HASH (username 'admin' del SQL)
+        conn.execute(
+            text("DELETE FROM usuarios WHERE password_hash = 'PLACEHOLDER_HASH'")
         )
         conn.commit()
 
