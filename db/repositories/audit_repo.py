@@ -111,11 +111,11 @@ class AuditRepository:
             params["accion"] = accion
 
         if fecha_desde:
-            query += " AND DATE(created_at) >= :fecha_desde"
+            query += " AND created_at::date >= :fecha_desde"
             params["fecha_desde"] = fecha_desde
 
         if fecha_hasta:
-            query += " AND DATE(created_at) <= :fecha_hasta"
+            query += " AND created_at::date <= :fecha_hasta"
             params["fecha_hasta"] = fecha_hasta
 
         query += f" ORDER BY created_at DESC LIMIT {int(limit)}"

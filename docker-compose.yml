@@ -1,0 +1,51 @@
+# docker-compose.yml — AdamoServices Partner Manager
+# Entorno de desarrollo local con PostgreSQL (mismo motor que Railway)
+#
+# Uso:
+#   docker compose up -d          # Levantar en background
+#   docker compose logs -f app    # Ver logs de la app
+#   docker compose down           # Detener
+#   docker compose down -v        # Detener y borrar datos de la BD
+
+services:
+
+  # ── Base de datos PostgreSQL ──────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: adamo_postgres
+    environment:
+      POSTGRES_USER: adamo
+      POSTGRES_PASSWORD: adamo_dev_2026
+      POSTGRES_DB: adamoservices
+    ports:
+      - "5432:5432"           # Accesible desde host (pgAdmin, DBeaver, psql)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U adamo -d adamoservices"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ── Aplicación Streamlit ──────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: adamo_app
+    env_file:
+      - tests/.env
+    environment:
+      # Sobreescribe DATABASE_URL del .env para apuntar al postgres local
+      DATABASE_URL: postgresql://adamo:adamo_dev_2026@postgres:5432/adamoservices
+    ports:
+      - "8501:8501"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    name: adamo_postgres_data

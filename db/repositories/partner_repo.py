@@ -34,11 +34,11 @@ class PartnerRepository:
         placeholders = ", ".join(f":{k}" for k in payload.keys())
 
         result = self.session.execute(
-            text(f"INSERT INTO aliados ({cols}) VALUES ({placeholders})"),
+            text(f"INSERT INTO aliados ({cols}) VALUES ({placeholders}) RETURNING id"),
             payload,
         )
         self.session.commit()
-        return result.lastrowid
+        return result.scalar()
 
     # ── Leer por ID ───────────────────────────────────────
     def get_by_id(self, aliado_id: int) -> Optional[dict]:
