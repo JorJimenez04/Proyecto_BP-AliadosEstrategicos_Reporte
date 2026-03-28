@@ -1,11 +1,12 @@
 # docker-compose.yml — AdamoServices Partner Manager
-# Entorno de desarrollo local con PostgreSQL (mismo motor que Railway)
+# Base de datos PostgreSQL para desarrollo local.
+# La aplicación se ejecuta directamente con: streamlit run app/main.py
+# En producción, Railway gestiona tanto la app como la BD.
 #
 # Uso:
-#   docker compose up -d          # Levantar en background
-#   docker compose logs -f app    # Ver logs de la app
-#   docker compose down           # Detener
-#   docker compose down -v        # Detener y borrar datos de la BD
+#   docker compose up -d postgres   # Levantar BD en background
+#   docker compose down             # Detener
+#   docker compose down -v          # Detener y borrar datos de la BD
 
 services:
 
@@ -26,24 +27,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    restart: unless-stopped
-
-  # ── Aplicación Streamlit ──────────────────────────────────────────
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: adamo_app
-    env_file:
-      - tests/.env
-    environment:
-      # Sobreescribe DATABASE_URL del .env para apuntar al postgres local
-      DATABASE_URL: postgresql://adamo:adamo_dev_2026@postgres:5432/adamoservices
-    ports:
-      - "8501:8501"
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
 
 volumes:

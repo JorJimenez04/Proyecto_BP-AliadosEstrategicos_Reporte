@@ -57,7 +57,7 @@ Prospecto → En Calificación → Onboarding → Activo → Suspendido → Term
 **1. Levantar PostgreSQL**
 
 ```bash
-docker compose up -d
+docker compose up -d postgres
 ```
 
 **2. Preparar entorno Python**
