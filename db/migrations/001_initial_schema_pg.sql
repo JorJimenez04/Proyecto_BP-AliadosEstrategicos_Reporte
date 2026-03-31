@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS aliados (
     metodologia_riesgo  TEXT,                                          -- Descripción metodología aplicada
 
     -- PEP — Persona Expuesta Políticamente
-    es_pep              INTEGER         NOT NULL DEFAULT 0,            -- 0=No, 1=Sí
+    es_pep              BOOLEAN         NOT NULL DEFAULT FALSE,        -- false=No, true=Sí
     descripcion_pep     TEXT,                                          -- Cargo/relación PEP si aplica
     vinculo_pep         TEXT,                                          -- Familiar/socio PEP si aplica
 
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS aliados (
     oficial_compliance_id   INTEGER     REFERENCES usuarios(id),      -- Quién realizó la última revisión
 
     -- Verificación de Listas Restrictivas
-    listas_verificadas          INTEGER NOT NULL DEFAULT 0,            -- 0=No, 1=Sí
+    listas_verificadas          BOOLEAN NOT NULL DEFAULT FALSE,
     fecha_verificacion_listas   DATE,
     resultado_listas            TEXT    DEFAULT 'Sin coincidencias'
                                     CHECK(resultado_listas IN (
@@ -102,10 +102,10 @@ CREATE TABLE IF NOT EXISTS aliados (
                                         'Coincidencia — bloqueado'
                                     )),
     -- Listas verificadas (OFAC, ONU, UE, LAFT local)
-    lista_ofac_ok       INTEGER         DEFAULT 0,
-    lista_onu_ok        INTEGER         DEFAULT 0,
-    lista_ue_ok         INTEGER         DEFAULT 0,
-    lista_local_ok      INTEGER         DEFAULT 0,                     -- Lista local Superfinanciera
+    lista_ofac_ok       BOOLEAN         DEFAULT FALSE,
+    lista_onu_ok        BOOLEAN         DEFAULT FALSE,
+    lista_ue_ok         BOOLEAN         DEFAULT FALSE,
+    lista_local_ok      BOOLEAN         DEFAULT FALSE,                     -- Lista local Superfinanciera
 
     -- Due Diligence
     estado_due_diligence    TEXT        NOT NULL DEFAULT 'Pendiente'
@@ -120,15 +120,15 @@ CREATE TABLE IF NOT EXISTS aliados (
                                 CHECK(nivel_due_diligence IN ('Básico', 'Reforzado', 'Simplificado')),
 
     -- ── Documentación ────────────────────────────────────
-    rut_recibido                    INTEGER DEFAULT 0,
-    camara_comercio_recibida        INTEGER DEFAULT 0,
+    rut_recibido                    BOOLEAN DEFAULT FALSE,
+    camara_comercio_recibida        BOOLEAN DEFAULT FALSE,
     fecha_vencimiento_camara        DATE,
-    estados_financieros_recibidos   INTEGER DEFAULT 0,
-    formulario_vinculacion_recibido INTEGER DEFAULT 0,
-    contrato_firmado                INTEGER DEFAULT 0,
+    estados_financieros_recibidos   BOOLEAN DEFAULT FALSE,
+    formulario_vinculacion_recibido BOOLEAN DEFAULT FALSE,
+    contrato_firmado                BOOLEAN DEFAULT FALSE,
     fecha_firma_contrato            DATE,
     fecha_vencimiento_contrato      DATE,
-    poliza_recibida                 INTEGER DEFAULT 0,
+    poliza_recibida                 BOOLEAN DEFAULT FALSE,
     fecha_vencimiento_poliza        DATE,
 
     -- ── Observaciones y Señales de Alerta ────────────────

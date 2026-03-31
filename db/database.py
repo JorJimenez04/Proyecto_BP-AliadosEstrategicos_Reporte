@@ -69,12 +69,40 @@ def init_database() -> None:
 
     sql_script = migration_file.read_text(encoding="utf-8")
 
-    # Ejecutar el script completo en un único cursor para soportar
-    # bloques plpgsql ($$...END;...$$) que contienen ";" internos.
+    # Migración 002 — convierte columnas lógicas INTEGER → BOOLEAN (idempotente)
+    # PostgreSQL exige DROP DEFAULT antes de cambiar el tipo, luego restaurarlo.
+    sql_migration_002 = """
+    DO $$
+    DECLARE
+        bool_cols TEXT[] := ARRAY[
+            'es_pep', 'listas_verificadas',
+            'lista_ofac_ok', 'lista_onu_ok', 'lista_ue_ok', 'lista_local_ok',
+            'rut_recibido', 'camara_comercio_recibida', 'estados_financieros_recibidos',
+            'formulario_vinculacion_recibido', 'contrato_firmado', 'poliza_recibida'
+        ];
+        col TEXT;
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name   = 'aliados'
+              AND column_name  = 'es_pep'
+              AND data_type    = 'integer'
+        ) THEN
+            FOREACH col IN ARRAY bool_cols LOOP
+                EXECUTE format('ALTER TABLE aliados ALTER COLUMN %I DROP DEFAULT', col);
+                EXECUTE format('ALTER TABLE aliados ALTER COLUMN %I TYPE BOOLEAN USING %I::boolean', col, col);
+                EXECUTE format('ALTER TABLE aliados ALTER COLUMN %I SET DEFAULT FALSE', col);
+            END LOOP;
+        END IF;
+    END $$;
+    """
+
     raw_conn = engine.raw_connection()
     try:
         with raw_conn.cursor() as cur:
             cur.execute(sql_script)
+            cur.execute(sql_migration_002)
         raw_conn.commit()
     finally:
         raw_conn.close()

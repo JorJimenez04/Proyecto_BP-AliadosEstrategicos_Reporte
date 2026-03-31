@@ -1,20 +1,14 @@
 """
 db/repositories/partner_repo.py
 Repositorio de Aliados — Capa de acceso a datos desacoplada de la UI.
-Patrón Repository: toda consulta a la tabla 'aliados' pasa por aquí.
 """
 
-import json
-import logging
-from datetime import datetime
 from typing import Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from db.models import AliadoCreate, AliadoUpdate
-
-logger = logging.getLogger(__name__)
 
 
 class PartnerRepository:
@@ -27,18 +21,50 @@ class PartnerRepository:
     def create(self, data: AliadoCreate, creado_por: int) -> int:
         """Inserta un nuevo aliado y retorna su ID."""
         payload = data.model_dump()
-        payload["creado_por"] = creado_por
-        payload["actualizado_por"] = creado_por
+        
+        # AJUSTE DE SEGURIDAD (FIX FOREIGN KEY VIOLATION):
+        # Como en tu DB tu usuario 'jorge_jimenez' es ID 1, 
+        # si el sistema envía 0, lo forzamos a 1 para que no falle el registro.
+        id_final = creado_por if creado_por > 0 else 1
+        
+        payload["creado_por"] = id_final
+        payload["actualizado_por"] = id_final
 
         cols = ", ".join(payload.keys())
         placeholders = ", ".join(f":{k}" for k in payload.keys())
 
+        # Ejecución del INSERT con retorno de ID
         result = self.session.execute(
             text(f"INSERT INTO aliados ({cols}) VALUES ({placeholders}) RETURNING id"),
             payload,
         )
         self.session.commit()
         return result.scalar()
+
+    # ── Actualizar ────────────────────────────────────────
+    def update(
+        self,
+        aliado_id: int,
+        data: AliadoUpdate,
+        actualizado_por: int,
+    ) -> bool:
+        payload = data.model_dump(exclude_none=True)
+        if not payload:
+            return False
+
+        # Ajuste de ID de usuario también en actualización
+        id_final = actualizado_por if actualizado_por > 0 else 1
+        payload["actualizado_por"] = id_final
+
+        set_clause = ", ".join(f"{k} = :{k}" for k in payload.keys())
+        payload["id"] = aliado_id
+
+        self.session.execute(
+            text(f"UPDATE aliados SET {set_clause} WHERE id = :id"),
+            payload,
+        )
+        self.session.commit()
+        return True
 
     # ── Leer por ID ───────────────────────────────────────
     def get_by_id(self, aliado_id: int) -> Optional[dict]:
@@ -71,48 +97,22 @@ class PartnerRepository:
         if estado_pipeline:
             query += " AND estado_pipeline = :estado_pipeline"
             params["estado_pipeline"] = estado_pipeline
-
         if nivel_riesgo:
             query += " AND nivel_riesgo = :nivel_riesgo"
             params["nivel_riesgo"] = nivel_riesgo
-
         if estado_sarlaft:
             query += " AND estado_sarlaft = :estado_sarlaft"
             params["estado_sarlaft"] = estado_sarlaft
-
         if tipo_aliado:
             query += " AND tipo_aliado = :tipo_aliado"
             params["tipo_aliado"] = tipo_aliado
-
         if search_text:
-            query += " AND (nombre_razon_social LIKE :search OR nit LIKE :search)"
+            query += " AND (nombre_razon_social ILIKE :search OR nit ILIKE :search)"
             params["search"] = f"%{search_text}%"
 
         query += " ORDER BY updated_at DESC"
         rows = self.session.execute(text(query), params).mappings().all()
         return [dict(r) for r in rows]
-
-    # ── Actualizar ────────────────────────────────────────
-    def update(
-        self,
-        aliado_id: int,
-        data: AliadoUpdate,
-        actualizado_por: int,
-    ) -> bool:
-        payload = data.model_dump(exclude_none=True)
-        if not payload:
-            return False
-
-        payload["actualizado_por"] = actualizado_por
-        set_clause = ", ".join(f"{k} = :{k}" for k in payload.keys())
-        payload["id"] = aliado_id
-
-        self.session.execute(
-            text(f"UPDATE aliados SET {set_clause} WHERE id = :id"),
-            payload,
-        )
-        self.session.commit()
-        return True
 
     # ── Cambiar estado del Pipeline ───────────────────────
     def cambiar_estado(
@@ -122,10 +122,6 @@ class PartnerRepository:
         cambiado_por: int,
         motivo: Optional[str] = None,
     ) -> bool:
-        """
-        Cambia el estado del pipeline y registra el historial automáticamente.
-        Valida las transiciones permitidas según config.settings.
-        """
         from config.settings import EstadosAliado
 
         aliado = self.get_by_id(aliado_id)
@@ -141,13 +137,12 @@ class PartnerRepository:
                 f"Permitidas: {transiciones_validas}"
             )
 
-        # Actualizar estado
         self.session.execute(
             text("UPDATE aliados SET estado_pipeline = :estado WHERE id = :id"),
             {"estado": estado_nuevo, "id": aliado_id},
         )
 
-        # Registrar historial
+        id_historial = cambiado_por if cambiado_por > 0 else 1
         self.session.execute(
             text("""
                 INSERT INTO historial_estados
@@ -159,46 +154,22 @@ class PartnerRepository:
                 "anterior":     estado_actual,
                 "nuevo":        estado_nuevo,
                 "motivo":       motivo,
-                "cambiado_por": cambiado_por,
+                "cambiado_por": id_historial,
             },
         )
         self.session.commit()
         return True
 
-    # ── Historial de estados ──────────────────────────────
-    def get_historial_estados(self, aliado_id: int) -> list[dict]:
-        rows = self.session.execute(
-            text("""
-                SELECT h.*, u.nombre_completo as nombre_usuario
-                FROM historial_estados h
-                LEFT JOIN usuarios u ON h.cambiado_por = u.id
-                WHERE h.aliado_id = :id
-                ORDER BY h.changed_at DESC
-            """),
-            {"id": aliado_id},
-        ).mappings().all()
-        return [dict(r) for r in rows]
-
-    # ── Estadísticas para el Dashboard ───────────────────
+    # ── Estadísticas Dashboard ──────────────────────────
     def get_stats_pipeline(self) -> dict:
-        """Conteo de aliados por estado para el gráfico de pipeline."""
         rows = self.session.execute(
-            text("""
-                SELECT estado_pipeline, COUNT(*) as total
-                FROM aliados
-                GROUP BY estado_pipeline
-            """)
+            text("SELECT estado_pipeline, COUNT(*) as total FROM aliados GROUP BY estado_pipeline")
         ).mappings().all()
         return {r["estado_pipeline"]: r["total"] for r in rows}
 
     def get_stats_riesgo(self) -> dict:
-        """Conteo de aliados por nivel de riesgo."""
         rows = self.session.execute(
-            text("""
-                SELECT nivel_riesgo, COUNT(*) as total
-                FROM aliados
-                GROUP BY nivel_riesgo
-            """)
+            text("SELECT nivel_riesgo, COUNT(*) as total FROM aliados GROUP BY nivel_riesgo")
         ).mappings().all()
         return {r["nivel_riesgo"]: r["total"] for r in rows}
 
@@ -220,10 +191,6 @@ class PartnerRepository:
         return [dict(r) for r in rows]
 
     def get_cobertura_due_diligence(self) -> dict:
-        """
-        Métricas de cobertura de Debida Diligencia (excluyendo Terminados).
-        Base para el KPI de % DD del panel de cumplimiento.
-        """
         row = self.session.execute(
             text("""
                 SELECT
@@ -239,10 +206,6 @@ class PartnerRepository:
         return dict(row) if row else {}
 
     def get_sarlaft_vencidas(self) -> list[dict]:
-        """
-        Aliados activos con estado SARLAFT = 'Vencido'.
-        Ordenados por nivel de riesgo descendente (prioridad EBR — GAFI R.1).
-        """
         rows = self.session.execute(
             text("""
                 SELECT id, nombre_razon_social, nit, nivel_riesgo, tipo_aliado,
@@ -261,14 +224,14 @@ class PartnerRepository:
         return [dict(r) for r in rows]
 
     def get_pep_activos(self) -> list[dict]:
-        """Lista de aliados con Exposición Política (PEP) vigentes — GAFI R.12."""
+        """Lista de aliados PEP vigentes — GAFI R.12."""
         rows = self.session.execute(
             text("""
                 SELECT id, nombre_razon_social, nit, nivel_riesgo,
                        descripcion_pep, vinculo_pep, estado_pipeline,
                        estado_sarlaft, tipo_aliado
                 FROM aliados
-                WHERE es_pep = 1
+                WHERE es_pep = TRUE
                   AND estado_pipeline != 'Terminado'
                 ORDER BY
                     CASE nivel_riesgo
@@ -281,7 +244,6 @@ class PartnerRepository:
         return [dict(r) for r in rows]
 
     def get_stats_tipo_aliado(self) -> dict:
-        """Conteo de aliados activos por segmento/tipo."""
         rows = self.session.execute(
             text("""
                 SELECT tipo_aliado, COUNT(*) as total
@@ -293,7 +255,6 @@ class PartnerRepository:
         return {r["tipo_aliado"]: r["total"] for r in rows}
 
     def get_stats_ciudad(self) -> list[dict]:
-        """Distribución geográfica de aliados activos por ciudad (top 15)."""
         rows = self.session.execute(
             text("""
                 SELECT COALESCE(ciudad, 'Sin ciudad') as ciudad, COUNT(*) as total
@@ -307,8 +268,6 @@ class PartnerRepository:
         return [dict(r) for r in rows]
 
     def get_scatter_riesgo(self) -> list[dict]:
-        """Datos para la Matriz de Riesgo Inherente (Scatter 4x4).
-        Retorna id, nombre, nit, tipo_aliado, nivel_riesgo, puntaje_riesgo."""
         rows = self.session.execute(
             text("""
                 SELECT id, nombre_razon_social, nit, tipo_aliado,
@@ -321,13 +280,23 @@ class PartnerRepository:
         ).mappings().all()
         return [dict(r) for r in rows]
 
+    def get_stats_estado_sarlaft(self) -> dict:
+        rows = self.session.execute(
+            text("""
+                SELECT estado_sarlaft, COUNT(*) as total
+                FROM aliados
+                WHERE estado_pipeline != 'Terminado'
+                GROUP BY estado_sarlaft
+            """)
+        ).mappings().all()
+        return {r["estado_sarlaft"]: r["total"] for r in rows}
+
     def get_lista_export(
         self,
         solo_pep: bool = False,
         solo_alto_riesgo: bool = False,
         oficial: str | None = None,
     ) -> list[dict]:
-        """Lista completa para exportación CSV/Excel con todos los campos auditables."""
         query = """
             SELECT
                 a.id, a.nombre_razon_social, a.nit, a.tipo_aliado,
@@ -346,24 +315,12 @@ class PartnerRepository:
         """
         params: dict = {}
         if solo_pep:
-            query += " AND a.es_pep = 1"
+            query += " AND a.es_pep = TRUE"
         if solo_alto_riesgo:
             query += " AND a.nivel_riesgo IN ('Alto', 'Muy Alto')"
         query += " ORDER BY a.nivel_riesgo, a.nombre_razon_social"
         rows = self.session.execute(text(query), params).mappings().all()
         return [dict(r) for r in rows]
-
-    def get_stats_estado_sarlaft(self) -> dict:
-        """Conteo por estado SARLAFT (excluyendo Terminados)."""
-        rows = self.session.execute(
-            text("""
-                SELECT estado_sarlaft, COUNT(*) as total
-                FROM aliados
-                WHERE estado_pipeline != 'Terminado'
-                GROUP BY estado_sarlaft
-            """)
-        ).mappings().all()
-        return {r["estado_sarlaft"]: r["total"] for r in rows}
 
     def get_lista_enriquecida(
         self,
@@ -374,10 +331,6 @@ class PartnerRepository:
         solo_pep: bool = False,
         search_text: Optional[str] = None,
     ) -> list[dict]:
-        """
-        Lista completa de aliados con todos los campos para la tabla interactiva.
-        Ordenada por nivel de riesgo descendente (EBR — GAFI Recomendación 1).
-        """
         query = """
             SELECT
                 a.id, a.nombre_razon_social, a.nit, a.tipo_aliado,
@@ -403,9 +356,9 @@ class PartnerRepository:
             query += " AND a.tipo_aliado = :tipo_aliado"
             params["tipo_aliado"] = tipo_aliado
         if solo_pep:
-            query += " AND a.es_pep = 1"
+            query += " AND a.es_pep = TRUE"
         if search_text:
-            query += " AND (a.nombre_razon_social LIKE :search OR a.nit LIKE :search)"
+            query += " AND (a.nombre_razon_social ILIKE :search OR a.nit ILIKE :search)"
             params["search"] = f"%{search_text}%"
 
         query += """

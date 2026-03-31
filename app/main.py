@@ -8,6 +8,9 @@ import streamlit as st
 from datetime import date, datetime
 import sys
 from pathlib import Path
+import os
+import db.repositories.partner_repo as pr
+print(f"📍 EL REPOSITORIO SE CARGA DESDE: {os.path.abspath(pr.__file__)}")
 
 # Asegurar que la raíz del proyecto esté en el path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -50,7 +53,7 @@ from config.settings import (
     APP_NAME, APP_ENV, EstadosAliado, TiposAliado, NivelesRiesgo,
     EstadosSARLAFT, Roles, SECRET_KEY_IS_DEFAULT
 )
-from db.database import get_session, health_check
+from db.database import get_session
 from db.repositories.partner_repo import PartnerRepository
 from db.repositories.audit_repo import AuditRepository
 
@@ -429,20 +432,23 @@ def _riesgo_color(nivel: str) -> str:
             "Alto": "#fb923c", "Muy Alto": "#ef4444"}.get(nivel, "#9ca3af")
 
 
+# ── Mapas de etiquetas con emojis (compartidos en toda la UI) ──
+_MAP_RIESGO  = {"Bajo": "🟢 Bajo", "Medio": "🟡 Medio", "Alto": "🔴 Alto", "Muy Alto": "🔴 Muy Alto"}
+_MAP_SARLAFT = {"Al Día": "✅ Al Día", "Pendiente": "⏳ Pendiente",
+                "En Revisión": "🔍 En Revisión", "Vencido": "❌ Vencido"}
+
+
 def _build_table_df(partners: list) -> tuple:
     """Enriquece lista de aliados con emojis para la tabla `st.dataframe`."""
     import pandas as pd
-    RIESGO   = {"Bajo": "🟢 Bajo", "Medio": "🟡 Medio", "Alto": "🔴 Alto", "Muy Alto": "🔴 Muy Alto"}
-    SARLAFT  = {"Al Día": "✅ Al Día", "Pendiente": "⏳ Pendiente",
-                "En Revisión": "🔍 En Revisión", "Vencido": "❌ Vencido"}
     PIPELINE = {"Prospecto": "🔵 Prospecto", "En Calificación": "🟡 En Calificación",
                 "Onboarding": "🟣 Onboarding", "Activo": "🟢 Activo",
                 "Suspendido": "🔴 Suspendido", "Terminado": "⚫ Terminado"}
     DD       = {"Pendiente": "⏳ Pendiente", "En Proceso": "🔄 En Proceso",
                 "Completado": "✅ Completado", "Rechazado": "❌ Rechazado"}
     df = pd.DataFrame(partners)
-    df["nivel_riesgo"]         = df["nivel_riesgo"].map(lambda x: RIESGO.get(x, x))
-    df["estado_sarlaft"]       = df["estado_sarlaft"].map(lambda x: SARLAFT.get(x, x))
+    df["nivel_riesgo"]         = df["nivel_riesgo"].map(lambda x: _MAP_RIESGO.get(x, x))
+    df["estado_sarlaft"]       = df["estado_sarlaft"].map(lambda x: _MAP_SARLAFT.get(x, x))
     df["estado_pipeline"]      = df["estado_pipeline"].map(lambda x: PIPELINE.get(x, x))
     df["estado_due_diligence"] = df["estado_due_diligence"].map(lambda x: DD.get(x, x))
     df["es_pep"]               = df["es_pep"].astype(bool)
@@ -789,7 +795,6 @@ def _tab_tendencias(repo, all_partners: list, stats_riesgo: dict, total: int) ->
 def _tab_reportes(repo, user: dict, session) -> None:
     """Tab 5: Centro de Reportes — descarga CSV / Excel con auditoría."""
     import io
-    import datetime
     import pandas as pd
 
     st.markdown("##### 📥 Centro de Reportes — Exportación con Auditoría")
@@ -830,7 +835,7 @@ def _tab_reportes(repo, user: dict, session) -> None:
     st.markdown("##### 📂 Descargar Reporte")
 
     bd1, bd2 = st.columns(2)
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     with bd1:
         if st.button("⬇️ Descargar CSV", type="primary", use_container_width=True):
@@ -840,7 +845,7 @@ def _tab_reportes(repo, user: dict, session) -> None:
             else:
                 df_exp = pd.DataFrame(data)
                 df_exp.insert(0, "timestamp_generacion",
-                              datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                              datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 df_exp.insert(1, "usuario_generador", user.get("username", ""))
                 csv_bytes = df_exp.to_csv(index=False).encode("utf-8-sig")
                 st.download_button(
@@ -885,14 +890,14 @@ def _tab_reportes(repo, user: dict, session) -> None:
             else:
                 df_exp = pd.DataFrame(data)
                 df_exp.insert(0, "timestamp_generacion",
-                              datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                              datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 df_exp.insert(1, "usuario_generador", user.get("username", ""))
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine="openpyxl") as writer:
                     df_exp.to_excel(writer, index=False, sheet_name="Partners")
                     # Hoja de auditoría
                     audit_df = pd.DataFrame([{
-                        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "generado_por": user.get("username", ""),
                         "filtros_aplicados": str({
                             "solo_pep": solo_pep,
@@ -1002,12 +1007,9 @@ def _tab_alertas(proximas: list, pep_list: list, sarlaft_vencidas: list) -> None
             "Debida Diligencia Intensificada requerida conforme GAFI R.12 "
             "y Capítulo VII del SARLAFT Colombia."
         )
-        RIESGO  = {"Bajo": "🟢 Bajo", "Medio": "🟡 Medio", "Alto": "🔴 Alto", "Muy Alto": "🔴 Muy Alto"}
-        SARLAFT = {"Al Día": "✅ Al Día", "Pendiente": "⏳ Pendiente",
-                   "En Revisión": "🔍 En Revisión", "Vencido": "❌ Vencido"}
         df_pep = pd.DataFrame(pep_list)
-        df_pep["nivel_riesgo"]  = df_pep["nivel_riesgo"].map(lambda x: RIESGO.get(x, x))
-        df_pep["estado_sarlaft"] = df_pep["estado_sarlaft"].map(lambda x: SARLAFT.get(x, x))
+        df_pep["nivel_riesgo"]  = df_pep["nivel_riesgo"].map(lambda x: _MAP_RIESGO.get(x, x))
+        df_pep["estado_sarlaft"] = df_pep["estado_sarlaft"].map(lambda x: _MAP_SARLAFT.get(x, x))
         cols_pep = [c for c in ["nombre_razon_social", "nit", "nivel_riesgo",
                                  "descripcion_pep", "vinculo_pep",
                                  "estado_sarlaft", "estado_pipeline"]

@@ -126,6 +126,7 @@ class AliadoBase(BaseModel):
     observaciones_compliance: Optional[str] = None
     motivo_suspension:        Optional[str] = None
 
+
     # ── Validadores de enumerados ─────────────────────────────
     @field_validator("tipo_aliado")
     @classmethod
