@@ -68,14 +68,13 @@ def _kpi(label: str, value: object, delta: str = "", color: str = _C_CYAN) -> No
     )
 
 
-def _empresa_card(icono: str, nombre: str, datos: dict, color: str) -> None:
+def _empresa_card(nombre: str, datos: dict, color: str) -> None:
     activos   = datos.get("activos", 0)
     inactivos = datos.get("inactivos", 0)
     sin_rel   = datos.get("sin_relacion", 0)
     pct       = datos.get("pct_activos", 0.0)
     total_rel = activos + inactivos
 
-    # Badge de salud
     if pct >= 70:
         badge_color, badge_label = _C_CYAN, "Saludable"
     elif pct >= 40:
@@ -84,59 +83,34 @@ def _empresa_card(icono: str, nombre: str, datos: dict, color: str) -> None:
         badge_color, badge_label = _C_RED, "Critico"
 
     st.markdown(
-        f"""
-        <div style='background:{_C_BG};border-radius:12px;padding:20px;
-                    border:1px solid {_C_BORDER};border-top:3px solid {color};
-                    height:100%;position:relative;'>
-
-            <!-- Badge salud (esquina superior derecha) -->
-            <div style='position:absolute;top:14px;right:14px;
-                        background:{badge_color}22;color:{badge_color};
-                        font-size:0.68rem;font-weight:700;padding:3px 10px;
-                        border-radius:20px;border:1px solid {badge_color}44;'>
-                {pct}% &middot; {badge_label}
-            </div>
-
-            <!-- Icono + Nombre -->
-            <div style='display:flex;align-items:center;gap:10px;margin-bottom:16px;'>
-                <span style='font-size:1.5rem;'>{icono}</span>
-                <span style='color:{color};font-weight:700;font-size:0.95rem;
-                             text-transform:uppercase;letter-spacing:1px;'>{nombre}</span>
-            </div>
-
-            <!-- Contadores -->
-            <div style='display:flex;gap:24px;margin-bottom:14px;'>
-                <div>
-                    <div style='color:{_C_CYAN};font-size:2rem;font-weight:800;
-                                line-height:1;'>{activos}</div>
-                    <div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>
-                        ACTIVOS</div>
-                </div>
-                <div>
-                    <div style='color:{_C_RED};font-size:2rem;font-weight:800;
-                                line-height:1;'>{inactivos}</div>
-                    <div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>
-                        INACTIVOS</div>
-                </div>
-                <div>
-                    <div style='color:#4b5563;font-size:2rem;font-weight:800;
-                                line-height:1;'>{sin_rel}</div>
-                    <div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>
-                        SIN RELACION</div>
-                </div>
-            </div>
-
-            <!-- Barra de progreso -->
-            <div style='background:{_C_BG2};border-radius:6px;height:6px;
-                        overflow:hidden;'>
-                <div style='width:{pct}%;height:100%;background:{color};
-                            border-radius:6px;'></div>
-            </div>
-            <div style='color:#4b5563;font-size:0.7rem;margin-top:5px;'>
-                {total_rel} partner(s) con relacion activa o inactiva
-            </div>
-        </div>
-        """,
+        f"<div style='background:{_C_BG};border-radius:12px;padding:20px;"
+        f"border:1px solid {_C_BORDER};border-top:3px solid {color};'>"
+        f"<div style='display:flex;justify-content:space-between;"
+        f"align-items:flex-start;margin-bottom:16px;'>"
+        f"<span style='color:{color};font-weight:700;font-size:0.95rem;"
+        f"text-transform:uppercase;letter-spacing:1px;'>{nombre}</span>"
+        f"<span style='background:{badge_color}22;color:{badge_color};"
+        f"font-size:0.68rem;font-weight:700;padding:3px 10px;"
+        f"border-radius:20px;border:1px solid {badge_color}44;"
+        f"white-space:nowrap;'>{pct}% &middot; {badge_label}</span>"
+        f"</div>"
+        f"<div style='display:flex;gap:24px;margin-bottom:14px;'>"
+        f"<div><div style='color:{_C_CYAN};font-size:2rem;font-weight:800;"
+        f"line-height:1;'>{activos}</div>"
+        f"<div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>ACTIVOS</div></div>"
+        f"<div><div style='color:{_C_RED};font-size:2rem;font-weight:800;"
+        f"line-height:1;'>{inactivos}</div>"
+        f"<div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>INACTIVOS</div></div>"
+        f"<div><div style='color:#4b5563;font-size:2rem;font-weight:800;"
+        f"line-height:1;'>{sin_rel}</div>"
+        f"<div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>SIN RELACION</div></div>"
+        f"</div>"
+        f"<div style='background:{_C_BG2};border-radius:6px;height:6px;overflow:hidden;'>"
+        f"<div style='width:{pct}%;height:100%;background:{color};border-radius:6px;'></div>"
+        f"</div>"
+        f"<div style='color:#4b5563;font-size:0.7rem;margin-top:5px;'>"
+        f"{total_rel} partner(s) con relacion activa o inactiva</div>"
+        f"</div>",
         unsafe_allow_html=True,
     )
 
@@ -245,11 +219,11 @@ def page_dashboard(user: dict) -> None:
     _section("Salud de Relacion Corporativa")
     eg1, eg2, eg3 = st.columns(3)
     with eg1:
-        _empresa_card("o", "HoldingsBPO", salud_grupo.get("hbpocorp", {}), _C_CYAN)
+        _empresa_card("HoldingsBPO", salud_grupo.get("hbpocorp", {}), _C_CYAN)
     with eg2:
-        _empresa_card("o", "Adamo",       salud_grupo.get("adamo",    {}), _C_VIOLET)
+        _empresa_card("Adamo",       salud_grupo.get("adamo",    {}), _C_VIOLET)
     with eg3:
-        _empresa_card("o", "Paycop",      salud_grupo.get("paycop",   {}), _C_AMBER)
+        _empresa_card("Paycop",      salud_grupo.get("paycop",   {}), _C_AMBER)
 
     _spacer()
 
