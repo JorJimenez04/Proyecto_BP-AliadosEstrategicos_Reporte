@@ -410,3 +410,13 @@ class PartnerRepository:
             """)
         ).mappings().all()
         return [dict(r) for r in rows]
+
+    # ── Eliminar ──────────────────────────────────────────
+    def delete(self, aliado_id: int) -> bool:
+        """Elimina permanentemente un aliado por su ID."""
+        self.session.execute(
+            text("DELETE FROM aliados WHERE id = :id"),
+            {"id": aliado_id},
+        )
+        self.session.commit()
+        return True
