@@ -68,7 +68,7 @@ def _kpi(label: str, value: object, delta: str = "", color: str = _C_CYAN) -> No
     )
 
 
-def _empresa_card(nombre: str, datos: dict, color: str) -> None:
+def _empresa_card(nombre: str, datos: dict, color: str, partners: list) -> None:
     activos   = datos.get("activos", 0)
     inactivos = datos.get("inactivos", 0)
     sin_rel   = datos.get("sin_relacion", 0)
@@ -82,11 +82,12 @@ def _empresa_card(nombre: str, datos: dict, color: str) -> None:
     else:
         badge_color, badge_label = _C_RED, "Critico"
 
+    # Cabecera: nombre + badge
     st.markdown(
         f"<div style='background:{_C_BG};border-radius:12px;padding:20px;"
         f"border:1px solid {_C_BORDER};border-top:3px solid {color};'>"
         f"<div style='display:flex;justify-content:space-between;"
-        f"align-items:flex-start;margin-bottom:16px;'>"
+        f"align-items:flex-start;margin-bottom:14px;'>"
         f"<span style='color:{color};font-weight:700;font-size:0.95rem;"
         f"text-transform:uppercase;letter-spacing:1px;'>{nombre}</span>"
         f"<span style='background:{badge_color}22;color:{badge_color};"
@@ -94,25 +95,59 @@ def _empresa_card(nombre: str, datos: dict, color: str) -> None:
         f"border-radius:20px;border:1px solid {badge_color}44;"
         f"white-space:nowrap;'>{pct}% &middot; {badge_label}</span>"
         f"</div>"
-        f"<div style='display:flex;gap:24px;margin-bottom:14px;'>"
-        f"<div><div style='color:{_C_CYAN};font-size:2rem;font-weight:800;"
+        # contadores
+        f"<div style='display:flex;gap:20px;margin-bottom:14px;'>"
+        f"<div><div style='color:{_C_CYAN};font-size:1.8rem;font-weight:800;"
         f"line-height:1;'>{activos}</div>"
-        f"<div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>ACTIVOS</div></div>"
-        f"<div><div style='color:{_C_RED};font-size:2rem;font-weight:800;"
+        f"<div style='color:{_C_GRAY};font-size:0.65rem;margin-top:2px;'>ACTIVOS</div></div>"
+        f"<div><div style='color:{_C_RED};font-size:1.8rem;font-weight:800;"
         f"line-height:1;'>{inactivos}</div>"
-        f"<div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>INACTIVOS</div></div>"
-        f"<div><div style='color:#4b5563;font-size:2rem;font-weight:800;"
+        f"<div style='color:{_C_GRAY};font-size:0.65rem;margin-top:2px;'>INACTIVOS</div></div>"
+        f"<div><div style='color:#4b5563;font-size:1.8rem;font-weight:800;"
         f"line-height:1;'>{sin_rel}</div>"
-        f"<div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>SIN RELACION</div></div>"
+        f"<div style='color:{_C_GRAY};font-size:0.65rem;margin-top:2px;'>SIN REL.</div></div>"
         f"</div>"
-        f"<div style='background:{_C_BG2};border-radius:6px;height:6px;overflow:hidden;'>"
+        # barra progreso
+        f"<div style='background:{_C_BG2};border-radius:6px;height:5px;overflow:hidden;margin-bottom:14px;'>"
         f"<div style='width:{pct}%;height:100%;background:{color};border-radius:6px;'></div>"
         f"</div>"
-        f"<div style='color:#4b5563;font-size:0.7rem;margin-top:5px;'>"
-        f"{total_rel} partner(s) con relacion activa o inactiva</div>"
+        # separador lista partners
+        f"<div style='color:{_C_GRAY};font-size:0.68rem;font-weight:600;"
+        f"text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px;'>"
+        f"Banking Partners con relacion</div>"
         f"</div>",
         unsafe_allow_html=True,
     )
+
+    # Lista de partners (fuera del bloque HTML para evitar truncamiento)
+    if not partners:
+        st.markdown(
+            f"<div style='padding:8px 0;color:#4b5563;font-size:0.8rem;"
+            f"font-style:italic;'>Sin partners vinculados</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        for p in partners:
+            estado  = p.get("estado", "")
+            nivel   = p.get("nivel_riesgo", "Medio")
+            e_color = _C_CYAN if estado == "Activo" else _C_RED
+            r_color = _COLORES_RIESGO.get(nivel, _C_GRAY)
+            st.markdown(
+                f"<div style='display:flex;justify-content:space-between;"
+                f"align-items:center;padding:5px 0;"
+                f"border-bottom:1px solid {_C_BORDER};'>"
+                f"<span style='color:#e5e7eb;font-size:0.8rem;'>"
+                f"{p['nombre_razon_social']}</span>"
+                f"<div style='display:flex;gap:6px;align-items:center;'>"
+                f"<span style='background:{r_color}18;color:{r_color};"
+                f"font-size:0.62rem;font-weight:700;padding:1px 6px;"
+                f"border-radius:10px;'>{nivel}</span>"
+                f"<span style='background:{e_color}18;color:{e_color};"
+                f"font-size:0.68rem;font-weight:700;padding:2px 8px;"
+                f"border-radius:12px;border:1px solid {e_color}33;'>{estado}</span>"
+                f"</div></div>",
+                unsafe_allow_html=True,
+            )
 
 
 def _termometro_row(label: str, valor: int, total: int, color: str) -> None:
@@ -180,6 +215,9 @@ def page_dashboard(user: dict) -> None:
             stats_cap       = repo.get_stats_capacidades()
             termometro      = repo.get_termometro_sarlaft()
             volumenes       = repo.get_resumen_volumen()
+            partners_hbpo   = repo.get_partners_por_empresa("hbpocorp")
+            partners_adamo  = repo.get_partners_por_empresa("adamo")
+            partners_paycop = repo.get_partners_por_empresa("paycop")
 
     except Exception as exc:
         st.error(f"Error al cargar el Dashboard: {exc}")
@@ -219,11 +257,11 @@ def page_dashboard(user: dict) -> None:
     _section("Salud de Relacion Corporativa")
     eg1, eg2, eg3 = st.columns(3)
     with eg1:
-        _empresa_card("HoldingsBPO", salud_grupo.get("hbpocorp", {}), _C_CYAN)
+        _empresa_card("HoldingsBPO", salud_grupo.get("hbpocorp", {}), _C_CYAN,   partners_hbpo)
     with eg2:
-        _empresa_card("Adamo",       salud_grupo.get("adamo",    {}), _C_VIOLET)
+        _empresa_card("Adamo",       salud_grupo.get("adamo",    {}), _C_VIOLET, partners_adamo)
     with eg3:
-        _empresa_card("Paycop",      salud_grupo.get("paycop",   {}), _C_AMBER)
+        _empresa_card("Paycop",      salud_grupo.get("paycop",   {}), _C_AMBER,  partners_paycop)
 
     _spacer()
 

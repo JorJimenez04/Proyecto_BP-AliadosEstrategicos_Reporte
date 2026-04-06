@@ -380,3 +380,33 @@ class PartnerRepository:
             ORDER BY nombre_razon_social ASC
         """)).mappings().all()
         return [dict(r) for r in rows]
+
+    def get_partners_por_empresa(self, empresa: str) -> list[dict]:
+        """
+        Retorna los partners que tienen relación (Activo o Inactivo)
+        con la empresa del grupo indicada.
+
+        Parámetros:
+            empresa: 'hbpocorp' | 'adamo' | 'paycop'
+
+        Retorna lista de dicts con:
+            nombre_razon_social, estado (Activo/Inactivo), nivel_riesgo
+        """
+        col = f"estado_{empresa}"
+        rows = self.session.execute(
+            text(f"""
+                SELECT nombre_razon_social,
+                       {col} AS estado,
+                       nivel_riesgo
+                FROM aliados
+                WHERE {col} IN ('Activo', 'Inactivo')
+                ORDER BY
+                    CASE {col}
+                        WHEN 'Activo'   THEN 1
+                        WHEN 'Inactivo' THEN 2
+                        ELSE 3
+                    END,
+                    nombre_razon_social ASC
+            """)
+        ).mappings().all()
+        return [dict(r) for r in rows]
