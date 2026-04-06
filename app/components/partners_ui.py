@@ -74,7 +74,7 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    with get_session() as session:
+    with next(get_session()) as session:
         repo = PartnerRepository(session)
         aliado = repo.get_by_id(aliado_id)
 
@@ -256,7 +256,7 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 fecha_fin_relacion=fecha_fin if fecha_fin else None,
                 actualizado_por=user.get("id"),
             )
-            with get_session() as session:
+            with next(get_session()) as session:
                 repo = PartnerRepository(session)
                 audit = AuditRepository(session)
                 repo.update(aliado_id, cambios)
@@ -291,7 +291,7 @@ def _panel_eliminar(aliado_id: int, user: dict) -> None:
     from db.repositories.partner_repo import PartnerRepository
     from db.repositories.audit_repo import AuditRepository
 
-    with get_session() as session:
+    with next(get_session()) as session:
         repo = PartnerRepository(session)
         aliado = repo.get_by_id(aliado_id)
 
@@ -320,7 +320,7 @@ def _panel_eliminar(aliado_id: int, user: dict) -> None:
     col_conf, col_can, _ = st.columns([1, 1, 4])
     with col_conf:
         if st.button("🗑️ Confirmar eliminación", key=f"del_confirm_{aliado_id}", type="primary"):
-            with get_session() as session:
+            with next(get_session()) as session:
                 repo = PartnerRepository(session)
                 audit = AuditRepository(session)
                 repo.delete(aliado_id)
@@ -403,7 +403,7 @@ def page_partners(user: dict) -> None:
             f_pep = st.selectbox("PEP", ["Todos", "Solo PEP", "Sin PEP"], key="f_pep")
 
     # ── Carga de datos ────────────────────────────────────────────────────────
-    with get_session() as session:
+    with next(get_session()) as session:
         repo = PartnerRepository(session)
         filas = repo.get_lista_enriquecida()
 
