@@ -206,16 +206,6 @@ class PartnerRepository:
         return [dict(r) for r in rows]
 
     # ── Métricas para Dashboard ───────────────────────────
-    def get_stats_relacion_grupo(self) -> dict:
-        """Calcula estadísticas rápidas por empresa del grupo."""
-        stats = {}
-        for empresa in ['hbpocorp', 'adamo', 'paycop']:
-            rows = self.session.execute(
-                text(f"SELECT estado_{empresa}, COUNT(*) as total FROM aliados GROUP BY estado_{empresa}")
-            ).mappings().all()
-            stats[empresa] = {r[f"estado_{empresa}"]: r["total"] for r in rows}
-        return stats
-
     def get_stats_pipeline(self) -> dict:
         rows = self.session.execute(
             text("SELECT estado_pipeline, COUNT(*) as total FROM aliados GROUP BY estado_pipeline")
@@ -311,3 +301,82 @@ class PartnerRepository:
                 "pct_activos":  round(activos / total_rel * 100, 1) if total_rel else 0.0,
             }
         return resultado
+
+    # ── Monitor de Riesgo Operativo ───────────────────────
+    def get_stats_capacidades(self) -> dict:
+        """
+        Concentración de partners con capacidades de alto riesgo.
+
+        Retorna:
+        {
+          "total": N,
+          "crypto_friendly": N,
+          "adult_friendly": N,
+          "ambos": N,          -- crypto Y adult
+          "ninguno": N,
+        }
+        """
+        row = self.session.execute(text("""
+            SELECT
+                COUNT(*)                                          AS total,
+                COUNT(*) FILTER (WHERE crypto_friendly = TRUE)    AS crypto_friendly,
+                COUNT(*) FILTER (WHERE adult_friendly  = TRUE)    AS adult_friendly,
+                COUNT(*) FILTER (WHERE crypto_friendly = TRUE
+                                   AND adult_friendly  = TRUE)    AS ambos,
+                COUNT(*) FILTER (WHERE crypto_friendly = FALSE
+                                   AND adult_friendly  = FALSE)   AS ninguno
+            FROM aliados
+        """)).mappings().first()
+        return {k: int(v or 0) for k, v in dict(row).items()}
+
+    def get_termometro_sarlaft(self) -> dict:
+        """
+        Clasifica el portafolio en 3 categorías para el Termómetro SARLAFT.
+
+        Retorna:
+        {
+          "vencidos":  N,   -- estado_sarlaft = 'Vencido' o fecha pasada
+          "proximos":  N,   -- próxima revisión en los próximos 15 días
+          "al_dia":    N,   -- resto (Al Día o En Revisión con fecha futura)
+          "sin_fecha": N,   -- sin fecha programada
+        }
+        """
+        row = self.session.execute(text("""
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE estado_sarlaft = 'Vencido'
+                       OR (fecha_proxima_revision IS NOT NULL
+                           AND fecha_proxima_revision < CURRENT_DATE)
+                ) AS vencidos,
+                COUNT(*) FILTER (
+                    WHERE estado_sarlaft != 'Vencido'
+                      AND fecha_proxima_revision BETWEEN CURRENT_DATE
+                          AND (CURRENT_DATE + INTERVAL '15 days')
+                ) AS proximos,
+                COUNT(*) FILTER (
+                    WHERE estado_sarlaft IN ('Al Día', 'En Revisión')
+                      AND (fecha_proxima_revision IS NULL
+                           OR fecha_proxima_revision > CURRENT_DATE + INTERVAL '15 days')
+                ) AS al_dia,
+                COUNT(*) FILTER (
+                    WHERE fecha_proxima_revision IS NULL
+                      AND estado_sarlaft NOT IN ('Vencido', 'Al Día', 'En Revisión')
+                ) AS sin_fecha
+            FROM aliados
+        """)).mappings().first()
+        return {k: int(v or 0) for k, v in dict(row).items()}
+
+    def get_resumen_volumen(self) -> list[dict]:
+        """
+        Extrae los partners con volumen_real_mensual definido para análisis
+        de concentración. Retorna lista ordenada por nombre.
+        """
+        rows = self.session.execute(text("""
+            SELECT nombre_razon_social, volumen_real_mensual, nivel_riesgo,
+                   estado_pipeline
+            FROM aliados
+            WHERE volumen_real_mensual IS NOT NULL
+              AND volumen_real_mensual != ''
+            ORDER BY nombre_razon_social ASC
+        """)).mappings().all()
+        return [dict(r) for r in rows]

@@ -225,9 +225,7 @@ class AliadoBase(BaseModel):
 
         if self.crypto_friendly and self.adult_friendly:
             nivel_minimo = "Muy Alto"
-        elif self.crypto_friendly:
-            nivel_minimo = "Alto"
-        elif self.adult_friendly:
+        elif self.crypto_friendly or self.adult_friendly:
             nivel_minimo = "Alto"
 
         if _escala.index(nivel_minimo) > _escala.index(nivel_actual):
