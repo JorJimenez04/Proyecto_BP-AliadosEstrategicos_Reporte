@@ -191,6 +191,14 @@ class AliadoBase(BaseModel):
             raise ValueError(f"estado_due_diligence inválido. Opciones: {sorted(validos)}")
         return v
 
+    @field_validator("estado_hbpocorp", "estado_adamo", "estado_paycop")
+    @classmethod
+    def _check_estado_empresa(cls, v: str) -> str:
+        validos = {"Activo", "Inactivo", "Sin relación"}
+        if v not in validos:
+            raise ValueError(f"Estado de empresa inválido. Opciones: {sorted(validos)}")
+        return v
+
     # ── Validación cruzada de fechas ──────────────────────────
     @model_validator(mode="after")
     def _check_fechas_revision(self) -> "AliadoBase":
@@ -200,6 +208,31 @@ class AliadoBase(BaseModel):
             raise ValueError(
                 "fecha_proxima_revision no puede ser anterior a fecha_ultima_revision."
             )
+        return self
+
+    # ── Escalado preventivo de riesgo por capacidades operativas ─
+    @model_validator(mode="after")
+    def _escalar_riesgo_operativo(self) -> "AliadoBase":
+        """
+        Sube preventivamente el nivel_riesgo si el perfil operativo
+        del partner incluye actividades de alto riesgo regulatorio
+        (crypto / adult content), conforme criterios SARLAFT GAFI.
+        El puntaje_riesgo nunca baja al usuario; solo escala hacia arriba.
+        """
+        _escala = ["Bajo", "Medio", "Alto", "Muy Alto"]
+        nivel_actual = self.nivel_riesgo
+        nivel_minimo = nivel_actual  # por defecto no cambia
+
+        if self.crypto_friendly and self.adult_friendly:
+            nivel_minimo = "Muy Alto"
+        elif self.crypto_friendly:
+            nivel_minimo = "Alto"
+        elif self.adult_friendly:
+            nivel_minimo = "Alto"
+
+        if _escala.index(nivel_minimo) > _escala.index(nivel_actual):
+            self.nivel_riesgo = nivel_minimo
+
         return self
 
 

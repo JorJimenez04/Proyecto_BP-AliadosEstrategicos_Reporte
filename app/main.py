@@ -9,9 +9,8 @@ from datetime import date, datetime
 import sys
 from pathlib import Path
 import os
-import db.repositories.partner_repo as pr
 
-# Asegurar que la raíz del proyecto esté en el path
+# Asegurar que la raíz del proyecto esté en el path ANTES de cualquier import local
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.settings import (
