@@ -98,11 +98,15 @@ def init_database() -> None:
     END $$;
     """
 
+    migration_003 = BASE_DIR / "db" / "migrations" / "003_fix_constraints_and_corporate_metrics.sql"
+
     raw_conn = engine.raw_connection()
     try:
         with raw_conn.cursor() as cur:
             cur.execute(sql_script)
             cur.execute(sql_migration_002)
+            if migration_003.exists():
+                cur.execute(migration_003.read_text(encoding="utf-8"))
         raw_conn.commit()
     finally:
         raw_conn.close()
