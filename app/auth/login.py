@@ -10,6 +10,7 @@ Flujo:
 """
 
 import os
+import base64
 import time
 from pathlib import Path
 import streamlit as st
@@ -202,94 +203,219 @@ def login_screen() -> None:
     # ── CSS de la pantalla de login ───────────────────────────
     st.markdown("""
     <style>
-    /* Fondo controlado por config.toml → no override aquí */
-    [data-testid="stHeader"] { background: transparent !important; border: none !important; }
+    /* ── Globals ──────────────────────────────────────────── */
+    [data-testid="stHeader"]  { background: transparent !important; border: none !important; }
     [data-testid="stToolbar"] { display: none !important; }
+    [data-testid="stAppViewContainer"] > .main { background: #0F1B2D !important; }
+    [data-testid="stAppViewBlockContainer"] { padding-top: 2rem !important; }
 
-    /* ── Cabecera de logos (columnas nativas) ──────────────── */
-    .login-header-center {
-        text-align: center;
-        padding: 10px 0;
+    /* ── Fondo: degradado + malla de datos (dot grid) ─────── */
+    [data-testid="stAppViewContainer"]::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-color: #0F1B2D;
+        background-image:
+            radial-gradient(ellipse 70% 55% at 15% 25%, rgba(95,233,208,0.07) 0%, transparent 65%),
+            radial-gradient(ellipse 60% 50% at 85% 75%, rgba(95,233,208,0.05) 0%, transparent 60%),
+            radial-gradient(circle, #1E293B 1px, transparent 1px);
+        background-size: auto, auto, 28px 28px;
+        pointer-events: none;
+        z-index: 0;
     }
-    .login-header-center .app-title {
-        font-size: 1.1rem;
-        font-weight: 700;
+
+    /* ── Barra de logos ───────────────────────────────────── */
+    .login-logos-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 20px 0 18px;
+        background: transparent;
+        margin-bottom: 0;
+    }
+    .login-logos-bar .logo-slot {
+        display: flex;
+        align-items: center;
+        border-radius: 14px;
+        padding: 14px 24px;
+    }
+    .login-logos-bar .logo-slot:first-child { justify-content: flex-start; }
+    .login-logos-bar .logo-slot:last-child  { justify-content: flex-end; }
+
+    /* Logo Adamo — invertido a blanco sobre fondo oscuro */
+    .logo-slot:first-child {
+        background: transparent;
+        box-shadow: none;
+    }
+    .header-logo-adamo {
+        max-height: 120px;
+        max-width: 300px;
+        object-fit: contain;
+        filter: brightness(0) invert(1) drop-shadow(0 0 10px rgba(255,255,255,0.15));
+        transition: opacity 0.25s, transform 0.25s;
+    }
+    .header-logo-adamo:hover { opacity: 0.85; transform: scale(1.03); }
+
+    /* Logo Holdings BPO — colores originales, sin card */
+    .logo-slot:last-child {
+        background: transparent;
+        box-shadow: none;
+    }
+    .header-logo-holdings {
+        max-height: 120px;
+        max-width: 300px;
+        object-fit: contain;
+        filter: brightness(0) invert(1) drop-shadow(0 0 10px rgba(255,255,255,0.15));
+        transition: opacity 0.25s, transform 0.25s;
+    }
+    .header-logo-holdings:hover { opacity: 0.85; transform: scale(1.03); }
+
+    /* ── Barra de título ──────────────────────────────────── */
+    .login-title-bar {
+        text-align: center;
+        padding: 18px 0 10px;
+        margin-bottom: 4px;
+    }
+    .login-title-bar .app-title {
+        font-size: 1.15rem;
+        font-weight: 800;
         letter-spacing: 2px;
         text-transform: uppercase;
-        color: #e2e8f0;
+        color: #FFFFFF;
+        -webkit-text-fill-color: #FFFFFF;
     }
-    .login-header-center .app-subtitle {
+    .login-title-bar .app-subtitle {
         font-size: 0.72rem;
-        color: #94a3b8;
-        letter-spacing: 1px;
-        margin-top: 4px;
+        color: #9CA3AF;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin-top: 6px;
     }
 
-    /* ── Tarjeta del formulario (sobre el elemento form real) ─ */
+    /* ── Tarjeta contenedor (mate, sin blur) ──────────────── */
     [data-testid="stForm"] {
-        background: #ffffff;
-        border-radius: 16px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 8px 40px rgba(100,120,160,0.14);
-        padding: 32px 28px 24px;
+        background: #111827 !important;
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        border-radius: 8px !important;
+        border: 1px solid #293056 !important;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.5) !important;
+        padding: 36px 32px 28px !important;
     }
+
+    /* ── Título dentro del card ───────────────────────────── */
     .login-card-title {
         text-align: center;
-        font-size: 1.4rem;
+        font-size: 1.35rem;
         font-weight: 700;
-        color: #1e293b;
+        color: #FFFFFF;
         margin-bottom: 4px;
+        letter-spacing: 0.5px;
     }
     .login-card-subtitle {
         text-align: center;
-        font-size: 0.8rem;
-        color: #64748b;
-        margin-bottom: 20px;
-        letter-spacing: 0.3px;
+        font-size: 0.75rem;
+        color: #9CA3AF;
+        margin-bottom: 24px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
     }
 
-    /* ── Inputs y botón ───────────────────────────────────── */
-    .stTextInput > label { color: #374151 !important; font-weight: 600 !important;
-                           font-size: 0.85rem !important; }
-    .stTextInput input {
-        background: #f8fafc !important;
-        border: 1.5px solid #cbd5e1 !important;
-        border-radius: 8px !important;
-        color: #1e293b !important;
-        padding: 10px 14px !important;
+    /* ── Labels de inputs ─────────────────────────────────── */
+    .stTextInput > label {
+        color: #9CA3AF !important;
+        font-weight: 600 !important;
+        font-size: 0.78rem !important;
+        letter-spacing: 0.8px !important;
+        text-transform: uppercase !important;
     }
+
+    /* ── Inputs: fondo oscuro, solo borde inferior activo ─── */
+    .stTextInput input {
+        background: #0F1B2D !important;
+        border: none !important;
+        border-bottom: 1.5px solid #293056 !important;
+        border-radius: 4px 4px 0 0 !important;
+        color: #E2E8F0 !important;
+        padding: 11px 14px !important;
+        font-size: 0.92rem !important;
+        transition: border-color 0.2s, box-shadow 0.2s !important;
+        box-shadow: none !important;
+    }
+    .stTextInput input::placeholder { color: #4B5563 !important; }
     .stTextInput input:focus {
-        border-color: #5fe9d0 !important;
-        box-shadow: 0 0 0 3px rgba(95,233,208,0.18) !important;
+        border-bottom-color: #5FE9D0 !important;
+        box-shadow: 0 2px 0 0 rgba(95,233,208,0.45) !important;
         outline: none !important;
     }
-    /* Botón primario */
-    .stFormSubmitButton button[kind="primaryFormSubmit"],
-    .stFormSubmitButton button {
-        background: linear-gradient(135deg, #5fe9d0 0%, #7839ee 100%) !important;
-        color: #0f172a !important;
-        font-weight: 700 !important;
+
+    /* ── Ícono de ojo (toggle password) ───────────────────── */
+    [data-testid="stTextInputRootElement"] button {
+        color: #5FE9D0 !important;
+        background: transparent !important;
         border: none !important;
-        border-radius: 9px !important;
-        padding: 12px !important;
+        opacity: 0.7;
+        transition: opacity 0.2s !important;
+    }
+    [data-testid="stTextInputRootElement"] button:hover { opacity: 1 !important; }
+
+    /* ── Botón Ingresar: cyan sólido, hover blanco brillante  */
+    .stFormSubmitButton > button {
+        background: #5FE9D0 !important;
+        color: #000000 !important;
+        font-weight: 800 !important;
+        border: none !important;
+        border-radius: 6px !important;
+        padding: 13px !important;
         font-size: 0.95rem !important;
-        letter-spacing: 0.5px !important;
-        box-shadow: 0 4px 14px rgba(95,233,208,0.35) !important;
-        transition: transform 0.15s, box-shadow 0.15s !important;
+        letter-spacing: 1.5px !important;
+        text-transform: uppercase !important;
+        box-shadow: none !important;
+        transition: background 0.18s, box-shadow 0.18s, transform 0.18s !important;
+        width: 100% !important;
     }
-    .stFormSubmitButton button:hover {
+    .stFormSubmitButton > button:hover {
+        background: #FFFFFF !important;
+        color: #000000 !important;
         transform: translateY(-1px) !important;
-        box-shadow: 0 6px 20px rgba(95,233,208,0.45) !important;
+        box-shadow: 0 0 18px rgba(95,233,208,0.55), 0 4px 12px rgba(0,0,0,0.3) !important;
     }
-    /* Alertas */
-    [data-testid="stAlert"] { border-radius: 10px !important; }
-    p, span { color: #1e293b !important; }
-    /* Footer */
+    .stFormSubmitButton > button:active {
+        transform: translateY(0px) !important;
+    }
+
+    /* ── Alertas ──────────────────────────────────────────── */
+    [data-testid="stAlert"] {
+        border-radius: 6px !important;
+        border-left-width: 4px !important;
+    }
+
+    /* ── Separador ────────────────────────────────────────── */
+    .login-divider {
+        border: none;
+        border-top: 1px solid #1E293B;
+        margin: 6px 0 24px;
+    }
+
+    /* ── Footer ───────────────────────────────────────────── */
     .login-footer {
         text-align: center;
-        font-size: 0.72rem;
-        color: #94a3b8;
+        font-size: 0.68rem;
+        color: #4B5563;
         margin-top: 28px;
+        letter-spacing: 0.5px;
+    }
+    .login-footer span {
+        color: #5FE9D0 !important;
+        -webkit-text-fill-color: #5FE9D0 !important;
+    }
+
+    /* ── Responsivo ───────────────────────────────────────── */
+    @media (max-width: 640px) {
+        [data-testid="stForm"] { padding: 24px 18px 20px !important; }
+        .login-title-bar .app-title { font-size: 0.95rem; letter-spacing: 2px; }
+        .header-logo { max-height: 80px; max-width: 200px; }
+        .login-logos-bar .logo-slot { padding: 10px 14px; }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -297,23 +423,37 @@ def login_screen() -> None:
     # ── Cabecera con logos ────────────────────────────────────
     logo1, logo2 = _get_logos()
 
-    col_l, col_c, col_r = st.columns([1.5, 2, 1.5])
-    with col_l:
-        if logo1:
-            st.image(logo1, width=180)
-    with col_c:
-        st.markdown("""
-        <div class="login-header-center">
-            <div class="app-title">Partner Manager</div>
-            <div class="app-subtitle">Compliance &amp; Technology</div>
-        </div>
-        """, unsafe_allow_html=True)
-    with col_r:
-        if logo2:
-            st.image(logo2, width=180)
+    def _b64_img(data: bytes | None) -> str:
+        if not data:
+            return ""
+        if data[:4] == b'\x89PNG':
+            mime = "image/png"
+        elif data[:2] == b'\xff\xd8':
+            mime = "image/jpeg"
+        elif b'<svg' in data[:200]:
+            mime = "image/svg+xml"
+        else:
+            mime = "image/png"
+        return f"data:{mime};base64,{base64.b64encode(data).decode()}"
+
+    src1 = _b64_img(logo1)
+    src2 = _b64_img(logo2)
+    logo1_tag = f'<img src="{src1}" class="header-logo header-logo-adamo" alt="Adamo">' if src1 else ""
+    logo2_tag = f'<img src="{src2}" class="header-logo header-logo-holdings" alt="Holdings BPO">' if src2 else ""
+
+    st.markdown(f"""
+    <div class="login-logos-bar">
+        <div class="logo-slot">{logo1_tag}</div>
+        <div class="logo-slot">{logo2_tag}</div>
+    </div>
+    <div class="login-title-bar">
+        <div class="app-title">Partner Manager</div>
+        <div class="app-subtitle">Compliance &amp; Technology</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown(
-        "<hr style='border:none;border-top:1px solid rgba(148,163,184,0.3);margin:4px 0 20px;'>",
+        "<hr class='login-divider'>",
         unsafe_allow_html=True,
     )
 
