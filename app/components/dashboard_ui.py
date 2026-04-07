@@ -87,24 +87,18 @@ def _empresa_card(nombre: str, datos: dict, color: str, partners: list) -> None:
         filas_html = ""
         for p in partners:
             estado  = p.get("estado", "")
-            nivel   = p.get("nivel_riesgo", "Medio")
             e_color = _C_CYAN if estado == "Activo" else _C_RED
-            r_color = _COLORES_RIESGO.get(nivel, _C_GRAY)
             filas_html += (
                 f"<div style='display:flex;justify-content:space-between;"
                 f"align-items:center;padding:7px 0;"
                 f"border-bottom:1px solid {_C_BORDER};'>"
                 f"<span style='color:#e5e7eb;font-size:0.82rem;'>"
                 f"{p['nombre_razon_social']}</span>"
-                f"<div style='display:flex;gap:5px;align-items:center;flex-shrink:0;'>"
-                f"<span style='background:{r_color}18;color:{r_color};"
-                f"font-size:0.62rem;font-weight:700;padding:2px 7px;"
-                f"border-radius:10px;white-space:nowrap;'>{nivel}</span>"
                 f"<span style='background:{e_color}18;color:{e_color};"
                 f"font-size:0.68rem;font-weight:700;padding:2px 9px;"
                 f"border-radius:12px;border:1px solid {e_color}44;"
                 f"white-space:nowrap;'>{estado}</span>"
-                f"</div></div>"
+                f"</div>"
             )
     else:
         filas_html = (
