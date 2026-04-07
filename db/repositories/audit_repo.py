@@ -13,6 +13,17 @@ from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
+# Valores aceptados por el CHECK CONSTRAINT de PostgreSQL
+_RESULTADOS_VALIDOS = {"exitoso", "fallido"}
+# Traducciones automáticas para valores no estandarizados
+_RESULTADO_MAP = {
+    "ok":      "exitoso",
+    "success": "exitoso",
+    "error":   "fallido",
+    "fail":    "fallido",
+    "failed":  "fallido",
+}
+
 
 class AuditRepository:
     """
@@ -51,8 +62,14 @@ class AuditRepository:
             valores_nuevos:     Dict con campos después del cambio (serializado a JSON).
             ip_address:         IP del cliente.
             user_agent:         User agent del navegador.
-            resultado:          'exitoso' | 'fallido' | 'rechazado'.
+            resultado:          'exitoso' | 'fallido'.
         """
+        # Normalizar resultado antes de insertar
+        resultado = _RESULTADO_MAP.get(resultado.lower(), resultado)
+        if resultado not in _RESULTADOS_VALIDOS:
+            logger.warning("audit.registrar: valor de resultado no válido '%s', usando 'exitoso'", resultado)
+            resultado = "exitoso"
+
         self.session.execute(
             text("""
                 INSERT INTO log_auditoria (

@@ -5,7 +5,7 @@ Espejo tipado de las tablas definidas en Railway + Métricas de Gestión Corpora
 """
 
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
@@ -289,7 +289,7 @@ class AuditoriaOut(BaseModel):
     entidad:            str
     entidad_id:         Optional[int] = None
     descripcion:        str
-    resultado:          str
+    resultado:          Literal["exitoso", "fallido"]
     created_at:         datetime
 
     model_config = {"from_attributes": True}

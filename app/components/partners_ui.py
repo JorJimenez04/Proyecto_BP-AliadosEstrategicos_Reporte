@@ -319,25 +319,57 @@ def _panel_eliminar(aliado_id: int, user: dict) -> None:
 
     col_conf, col_can, _ = st.columns([1, 1, 4])
     with col_conf:
+        st.markdown("""
+        <style>
+        div[data-testid="stButton"] button[kind="primary"] {
+            background: #EF4444 !important;
+            border-color: #EF4444 !important;
+            color: #ffffff !important;
+            box-shadow: 0 2px 10px rgba(239,68,68,0.4) !important;
+        }
+        div[data-testid="stButton"] button[kind="primary"]:hover {
+            background: #dc2626 !important;
+            border-color: #dc2626 !important;
+            box-shadow: 0 4px 16px rgba(239,68,68,0.55) !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
         if st.button("🗑️ Confirmar eliminación", key=f"del_confirm_{aliado_id}", type="primary"):
-            with next(get_session()) as session:
-                repo = PartnerRepository(session)
-                audit = AuditRepository(session)
-                repo.delete(aliado_id)
-                audit.registrar(
-                    username=user.get("username", ""),
-                    accion="DELETE",
-                    entidad="aliados",
-                    descripcion=f"Aliado eliminado: {nombre}",
-                    usuario_id=user.get("id"),
-                    entidad_id=aliado_id,
-                    valores_anteriores=str(aliado),
-                    valores_nuevos=None,
-                    resultado="ok",
-                )
-            st.session_state.pop("delete_id", None)
-            st.warning(f"Aliado '{nombre}' eliminado.")
-            st.rerun()
+            try:
+                with next(get_session()) as session:
+                    repo = PartnerRepository(session)
+                    audit = AuditRepository(session)
+                    repo.delete(aliado_id)
+                    audit.registrar(
+                        username=user.get("username", ""),
+                        accion="DELETE",
+                        entidad="aliados",
+                        descripcion=f"Aliado eliminado: {nombre}",
+                        usuario_id=user.get("id"),
+                        entidad_id=aliado_id,
+                        valores_anteriores=str(aliado),
+                        valores_nuevos=None,
+                        resultado="exitoso",
+                    )
+                st.warning(f"Aliado '{nombre}' eliminado.")
+            except Exception as exc:
+                try:
+                    with next(get_session()) as session:
+                        AuditRepository(session).registrar(
+                            username=user.get("username", ""),
+                            accion="DELETE",
+                            entidad="aliados",
+                            descripcion=f"Error al eliminar aliado: {nombre} — {exc}",
+                            usuario_id=user.get("id"),
+                            entidad_id=aliado_id,
+                            resultado="fallido",
+                        )
+                except Exception:
+                    pass
+                st.error(f"Error al eliminar: {exc}")
+            finally:
+                st.session_state.pop("delete_id", None)
+                st.rerun()
     with col_can:
         if st.button("✖ Cancelar", key=f"del_cancel_{aliado_id}"):
             st.session_state.pop("delete_id", None)
