@@ -180,7 +180,9 @@ class PartnerRepository:
                 id, nombre_razon_social, nit, tipo_aliado, estado_pipeline, 
                 nivel_riesgo, puntaje_riesgo, estado_sarlaft,
                 estado_hbpocorp, estado_adamo, estado_paycop,
-                crypto_friendly, adult_friendly, fecha_proxima_revision
+                crypto_friendly, adult_friendly,
+                permite_monetizacion, permite_dispersion,
+                fecha_proxima_revision
             FROM aliados 
             WHERE 1=1
         """
