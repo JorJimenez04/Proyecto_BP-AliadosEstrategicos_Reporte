@@ -70,6 +70,11 @@ class AuditRepository:
             logger.warning("audit.registrar: valor de resultado no válido '%s', usando 'exitoso'", resultado)
             resultado = "exitoso"
 
+        # El admin ENV tiene id=0 que no existe en la tabla usuarios.
+        # NULL es válido (la FK permite nulos); 0 viola la constraint.
+        if usuario_id == 0:
+            usuario_id = None
+
         self.session.execute(
             text("""
                 INSERT INTO log_auditoria (

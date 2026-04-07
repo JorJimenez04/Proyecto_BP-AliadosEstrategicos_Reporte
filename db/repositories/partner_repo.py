@@ -133,9 +133,12 @@ class PartnerRepository:
         self,
         aliado_id: int,
         data: AliadoUpdate,
-        actualizado_por: int,
+        actualizado_por: int = 0,
     ) -> bool:
         """Actualiza la información del aliado y sus métricas de gestión."""
+        if actualizado_por is None:
+            raise ValueError("update() requiere 'actualizado_por' con un ID de usuario válido.")
+
         payload = data.model_dump(exclude_none=True)
         if not payload:
             return False

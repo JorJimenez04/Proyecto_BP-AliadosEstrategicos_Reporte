@@ -256,24 +256,41 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 fecha_fin_relacion=fecha_fin if fecha_fin else None,
                 actualizado_por=user.get("id"),
             )
-            with next(get_session()) as session:
-                repo = PartnerRepository(session)
-                audit = AuditRepository(session)
-                repo.update(aliado_id, cambios)
-                audit.registrar(
-                    username=user.get("username", ""),
-                    accion="UPDATE",
-                    entidad="aliados",
-                    descripcion=f"Edición de aliado: {aliado['nombre_razon_social']}",
-                    usuario_id=user.get("id"),
-                    entidad_id=aliado_id,
-                    valores_anteriores=str({k: aliado.get(k) for k in cambios.model_fields_set}),
-                    valores_nuevos=str(cambios.model_dump(exclude_none=True)),
-                    resultado="ok",
-                )
-            st.session_state.pop("edit_id", None)
-            st.success("Aliado actualizado.")
-            st.rerun()
+            try:
+                with next(get_session()) as session:
+                    repo = PartnerRepository(session)
+                    audit = AuditRepository(session)
+                    repo.update(aliado_id, cambios, actualizado_por=user.get("id") or 0)
+                    audit.registrar(
+                        username=user.get("username", ""),
+                        accion="UPDATE",
+                        entidad="aliados",
+                        descripcion=f"Edición de aliado: {aliado['nombre_razon_social']}",
+                        usuario_id=user.get("id"),
+                        entidad_id=aliado_id,
+                        valores_anteriores=str({k: aliado.get(k) for k in cambios.model_fields_set}),
+                        valores_nuevos=str(cambios.model_dump(exclude_none=True)),
+                        resultado="exitoso",
+                    )
+                st.success("Aliado actualizado.")
+            except Exception as exc:
+                try:
+                    with next(get_session()) as session:
+                        AuditRepository(session).registrar(
+                            username=user.get("username", ""),
+                            accion="UPDATE",
+                            entidad="aliados",
+                            descripcion=f"Error al editar aliado: {aliado['nombre_razon_social']} — {exc}",
+                            usuario_id=user.get("id"),
+                            entidad_id=aliado_id,
+                            resultado="fallido",
+                        )
+                except Exception:
+                    pass
+                st.error(f"Error al guardar: {exc}")
+            finally:
+                st.session_state.pop("edit_id", None)
+                st.rerun()
     with col_c:
         if st.button("✖ Cancelar", key=prefix + "cancelar"):
             st.session_state.pop("edit_id", None)
