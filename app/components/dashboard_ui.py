@@ -396,47 +396,43 @@ def page_dashboard(user: dict) -> None:
                 "tiene volumen registrado. Riesgo de dependencia de contraparte unica."
             )
 
-        st.markdown(
-            f"<div style='background:{_C_BG};border-radius:10px;padding:16px;"
-            f"border:1px solid {_C_BORDER};'>",
-            unsafe_allow_html=True,
+        import pandas as pd
+
+        df_vol = pd.DataFrame(volumenes).rename(columns={
+            "nombre_razon_social":  "Partner",
+            "volumen_real_mensual": "Volumen",
+            "crypto_friendly":      "Crypto 🔥",
+            "adult_friendly":       "Adult 🔞",
+            "permite_monetizacion": "Monet. 📥",
+            "permite_dispersion":   "Disp. 📤",
+        })
+
+        # Ordenar descendente por volumen (texto → intentar numérico)
+        df_vol["_sort"] = pd.to_numeric(
+            df_vol["Volumen"].astype(str)
+                .str.replace(r"[^\d.]", "", regex=True),
+            errors="coerce",
+        ).fillna(0)
+        df_vol = df_vol.sort_values("_sort", ascending=False).drop(columns=["_sort"])
+
+        # Asegurar booleanos
+        for col in ("Crypto 🔥", "Adult 🔞", "Monet. 📥", "Disp. 📤"):
+            if col in df_vol.columns:
+                df_vol[col] = df_vol[col].astype(bool)
+
+        st.dataframe(
+            df_vol,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Partner":     st.column_config.TextColumn("Partner", width="large"),
+                "Volumen":     st.column_config.TextColumn("Volumen Estimado", width="medium"),
+                "Crypto 🔥":  st.column_config.CheckboxColumn("Crypto 🔥",  width="small"),
+                "Adult 🔞":   st.column_config.CheckboxColumn("Adult 🔞",   width="small"),
+                "Monet. 📥":  st.column_config.CheckboxColumn("Monet. 📥",  width="small"),
+                "Disp. 📤":   st.column_config.CheckboxColumn("Disp. 📤",   width="small"),
+            },
         )
-        hdr = st.columns([4, 3, 2, 2])
-        for col, lbl in zip(hdr, ["Partner", "Volumen Estimado", "Riesgo", "Pipeline"]):
-            col.markdown(
-                f"<span style='color:{_C_CYAN};font-size:0.72rem;font-weight:700;"
-                f"text-transform:uppercase;'>{lbl}</span>",
-                unsafe_allow_html=True,
-            )
-        st.markdown(
-            f"<hr style='border-color:{_C_BORDER};margin:6px 0 10px;'>",
-            unsafe_allow_html=True,
-        )
-        for v in volumenes:
-            nivel  = v.get("nivel_riesgo", "Medio")
-            color  = _COLORES_RIESGO.get(nivel, _C_GRAY)
-            c1, c2, c3, c4 = st.columns([4, 3, 2, 2])
-            c1.markdown(
-                f"<span style='color:#f9fafb;font-size:0.88rem;font-weight:600;'>"
-                f"{v['nombre_razon_social']}</span>",
-                unsafe_allow_html=True,
-            )
-            c2.markdown(
-                f"<span style='color:{_C_CYAN};font-size:0.88rem;font-weight:700;'>"
-                f"{v['volumen_real_mensual']}</span>",
-                unsafe_allow_html=True,
-            )
-            c3.markdown(
-                f"<span style='background:{color}22;color:{color};padding:2px 8px;"
-                f"border-radius:20px;font-size:0.72rem;font-weight:700;'>{nivel}</span>",
-                unsafe_allow_html=True,
-            )
-            c4.markdown(
-                f"<span style='color:{_C_GRAY};font-size:0.82rem;'>"
-                f"{v.get('estado_pipeline', '')}</span>",
-                unsafe_allow_html=True,
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
 
     _spacer()
 

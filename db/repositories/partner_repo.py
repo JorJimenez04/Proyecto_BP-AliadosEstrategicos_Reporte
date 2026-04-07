@@ -372,11 +372,13 @@ class PartnerRepository:
     def get_resumen_volumen(self) -> list[dict]:
         """
         Extrae los partners con volumen_real_mensual definido para análisis
-        de concentración. Retorna lista ordenada por nombre.
+        de concentración, incluyendo capacidades técnicas/regulatorias.
+        Retorna lista ordenada por volumen descendente.
         """
         rows = self.session.execute(text("""
-            SELECT nombre_razon_social, volumen_real_mensual, nivel_riesgo,
-                   estado_pipeline
+            SELECT nombre_razon_social, volumen_real_mensual,
+                   crypto_friendly, adult_friendly,
+                   permite_monetizacion, permite_dispersion
             FROM aliados
             WHERE volumen_real_mensual IS NOT NULL
               AND volumen_real_mensual != ''
