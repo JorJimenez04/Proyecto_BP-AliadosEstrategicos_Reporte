@@ -146,6 +146,24 @@ class PartnerRepository:
         id_final = actualizado_por if actualizado_por > 0 else 1
         payload["actualizado_por"] = id_final
 
+        # Recalcular score si el payload toca campos que afectan el riesgo SARLAFT
+        _CAMPOS_RIESGO = {
+            "es_pep", "crypto_friendly", "adult_friendly", "permite_monetizacion",
+            "listas_verificadas", "lista_ofac_ok", "estado_due_diligence",
+            "estado_sarlaft", "contrato_firmado", "rut_recibido",
+            "camara_comercio_recibida",
+        }
+        if _CAMPOS_RIESGO & payload.keys():
+            # Obtener estado actual del aliado para combinar con los cambios entrantes
+            fila_actual = self.get_by_id(aliado_id) or {}
+            datos_merge = {**fila_actual, **payload}
+            score, nivel = calcular_puntaje_riesgo(datos_merge)
+            payload["puntaje_riesgo"] = score
+            _escala = ["Bajo", "Medio", "Alto", "Muy Alto"]
+            nivel_actual = datos_merge.get("nivel_riesgo", "Medio")
+            if nivel_actual in _escala and _escala.index(nivel) > _escala.index(nivel_actual):
+                payload["nivel_riesgo"] = nivel
+
         set_clause = ", ".join(f"{k} = :{k}" for k in payload.keys())
         payload["id"] = aliado_id
 

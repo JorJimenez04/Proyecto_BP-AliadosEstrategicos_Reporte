@@ -17,7 +17,7 @@ _COLORES_PIPELINE: dict[str, str] = {
 }
 
 _COLORES_RIESGO: dict[str, str] = {
-    "Bajo":     "#22c55e",
+    "Bajo":     "#5fe9d0",
     "Medio":    "#f59e0b",
     "Alto":     "#f97316",
     "Muy Alto": "#ef4444",
@@ -74,9 +74,14 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    with next(get_session()) as session:
-        repo = PartnerRepository(session)
-        aliado = repo.get_by_id(aliado_id)
+    try:
+        with next(get_session()) as session:
+            repo = PartnerRepository(session)
+            aliado = repo.get_by_id(aliado_id)
+    except Exception as _db_exc:
+        st.error(f"Error al conectar con la base de datos: {_db_exc}")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
 
     if not aliado:
         st.error("Aliado no encontrado.")
@@ -268,8 +273,8 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                         descripcion=f"Edición de aliado: {aliado['nombre_razon_social']}",
                         usuario_id=user.get("id"),
                         entidad_id=aliado_id,
-                        valores_anteriores=str({k: aliado.get(k) for k in cambios.model_fields_set}),
-                        valores_nuevos=str(cambios.model_dump(exclude_none=True)),
+                        valores_anteriores={k: aliado.get(k) for k in cambios.model_fields_set},
+                        valores_nuevos=cambios.model_dump(exclude_none=True),
                         resultado="exitoso",
                     )
                 st.success("Aliado actualizado.")
@@ -308,9 +313,13 @@ def _panel_eliminar(aliado_id: int, user: dict) -> None:
     from db.repositories.partner_repo import PartnerRepository
     from db.repositories.audit_repo import AuditRepository
 
-    with next(get_session()) as session:
-        repo = PartnerRepository(session)
-        aliado = repo.get_by_id(aliado_id)
+    try:
+        with next(get_session()) as session:
+            repo = PartnerRepository(session)
+            aliado = repo.get_by_id(aliado_id)
+    except Exception as _db_exc:
+        st.error(f"Error al conectar con la base de datos: {_db_exc}")
+        return
 
     if not aliado:
         st.error("Aliado no encontrado.")
@@ -364,7 +373,7 @@ def _panel_eliminar(aliado_id: int, user: dict) -> None:
                         descripcion=f"Aliado eliminado: {nombre}",
                         usuario_id=user.get("id"),
                         entidad_id=aliado_id,
-                        valores_anteriores=str(aliado),
+                        valores_anteriores=dict(aliado),
                         valores_nuevos=None,
                         resultado="exitoso",
                     )

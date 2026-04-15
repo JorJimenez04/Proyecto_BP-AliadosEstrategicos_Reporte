@@ -139,7 +139,7 @@ def authenticate(username: str, password: str) -> dict | None:
     session = next(session_gen)
     try:
         row = session.execute(
-            text("SELECT * FROM usuarios WHERE username = :u AND activo = 1"),
+            text("SELECT * FROM usuarios WHERE username = :u AND activo = true"),
             {"u": username},
         ).mappings().first()
 
