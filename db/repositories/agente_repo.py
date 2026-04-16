@@ -25,6 +25,8 @@ _CAMPOS_EDITABLES = frozenset({
     "meta_mensual_gestiones",
     "notas",
     "activo",
+    "kpi_cuentas_pers_activas",
+    "kpi_cuentas_com_activas",
 })
 
 # Columnas de KPI manuales — editables vía editor inline y carga Excel

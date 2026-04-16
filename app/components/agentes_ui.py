@@ -345,6 +345,28 @@ def _form_registro_diario(agente_db: dict, user: Optional[dict]) -> None:
                 key=f"tx_{agente_id}",
             )
 
+            st.markdown(
+                f"<div style='color:{_C_GRAY};font-size:0.72rem;text-transform:uppercase;"
+                f"letter-spacing:0.8px;margin:14px 0 6px;border-top:1px solid {_C_BORDER};"
+                f"padding-top:12px;'>\U0001f4b3 Cuentas Activas</div>",
+                unsafe_allow_html=True,
+            )
+            c3, c4 = st.columns(2)
+            with c3:
+                ctrs_pers_val = st.number_input(
+                    "\U0001f464 Cuentas Personales Activas",
+                    min_value=0, step=1,
+                    value=int(agente_db.get("kpi_cuentas_pers_activas") or 0),
+                    key=f"cp_{agente_id}",
+                )
+            with c4:
+                ctrs_com_val = st.number_input(
+                    "\U0001f3e2 Cuentas Comerciales Activas",
+                    min_value=0, step=1,
+                    value=int(agente_db.get("kpi_cuentas_com_activas") or 0),
+                    key=f"cc_{agente_id}",
+                )
+
             guardado = st.form_submit_button(
                 "\U0001f4be Guardar Gesti\u00f3n",
                 type="primary",
@@ -354,7 +376,8 @@ def _form_registro_diario(agente_db: dict, user: Optional[dict]) -> None:
         if guardado:
             try:
                 with next(get_session()) as session:
-                    AgenteRepository(session).registrar_gestion_diaria(
+                    repo = AgenteRepository(session)
+                    repo.registrar_gestion_diaria(
                         agente_id,
                         {
                             "docs_personales":  docs_p,
@@ -365,6 +388,10 @@ def _form_registro_diario(agente_db: dict, user: Optional[dict]) -> None:
                         },
                         admin_user=user,
                     )
+                    repo.update(agente_id, {
+                        "kpi_cuentas_pers_activas": int(ctrs_pers_val),
+                        "kpi_cuentas_com_activas":  int(ctrs_com_val),
+                    })
                 st.success("\u2705 Gesti\u00f3n del d\u00eda guardada correctamente.")
                 st.rerun()
             except Exception as exc:
@@ -475,16 +502,6 @@ def _render_compliance_kpis(agente_db: dict, meta: int) -> None:
         col_tot = _C_GREEN if total_activos > 0 else _C_GRAY
         _kpi_card("Total Partners Activos", total_activos, col_tot,
                   "Cuentas personales + comerciales activas (config manual)")
-
-    # ── Gestión de Cuentas (config manual) ───────────────
-    _section_title("\U0001f4b3 Cuentas Activas (Config. Manual)")
-    c7, c8 = st.columns(2)
-    with c7:
-        _kpi_card("Cuentas Personales Activas", ctrs_pers, _C_GREEN,
-                  "Partners personales en estado Activo")
-    with c8:
-        _kpi_card("Cuentas Comerciales Activas", ctrs_com, _C_VIOLET,
-                  "Partners comerciales en estado Activo")
 
     # ── Progreso de meta ──────────────────────────────────
     progreso = min(total_activos / meta, 1.0) if meta > 0 else 0.0
