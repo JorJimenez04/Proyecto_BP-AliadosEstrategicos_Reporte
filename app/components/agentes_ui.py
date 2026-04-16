@@ -1076,6 +1076,9 @@ def _panel_vista_equipos() -> None:
                     if activo else
                     f"<span style='color:{_C_GRAY};font-size:9px;font-weight:700;'>\u25cf INACTIVO</span>"
                 )
+                _nombre_ag = ag["nombre_completo"]
+                _cargo_ag  = ag.get("cargo") or "\u2014"
+                _opac_ag   = "opacity:.5;" if not activo else ""
                 st.markdown(
                     f"""
                     <div style='background:{_C_BG};border-radius:10px;padding:12px 14px;
@@ -1084,10 +1087,10 @@ def _panel_vista_equipos() -> None:
                             {av}
                             <div>
                                 <div style='color:#f9fafb;font-size:0.85rem;font-weight:600;
-                                            {"opacity:.5;" if not activo else ""}'
-                                >{ag["nombre_completo"]}</div>
+                                            {_opac_ag}'
+                                >{_nombre_ag}</div>
                                 <div style='color:{_C_GRAY};font-size:0.72rem;'>
-                                    {ag.get("cargo") or "\u2014"}</div>
+                                    {_cargo_ag}</div>
                                 <div style='margin-top:3px;'>{estado_badge}</div>
                             </div>
                         </div>
