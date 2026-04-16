@@ -1,7 +1,8 @@
 # 🗂️ Estructura del Proyecto — AdamoServices Partner Manager
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
-> Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2
+> Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
+> Última actualización: 2026-04-16 (rev. 2)
 
 ---
 
@@ -26,8 +27,12 @@ Proyecto_PartnersStatus/
 ├── 📂 app/                            # Capa de presentación (Streamlit)
 │   ├── 📄 __init__.py
 │   ├── 📄 main.py                     # Entry point · router de páginas · CSS global
-│   │                                  # sidebar() · page_nuevo_partner() · main()
-│   │                                  # Rutas: Dashboard · Partners · Nuevo Partner · Auditoría
+│   │                                  # _on_nav_radio_change() — callback on_change del radio
+│   │                                  # sidebar() → tuple(page, agente_username | None)
+│   │                                  #   Radio principal: Dashboard · Partners · Nuevo · Auditoría
+│   │                                  #   Expander "🏢 Equipos Operativos": carga agentes desde BD
+│   │                                  #   nav_agente en session_state — nunca toca la clave del widget
+│   │                                  # page_nuevo_partner() · main()
 │   │
 │   ├── 📂 auth/                       # Sistema de autenticación y control de acceso
 │   │   ├── 📄 __init__.py
@@ -35,6 +40,7 @@ Proyecto_PartnersStatus/
 │   │                                  # login_screen() — st.form + rate-limiting progresivo
 │   │                                  #   (delay 1-3 s + bloqueo 60 s tras 5 fallos consecutivos)
 │   │                                  # require_auth() — gate de sesión, llama st.stop()
+│   │                                  # SQL: activo = true (boolean PostgreSQL idiomático)
 │   │                                  # _get_client_ip() · _audit_login()
 │   │
 │   ├── 📂 pages/                      # Páginas como módulos independientes (expansión futura)
@@ -53,15 +59,46 @@ Proyecto_PartnersStatus/
 │   │   │                              #   (Básica / Relación Corporativa / Perfil Operativo)
 │   │   │                              #   Editar: ADMIN / COMPLIANCE / COMERCIAL
 │   │   │                              #   Campos compliance deshabilitados para rol comercial
+│   │   │                              #   try/except en get_by_id() con mensaje de error UI
+│   │   │                              #   valores_anteriores/nuevos como dict (JSON real en log)
 │   │   │                              # _panel_eliminar(): confirmación roja — solo ADMIN
+│   │   │                              #   try/except protegido · valores_anteriores como dict
 │   │   │                              # Auditoría automática en UPDATE y DELETE
+│   │   │                              # _COLORES_RIESGO["Bajo"] = #5fe9d0 (cyan Adamo)
 │   │   │                              # _pill() · _capacidad_badge() · _idx()
 │   │   ├── 📄 audit_ui.py             # Log de Auditoría — page_auditoria()
 │   │   │                              # Tabla paginada de log_auditoria
-│   │   └── 📄 alerts.py               # Centro de Notificaciones de Compliance
-│   │                                  # render_centro_notificaciones() — SARLAFT vencidas
-│   │                                  # Cards con botón ⚡ Acción Rápida (re-calificación)
-│   │                                  # Cards próximas revisiones 30 días · DDI (GAFI R.1/R.12)
+│   │   ├── 📄 alerts.py               # Centro de Notificaciones de Compliance
+│   │   │                              # render_centro_notificaciones() — SARLAFT vencidas
+│   │   │                              # Cards con botón ⚡ Acción Rápida (re-calificación)
+│   │   │                              # Cards próximas revisiones 30 días · DDI (GAFI R.1/R.12)
+│   │   └── 📄 agentes_ui.py           # Módulo INFORMATIVO de Equipos Operativos
+│   │                                  #   (gerencia / líderes de equipo — los agentes NO acceden al sistema)
+│   │                                  # EQUIPOS dict: 🛡️ Cumplimiento · 💸 Pagos · 🎧 Soporte (fallback estático)
+│   │                                  # _EQUIPOS_COLORES · _EQUIPOS_ICONOS · _COLORES_RIESGO
+│   │                                  # _USERNAME_TO_EQUIPO — mapa rápido username→equipo (fallback)
+│   │                                  # _foto_base64(username) — busca en static/img/agentes/
+│   │                                  #   formatos: .jpg .jpeg .png .webp
+│   │                                  #   fallback: inicial del nombre con color del equipo
+│   │                                  # get_agentes_sidebar() — lee tabla agentes (fallback: EQUIPOS dict)
+│   │                                  # render_perfil_agente(username, user):
+│   │                                  #   Header: foto/avatar + nombre + cargo + badge equipo
+│   │                                  #   Tab 📈 KPIs de Gestión: total/activos/riesgo_alto/tasa activación
+│   │                                  #     2 Plotly pie (distribución riesgo + pipeline) + barra de meta
+│   │                                  #   Tab 📋 Información: ficha contacto + notas
+│   │                                  #     admin: form inline de edición (sin contraseña)
+│   │                                  # render_gestion_agentes(user): solo ADMIN
+│   │                                  #   Tab 🏢 Vista por Equipo: cards agrupadas por equipo
+│   │                                  #   Tab ➕ Nuevo Colaborador: form sin contraseña → agente_repo.create()
+│   │                                  #   Tab ✏️ Editar Colaborador: select + form → agente_repo.update()
+│   │                                  # _kpi_card() · _section_title() · _render_header_agente()
+│   │
+│   ├── 📂 static/
+│   │   └── 📂 img/
+│   │       ├── 📂 logos/              # Logos corporativos (logo_adamo_blanco.* / logo_adamo_color.*)
+│   │       └── 📂 agentes/            # Fotos de agentes — convención: <username>.(jpg|png|webp)
+│   │                                  # Se leen como bytes y se incrustan como data-URI base64
+│   │                                  # Agregar foto: copiar archivo y hacer git commit
 │   │
 │   └── 📂 utils/                      # Funciones auxiliares de utilidad
 │       ├── 📄 __init__.py
@@ -84,23 +121,45 @@ Proyecto_PartnersStatus/
 │   │                                  # AliadoBase · AliadoCreate · AliadoUpdate · AliadoOut
 │   │                                  # UsuarioBase · UsuarioCreate · UsuarioUpdate · UsuarioOut
 │   │
-│   ├── 📂 migrations/                 # Scripts SQL versionados (PostgreSQL)
+│   ├── 📂 migrations/                 # Scripts SQL versionados (PostgreSQL · idempotentes)
 │   │   ├── 📄 001_initial_schema_pg.sql          # Esquema inicial: tablas, índices y triggers
 │   │   ├── 📄 002_add_corporate_metrics.sql       # Columnas gestión corporativa (estado_hbpocorp/adamo/paycop)
-│   │   └── 📄 003_fix_constraints_and_corporate_metrics.sql  # Fix constraints + perfil operativo
+│   │   ├── 📄 003_fix_constraints_and_corporate_metrics.sql  # Fix constraints + perfil operativo
+│   │   ├── 📄 004_agentes_perfil.sql              # foto_url · equipo · cargo en tabla usuarios
+│   │   └── 📄 005_tabla_agentes.sql              # Tabla agentes (catálogo sin credenciales)
+│   │                                             #   + columna agente_id FK en aliados
+│   │                                             #   + trigger updated_at · índices equipo/activo/agente_id
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
 │       ├── 📄 partner_repo.py         # CRUD completo de aliados
-│       │                              # create() · update() · get_by_id() · delete()
+│       │                              # create() — inserta + calcula puntaje_riesgo automático
+│       │                              # update() — recalcula puntaje_riesgo si toca campos SARLAFT
+│       │                              #   _CAMPOS_RIESGO: es_pep · crypto_friendly · adult_friendly
+│       │                              #   estado_sarlaft · estado_due_diligence · contrato_firmado
+│       │                              #   listas_verificadas · lista_ofac_ok · rut_recibido
+│       │                              #   camara_comercio_recibida · permite_monetizacion
+│       │                              # get_by_id() · delete()
 │       │                              # get_lista_enriquecida() · get_stats_pipeline()
 │       │                              # get_stats_riesgo() · get_sarlaft_vencidas()
-│       │                              # get_revisiones_proximas(dias=30) · recalcular_puntaje()
+│       │                              # get_revisiones_proximas(dias=30)
 │       │                              # get_salud_grupo() · get_stats_capacidades()
 │       │                              # get_termometro_sarlaft() · get_resumen_volumen()
 │       │                              # get_partners_por_empresa(empresa)
-│       └── 📄 audit_repo.py           # Log de auditoría inmutable (solo escritura/lectura)
-│                                      # registrar() — CREATE · UPDATE · DELETE · LOGIN · EXPORT
+│       │                              # calcular_puntaje_riesgo() — rubrica SARLAFT-compatible
+│       ├── 📄 audit_repo.py           # Log de auditoría inmutable (solo escritura/lectura)
+│       │                              # registrar() — normaliza resultado · convierte dict a JSON
+│       │                              #   acepta valores_anteriores/nuevos como dict (no str)
+│       │                              #   usuario_id=0 → NULL (FK safe)
+│       │                              # list_log() · get_actividad_usuario()
+│       ├── 📄 agente_repo.py          # Catálogo de colaboradores operativos (sin credenciales)
+│       │                              # get_all_active() · get_all() · get_by_username() · get_by_id()
+│       │                              # username_exists() · create() · update() (whitelist _CAMPOS_EDITABLES)
+│       │                              # get_metrics(agente_id) — KPIs desde aliados.agente_id:
+│       │                              #   total_partners · partners_activos · partners_riesgo_alto
+│       │                              #   tasa_activacion_pct · distribucion_riesgo · distribucion_estado
+│       └── 📄 user_repo.py            # CRUD de usuarios del sistema (con bcrypt)
+│                                      # create_user() · update_user() · get_by_username()
 │
 └── 📂 tests/                          # Suite de pruebas
     └── 📄 __init__.py
@@ -142,24 +201,60 @@ Proyecto_PartnersStatus/
 ### Portafolio de Partners (`app/components/partners_ui.py`)
 - **Filtros**: Estado Pipeline · Nivel Riesgo · búsqueda texto · Solo PEP
 - **KPIs rápidos**: Total · Activos · Alto Riesgo · PEPs
-- **Tabla por tarjetas**: pills de colores (pipeline/riesgo/SARLAFT) + badges de capacidades operativas
-- **Edición inline** (ADMIN / COMPLIANCE / COMERCIAL): formulario 3 secciones; campos de compliance deshabilitados para rol `comercial`; auditoría automática al guardar
-- **Eliminación** (solo ADMIN): panel de confirmación con borde rojo + auditoría automática (`DELETE`)
+- **Tabla por tarjetas**: pills de colores (pipeline/riesgo/SARLAFT) + badges capacidades operativas
+- **Edición inline** (ADMIN / COMPLIANCE / COMERCIAL): formulario 3 secciones; campos compliance deshabilitados para rol `comercial`; `try/except` en carga de BD; `valores_anteriores` como `dict` real (JSON correcto en log)
+- **Eliminación** (solo ADMIN): panel confirmación con borde rojo + auditoría `DELETE`; `valores_anteriores=dict(aliado)`
 - Fila activa resaltada: cian = editando · rojo = eliminando
 
 ### Log de Auditoría (`app/components/audit_ui.py`)
 - Tabla paginada de `log_auditoria` — acciones CREATE · UPDATE · DELETE · LOGIN · EXPORT
 
+### 🏢 Equipos Operativos (`app/components/agentes_ui.py`)
+Módulo **informativo** para gerencia y líderes de equipo. Los agentes son entradas del catálogo — **no tienen acceso al sistema**.
+
+- Accesible desde el expander **🏢 Equipos Operativos** del sidebar (todos los roles)
+- Página **👥 Gestión de Agentes** en el menú principal (solo `admin`)
+
+**Fuente de datos:** tabla `agentes` (BD). Fallback al catálogo estático `EQUIPOS` si la tabla está vacía.
+
+**Estructura del equipo (catálogo estático de respaldo):**
+
+| Equipo | Color | Colaboradores |
+|---|---|---|
+| 🛡️ Cumplimiento | `#5fe9d0` | Samuel Mora · Laura Cano · Daniel Reyes |
+| 💸 Pagos | `#7839ee` | Andrea Ospina · Carlos Méndez |
+| 🎧 Soporte | `#f59e0b` | Sofía Villa · Miguel Torres |
+
+**Perfil de colaborador (`render_perfil_agente(username, user)`):**
+- **Foto**: `app/static/img/agentes/<username>.(jpg|jpeg|png|webp)` → data-URI base64; fallback = inicial con color del equipo
+- **Tab KPIs**: `total_partners`, `partners_activos`, `partners_riesgo_alto`, `tasa_activacion_pct` (desde `aliados.agente_id`); 2 pie charts Plotly (riesgo + pipeline); barra de prog. vs `meta_mensual_gestiones`
+- **Tab Información**: email · teléfono · notas; admin puede editar sin contraseña
+
+**Gestión del catálogo (`render_gestion_agentes(user)`) — solo `admin`:**
+- Vista por equipo (cards), Nuevo Colaborador (sin contraseña), Editar Colaborador
+- Toda acción registra auditoría en `log_auditoria` con `valores_anteriores` / `valores_nuevos`
+
+**Asignación partner → agente:** desde la UI de Partners, campo `agente_id` en `aliados`.
+
+**Agregar foto de un agente:**
+```bash
+# Copiar el archivo con el username exacto como nombre
+cp foto.jpg app/static/img/agentes/samuel_mora.jpg
+git add app/static/img/agentes/
+git commit -m "feat: foto agente samuel_mora"
+git push origin main   # Railway reconstruye la imagen con la foto incluida
+```
+
 ---
 
 ## 👥 Roles de Acceso (RBAC)
 
-| Rol           | Dashboard | Ver Partners | Crear/Editar | Cambiar Estado | Auditoría | Eliminar |
-|---------------|:---------:|:------------:|:------------:|:--------------:|:---------:|:--------:|
-| `admin`       | ✅        | ✅           | ✅           | ✅             | ✅        | ✅       |
-| `compliance`  | ✅        | ✅           | ✅           | ✅             | ✅        | ❌       |
-| `comercial`   | ✅        | ✅           | Parcial      | Parcial        | ❌        | ❌       |
-| `consulta`    | ✅        | ✅           | ❌           | ❌             | ❌        | ❌       |
+| Rol           | Dashboard | Ver Partners | Crear/Editar | Cambiar Estado | Auditoría | Eliminar | Equipos |
+|---------------|:---------:|:------------:|:------------:|:--------------:|:---------:|:--------:|:-------:|
+| `admin`       | ✅        | ✅           | ✅           | ✅             | ✅        | ✅       | ✅      |
+| `compliance`  | ✅        | ✅           | ✅           | ✅             | ✅        | ❌       | ✅      |
+| `comercial`   | ✅        | ✅           | Parcial      | Parcial        | ❌        | ❌       | ✅      |
+| `consulta`    | ✅        | ✅           | ❌           | ❌             | ❌        | ❌       | ✅      |
 
 ---
 
@@ -170,17 +265,14 @@ Proyecto_PartnersStatus/
 # Instalar dependencias
 pip install -r requirements.txt
 
-# Inicializar / resetear la base de datos SQLite
+# Inicializar / resetear la base de datos
 python -m db.database
 
-# Ejecutar la aplicación en local
-python -m streamlit run app/main.py --server.port 8501
+# Ejecutar la aplicación en local (usar ejecutable del venv en Windows)
+.venv\Scripts\streamlit.exe run app/main.py --server.port 8501
 
-# Verificar variables de producción (sin arrancar la app — modo CLI)
+# Verificar variables de producción (sin arrancar la app)
 python app/utils/production_check.py
-
-# Validar desde Python (lanza RuntimeError si falla — útil en tests)
-python -c "from app.utils.production_check import raise_if_insecure; raise_if_insecure()"
 
 # Generar SECRET_KEY de 256 bits (43 chars URL-safe)
 python -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -188,32 +280,25 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 # Generar ADMIN_PASSWORD de alta entropía (20 chars)
 python -c "import secrets, string; a=string.ascii_letters+string.digits+'!@#%&*'; print(''.join(secrets.choice(a) for _ in range(20)))"
 
-# ── Docker local ──────────────────────────────────────────────
-# Construir imagen
-docker build -t adamoservices-partner-manager .
+# ── Base de datos Docker ──────────────────────────────────────
+docker compose up -d postgres     # Levantar PostgreSQL local
+docker compose down               # Detener
+docker compose down -v            # Detener + borrar volumen de datos
 
-# Correr contenedor con BD SQLite local (desarrollo)
-docker run -p 8501:8501 \
-  -e APP_ENV=development \
-  -v $(pwd)/data:/app/data \
-  adamoservices-partner-manager
+# ── Fotos de agentes ──────────────────────────────────────────
+# Agregar foto: nombre de archivo = username exacto del agente
+cp foto.jpg app/static/img/agentes/<username>.jpg
+git add app/static/img/agentes/
+git commit -m "feat: foto agente <username>"
+git push origin main              # Railway reconstruye con la foto incluida
 
-# Correr contenedor con PostgreSQL (simular Railway)
-docker run -p 8501:8501 \
-  -e APP_ENV=production \
-  -e DATABASE_URL=postgresql://user:pass@host:5432/db \
-  -e SECRET_KEY=tu-secret-key-de-32-chars \
-  -e ADMIN_PASSWORD=tu-admin-password \
-  -e ADMIN_EMAIL=compliance@adamoservices.co \
-  -e ADMIN_USERNAME=admin \
-  adamoservices-partner-manager
-
-# ── Railway ───────────────────────────────────────────────────
-# El deploy se activa automáticamente al hacer push a la rama
-# conectada en Railway. El entrypoint.sh ejecuta:
-#   1. production_check.py  (valida variables críticas)
-#   2. python -m db.database  (migraciones)
-#   3. streamlit run app/main.py --server.port $PORT
+# ── Deploy a Railway ──────────────────────────────────────────
+# Railway usa auto-deploy desde GitHub (rama main)
+# El entrypoint.sh ejecuta: production_check → db.database → streamlit
+git add .
+git commit -m "mensaje"
+git push origin main
+```
 ```
 
 ---

@@ -37,11 +37,15 @@ class UsuarioCreate(UsuarioBase):
 
 class UsuarioUpdate(BaseModel):
     """Modelo para actualizar un usuario (todos los campos son opcionales)."""
-    nombre_completo: Optional[str] = None
-    email:           Optional[EmailStr] = None
-    rol:             Optional[str] = None
-    departamento:    Optional[str] = None
-    activo:          Optional[bool] = None
+    nombre_completo:        Optional[str]   = None
+    email:                  Optional[EmailStr] = None
+    rol:                    Optional[str]   = None
+    departamento:           Optional[str]   = None
+    equipo:                 Optional[str]   = None
+    cargo:                  Optional[str]   = None
+    foto_url:               Optional[str]   = None
+    meta_mensual_gestiones: Optional[int]   = None
+    activo:                 Optional[bool]  = None
 
 
 class UsuarioOut(UsuarioBase):
@@ -273,6 +277,24 @@ class AliadoOut(AliadoBase):
     actualizado_por: Optional[int]    = None
     created_at:     datetime
     updated_at:     datetime
+
+
+# ─────────────────────────────────────────────────────────────
+# AGENTE (CATÁLOGO OPERATIVO — sin credenciales de acceso)
+# ─────────────────────────────────────────────────────────────
+
+class AgenteCreate(BaseModel):
+    """Validación Pydantic para registrar un colaborador en el catálogo."""
+    username:               str  = Field(..., min_length=2, max_length=50,
+                                         pattern=r"^[a-z0-9_]+$",
+                                         description="Solo minúsculas, números y guión bajo.")
+    nombre_completo:        str  = Field(..., min_length=2, max_length=150)
+    equipo:                 Literal["Cumplimiento", "Pagos", "Soporte"]
+    cargo:                  Optional[str]      = Field(None, max_length=100)
+    email:                  Optional[EmailStr] = None
+    telefono:               Optional[str]      = Field(None, max_length=20)
+    meta_mensual_gestiones: int                = Field(default=50, ge=1, le=500)
+    notas:                  Optional[str]      = None
 
     model_config = {"from_attributes": True}
 

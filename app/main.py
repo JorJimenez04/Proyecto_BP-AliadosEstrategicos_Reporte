@@ -84,7 +84,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
       "📋 Log de Auditoría" | "👤 Perfil Agente"
     agente_username solo está definido cuando page == "👤 Perfil Agente".
     """
-    from app.components.agentes_ui import EQUIPOS
+    from app.components.agentes_ui import get_agentes_sidebar
 
     _logo_sidebar, _logo_icono = _get_logos()
     if _logo_icono:
@@ -119,21 +119,25 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         # ── Navegación principal ──────────────────────────────
         # Clave interna _radio_nav — nunca se escribe desde fuera del widget.
         # on_change limpia nav_agente cuando el usuario vuelve al radio.
+        _nav_opts = ["📊 Dashboard", "🤝 Partners", "➕ Nuevo Partner", "📋 Log de Auditoría"]
+        if user.get("rol") == "admin":
+            _nav_opts.append("👥 Gestión de Agentes")
         nav_choice = st.radio(
             "Navegación",
-            options=["📊 Dashboard", "🤝 Partners", "➕ Nuevo Partner", "📋 Log de Auditoría"],
+            options=_nav_opts,
             label_visibility="collapsed",
             key="_radio_nav",
             on_change=_on_nav_radio_change,
         )
 
         # ── Equipos Operativos (expander) ─────────────────────
+        _equipos_data = get_agentes_sidebar()
         st.markdown(
             "<div style='border-top:1px solid #293056;margin:14px 0 10px;'></div>",
             unsafe_allow_html=True,
         )
         with st.expander("🏢 Equipos Operativos", expanded=False):
-            for equipo_nombre, equipo_data in EQUIPOS.items():
+            for equipo_nombre, equipo_data in _equipos_data.items():
                 equipo_color = equipo_data["color"]
                 st.markdown(
                     f"<p style='color:{equipo_color};font-size:0.72rem;font-weight:700;"
@@ -290,9 +294,12 @@ def main():
     elif page == "📋 Log de Auditoría":
         from app.components.audit_ui import page_auditoria
         page_auditoria(user)
+    elif page == "👥 Gestión de Agentes":
+        from app.components.agentes_ui import render_gestion_agentes
+        render_gestion_agentes(user)
     elif page == "👤 Perfil Agente" and agente_username:
         from app.components.agentes_ui import render_perfil_agente
-        render_perfil_agente(agente_username)
+        render_perfil_agente(agente_username, user=user)
 
 
 if __name__ == "__main__":
