@@ -40,6 +40,7 @@ ALL_MIGRATIONS: list[str] = [
     "005_tabla_agentes.sql",
     "006_kpi_fields.sql",
     "007_kpi_history.sql",
+    "008_cuentas_segmentadas.sql",
 ]
 
 # Tablas / columnas a validar tras las migraciones

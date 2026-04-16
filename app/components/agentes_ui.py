@@ -347,24 +347,59 @@ def _form_registro_diario(agente_db: dict, user: Optional[dict]) -> None:
 
             st.markdown(
                 f"<div style='color:{_C_GRAY};font-size:0.72rem;text-transform:uppercase;"
-                f"letter-spacing:0.8px;margin:14px 0 6px;border-top:1px solid {_C_BORDER};"
-                f"padding-top:12px;'>\U0001f4b3 Cuentas Activas</div>",
+                f"letter-spacing:0.8px;margin:14px 0 4px;border-top:1px solid {_C_BORDER};"
+                f"padding-top:12px;'>\U0001f464 Cuentas Personales</div>",
                 unsafe_allow_html=True,
             )
-            c3, c4 = st.columns(2)
-            with c3:
-                ctrs_pers_val = st.number_input(
-                    "\U0001f464 Cuentas Personales Activas",
+            cp1, cp2, cp3 = st.columns(3)
+            with cp1:
+                form_pers_aprobadas = st.number_input(
+                    "\u2705 Aprobadas",
                     min_value=0, step=1,
-                    value=int(agente_db.get("kpi_cuentas_pers_activas") or 0),
-                    key=f"cp_{agente_id}",
+                    value=int(agente_db.get("kpi_cuentas_pers_aprobadas") or 0),
+                    key=f"cpa_{agente_id}",
                 )
-            with c4:
-                ctrs_com_val = st.number_input(
-                    "\U0001f3e2 Cuentas Comerciales Activas",
+            with cp2:
+                form_pers_rechazadas = st.number_input(
+                    "\u274c Rechazadas",
                     min_value=0, step=1,
-                    value=int(agente_db.get("kpi_cuentas_com_activas") or 0),
-                    key=f"cc_{agente_id}",
+                    value=int(agente_db.get("kpi_cuentas_pers_rechazadas") or 0),
+                    key=f"cpr_{agente_id}",
+                )
+            with cp3:
+                form_pers_investigacion = st.number_input(
+                    "\U0001f50d Investigaci\u00f3n",
+                    min_value=0, step=1,
+                    value=int(agente_db.get("kpi_cuentas_pers_investigacion") or 0),
+                    key=f"cpi_{agente_id}",
+                )
+
+            st.markdown(
+                f"<div style='color:{_C_GRAY};font-size:0.72rem;text-transform:uppercase;"
+                f"letter-spacing:0.8px;margin:10px 0 4px;'>\U0001f3e2 Cuentas Comerciales</div>",
+                unsafe_allow_html=True,
+            )
+            cc1, cc2, cc3 = st.columns(3)
+            with cc1:
+                form_com_aprobadas = st.number_input(
+                    "\u2705 Aprobadas",
+                    min_value=0, step=1,
+                    value=int(agente_db.get("kpi_cuentas_com_aprobadas") or 0),
+                    key=f"cca_{agente_id}",
+                )
+            with cc2:
+                form_com_rechazadas = st.number_input(
+                    "\u274c Rechazadas",
+                    min_value=0, step=1,
+                    value=int(agente_db.get("kpi_cuentas_com_rechazadas") or 0),
+                    key=f"ccr_{agente_id}",
+                )
+            with cc3:
+                form_com_investigacion = st.number_input(
+                    "\U0001f50d Investigaci\u00f3n",
+                    min_value=0, step=1,
+                    value=int(agente_db.get("kpi_cuentas_com_investigacion") or 0),
+                    key=f"cci_{agente_id}",
                 )
 
             guardado = st.form_submit_button(
@@ -389,8 +424,12 @@ def _form_registro_diario(agente_db: dict, user: Optional[dict]) -> None:
                         admin_user=user,
                     )
                     repo.update(agente_id, {
-                        "kpi_cuentas_pers_activas": int(ctrs_pers_val),
-                        "kpi_cuentas_com_activas":  int(ctrs_com_val),
+                        "kpi_cuentas_pers_aprobadas":     int(form_pers_aprobadas),
+                        "kpi_cuentas_pers_rechazadas":    int(form_pers_rechazadas),
+                        "kpi_cuentas_pers_investigacion": int(form_pers_investigacion),
+                        "kpi_cuentas_com_aprobadas":      int(form_com_aprobadas),
+                        "kpi_cuentas_com_rechazadas":     int(form_com_rechazadas),
+                        "kpi_cuentas_com_investigacion":  int(form_com_investigacion),
                     })
                 st.success("\u2705 Gesti\u00f3n del d\u00eda guardada correctamente.")
                 st.rerun()
@@ -469,9 +508,13 @@ def _render_compliance_kpis(agente_db: dict, meta: int) -> None:
     def _kv(key: str) -> int:
         return int(agente_db.get(key) or 0)
 
-    ctrs_pers  = _kv("kpi_cuentas_pers_activas")
-    ctrs_com   = _kv("kpi_cuentas_com_activas")
-    total_activos = ctrs_pers + ctrs_com
+    pers_aprobadas     = _kv("kpi_cuentas_pers_aprobadas")
+    pers_rechazadas    = _kv("kpi_cuentas_pers_rechazadas")
+    pers_investigacion = _kv("kpi_cuentas_pers_investigacion")
+    com_aprobadas      = _kv("kpi_cuentas_com_aprobadas")
+    com_rechazadas     = _kv("kpi_cuentas_com_rechazadas")
+    com_investigacion  = _kv("kpi_cuentas_com_investigacion")
+    total_activos = pers_aprobadas + com_aprobadas
 
     # ── Fila 1: Documentación ─────────────────────────────
     c1, c2 = st.columns(2)
@@ -500,19 +543,49 @@ def _render_compliance_kpis(agente_db: dict, meta: int) -> None:
                   "Total histórico — transacciones con due-diligence completado")
     with c6:
         col_tot = _C_GREEN if total_activos > 0 else _C_GRAY
-        _kpi_card("Total Partners Activos", total_activos, col_tot,
-                  "Cuentas personales + comerciales activas (config manual)")
+        _kpi_card("Partners Aprobados", total_activos, col_tot,
+                  "Cuentas aprobadas personal + comercial")
 
     # ── Progreso de meta ──────────────────────────────────
     progreso = min(total_activos / meta, 1.0) if meta > 0 else 0.0
     _section_title("\u26a1 Progreso de Meta — Partners Activos")
     st.markdown(
         f"<div style='color:{_C_GRAY};font-size:0.75rem;margin-bottom:6px;'>"
-        f"<b style='color:#f9fafb;'>{total_activos}</b> activos (personal + comercial) "
+        f"<b style='color:#f9fafb;'>{total_activos}</b> aprobados (personal + comercial) "
         f"de una meta de <b style='color:#f9fafb;'>{meta}</b></div>",
         unsafe_allow_html=True,
     )
     st.progress(progreso)
+
+    # ── Segmentación de Cuentas ────────────────────────────
+    _section_title("\U0001f4b3 Segmentaci\u00f3n de Cuentas")
+    seg_cols = st.columns(3)
+    _SEG = [
+        ("\u2705 Aprobadas",          pers_aprobadas,     com_aprobadas,     _C_GREEN),
+        ("\u274c Rechazadas",         pers_rechazadas,    com_rechazadas,    _C_RED),
+        ("\U0001f50d Investigaci\u00f3n", pers_investigacion, com_investigacion, _C_AMBER),
+    ]
+    for col, (label, pv, cv, color) in zip(seg_cols, _SEG):
+        with col:
+            st.markdown(
+                f"<div style='background:{_C_BG};border:1px solid {_C_BORDER};"
+                f"border-left:3px solid {color};border-radius:8px;"
+                f"padding:10px 14px;'>"
+                f"<div style='color:{color};font-size:0.70rem;font-weight:700;"
+                f"text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px;'>{label}</div>"
+                f"<div style='display:flex;justify-content:space-around;'>"
+                f"<div style='text-align:center;'>"
+                f"<div style='color:#f9fafb;font-size:1.4rem;font-weight:700;'>{pv}</div>"
+                f"<div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>Personal</div>"
+                f"</div>"
+                f"<div style='width:1px;background:{_C_BORDER};'></div>"
+                f"<div style='text-align:center;'>"
+                f"<div style='color:#f9fafb;font-size:1.4rem;font-weight:700;'>{cv}</div>"
+                f"<div style='color:{_C_GRAY};font-size:0.68rem;margin-top:2px;'>Comercial</div>"
+                f"</div>"
+                f"</div></div>",
+                unsafe_allow_html=True,
+            )
 
 
 # ─────────────────────────────────────────────────────────────

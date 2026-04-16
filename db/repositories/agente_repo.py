@@ -27,6 +27,12 @@ _CAMPOS_EDITABLES = frozenset({
     "activo",
     "kpi_cuentas_pers_activas",
     "kpi_cuentas_com_activas",
+    "kpi_cuentas_pers_aprobadas",
+    "kpi_cuentas_pers_rechazadas",
+    "kpi_cuentas_pers_investigacion",
+    "kpi_cuentas_com_aprobadas",
+    "kpi_cuentas_com_rechazadas",
+    "kpi_cuentas_com_investigacion",
 })
 
 # Columnas de KPI manuales — editables vía editor inline y carga Excel
