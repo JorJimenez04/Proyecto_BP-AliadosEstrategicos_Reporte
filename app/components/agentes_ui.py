@@ -655,21 +655,21 @@ def _tab_info(agente_db: Optional[dict], user: Optional[dict]) -> None:
     es_admin = bool(user and user.get("rol") == "admin")
 
     _section_title("\U0001f4cb Ficha de Contacto")
+    _email_val    = agente_db.get("email")    or "\u2014"
+    _telefono_val = agente_db.get("telefono") or "\u2014"
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(
             f"<div style='color:{_C_GRAY};font-size:0.72rem;text-transform:uppercase;"
             f"letter-spacing:0.8px;margin-bottom:4px;'>Email</div>"
-            f"<div style='color:#f9fafb;font-size:0.92rem;'>"
-            f"{agente_db.get('email') or '\u2014'}</div>",
+            f"<div style='color:#f9fafb;font-size:0.92rem;'>{_email_val}</div>",
             unsafe_allow_html=True,
         )
     with c2:
         st.markdown(
             f"<div style='color:{_C_GRAY};font-size:0.72rem;text-transform:uppercase;"
             f"letter-spacing:0.8px;margin-bottom:4px;'>Tel\u00e9fono</div>"
-            f"<div style='color:#f9fafb;font-size:0.92rem;'>"
-            f"{agente_db.get('telefono') or '\u2014'}</div>",
+            f"<div style='color:#f9fafb;font-size:0.92rem;'>{_telefono_val}</div>",
             unsafe_allow_html=True,
         )
 
