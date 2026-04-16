@@ -13,6 +13,7 @@ fi
 # ── 2. Inicialización / migración de la base de datos ────────────
 echo "[AdamoServices] Ejecutando migraciones de base de datos..."
 python -m db.database
+python db/sync_db.py
 echo "[AdamoServices] Migraciones completadas."
 
 # ── 3. Propagar SECRET_KEY como clave de firma de cookies de sesión ────────
