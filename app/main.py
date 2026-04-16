@@ -69,24 +69,104 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ── Callback del radio: al cambiar de sección borra el agente activo ─────────
+def _on_nav_radio_change() -> None:
+    st.session_state.pop("nav_agente", None)
+
+
 # ── Sidebar Navegación ────────────────────────────────────────
-def sidebar(user: dict):
+def sidebar(user: dict) -> tuple[str, str | None]:
+    """
+    Retorna (page, agente_username | None).
+
+    page puede ser:
+      "📊 Dashboard" | "🤝 Partners" | "➕ Nuevo Partner" |
+      "📋 Log de Auditoría" | "👤 Perfil Agente"
+    agente_username solo está definido cuando page == "👤 Perfil Agente".
+    """
+    from app.components.agentes_ui import EQUIPOS
+
     _logo_sidebar, _logo_icono = _get_logos()
     if _logo_icono:
         try:
             _icon_bytes = _logo_icono.read_bytes()
-            st.logo(_logo_sidebar.read_bytes() if _logo_sidebar else _icon_bytes, icon_image=_icon_bytes, size="large")
-        except: pass
+            st.logo(
+                _logo_sidebar.read_bytes() if _logo_sidebar else _icon_bytes,
+                icon_image=_icon_bytes,
+                size="large",
+            )
+        except:
+            pass
+
+    agente_seleccionado: str | None = None
+
     with st.sidebar:
         if _logo_sidebar:
-            try: st.image(_logo_sidebar.read_bytes(), width=220)
-            except: pass
-        st.markdown(f"<span style='color:#9ca3af; font-size:0.82rem;'>👤 {user['nombre_completo']}</span>", unsafe_allow_html=True)
-        page = st.radio("Navegación", options=["📊 Dashboard", "🤝 Partners", "➕ Nuevo Partner", "📋 Log de Auditoría"], label_visibility="collapsed")
+            try:
+                st.image(_logo_sidebar.read_bytes(), width=220)
+            except:
+                pass
+
+        st.markdown(
+            f"<span style='color:#9ca3af; font-size:0.82rem;'>👤 {user['nombre_completo']}</span>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div style='border-bottom:1px solid #293056;margin:10px 0 14px;'></div>",
+            unsafe_allow_html=True,
+        )
+
+        # ── Navegación principal ──────────────────────────────
+        # Clave interna _radio_nav — nunca se escribe desde fuera del widget.
+        # on_change limpia nav_agente cuando el usuario vuelve al radio.
+        nav_choice = st.radio(
+            "Navegación",
+            options=["📊 Dashboard", "🤝 Partners", "➕ Nuevo Partner", "📋 Log de Auditoría"],
+            label_visibility="collapsed",
+            key="_radio_nav",
+            on_change=_on_nav_radio_change,
+        )
+
+        # ── Equipos Operativos (expander) ─────────────────────
+        st.markdown(
+            "<div style='border-top:1px solid #293056;margin:14px 0 10px;'></div>",
+            unsafe_allow_html=True,
+        )
+        with st.expander("🏢 Equipos Operativos", expanded=False):
+            for equipo_nombre, equipo_data in EQUIPOS.items():
+                equipo_color = equipo_data["color"]
+                st.markdown(
+                    f"<p style='color:{equipo_color};font-size:0.72rem;font-weight:700;"
+                    f"text-transform:uppercase;letter-spacing:1px;"
+                    f"margin:10px 0 6px;'>{equipo_nombre}</p>",
+                    unsafe_allow_html=True,
+                )
+                for agente in equipo_data["agentes"]:
+                    if st.button(
+                        f"  {agente['nombre']}",
+                        key=f"btn_agente_{agente['username']}",
+                        use_container_width=True,
+                    ):
+                        # Solo escribimos en nav_agente, nunca en _radio_nav
+                        st.session_state["nav_agente"] = agente["username"]
+
+        # Derivar página activa: agente tiene precedencia sobre el radio
+        if st.session_state.get("nav_agente"):
+            agente_seleccionado = st.session_state["nav_agente"]
+            page = "👤 Perfil Agente"
+        else:
+            page = nav_choice
+
+        st.markdown(
+            "<div style='border-top:1px solid #293056;margin:14px 0 10px;'></div>",
+            unsafe_allow_html=True,
+        )
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
-            for _k in ("user", "authenticated"): st.session_state.pop(_k, None)
+            for _k in ("user", "authenticated", "nav_agente"):
+                st.session_state.pop(_k, None)
             st.rerun()
-    return page
+
+    return page, agente_seleccionado
 
 # ── Página Nuevo Partner (Formulario Reestructurado) ──────────
 def page_nuevo_partner(user: dict):
@@ -196,13 +276,12 @@ def page_nuevo_partner(user: dict):
 def main():
     from app.auth.login import require_auth
     user = require_auth()
-    
-    # Invocación de sidebar y navegación
-    page = sidebar(user)
+
+    page, agente_username = sidebar(user)
 
     if page == "📊 Dashboard":
-        from app.components.dashboard_ui import page_dashboard # Asumiendo que moviste la lógica allí
-        page_dashboard(user) 
+        from app.components.dashboard_ui import page_dashboard
+        page_dashboard(user)
     elif page == "🤝 Partners":
         from app.components.partners_ui import page_partners
         page_partners(user)
@@ -211,6 +290,10 @@ def main():
     elif page == "📋 Log de Auditoría":
         from app.components.audit_ui import page_auditoria
         page_auditoria(user)
+    elif page == "👤 Perfil Agente" and agente_username:
+        from app.components.agentes_ui import render_perfil_agente
+        render_perfil_agente(agente_username)
+
 
 if __name__ == "__main__":
     main()
