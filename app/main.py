@@ -166,9 +166,8 @@ def sidebar(user: dict) -> tuple[str, str | None]:
             unsafe_allow_html=True,
         )
         if st.button("🚪 Cerrar Sesión", use_container_width=True):
-            for _k in ("user", "authenticated", "nav_agente"):
-                st.session_state.pop(_k, None)
-            st.rerun()
+            from app.auth.login import logout as _auth_logout
+            _auth_logout()
 
     return page, agente_seleccionado
 

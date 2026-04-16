@@ -461,12 +461,20 @@ def _render_compliance_kpis(agente_db: dict, meta: int) -> None:
         "dias_registrados": 0,
     }
     hoy_data: dict = {}
+    # agente_fresh: re-lectura directa de la fila de agentes para que los
+    # campos kpi_cuentas_* reflejen siempre el último commit (no el dict
+    # pasado como parámetro, que fue cargado antes de cualquier guardado).
+    agente_fresh: dict = agente_db
     if agente_id:
         try:
             with next(get_session()) as session:
-                stats    = AgenteRepository(session).get_stats_agente(agente_id)
+                repo_    = AgenteRepository(session)
+                stats    = repo_.get_stats_agente(agente_id)
                 totales  = stats["totales"]
                 hoy_data = stats["hoy"]
+                fresh    = repo_.get_by_id(agente_id)
+                if fresh:
+                    agente_fresh = fresh
         except Exception as exc:
             st.warning(f"No se pudieron cargar los totales históricos: {exc}")
 
@@ -506,7 +514,7 @@ def _render_compliance_kpis(agente_db: dict, meta: int) -> None:
     _section_title(f"\U0001f4ca Totales Hist\u00f3ricos Acumulados{dias_suffix}")
 
     def _kv(key: str) -> int:
-        return int(agente_db.get(key) or 0)
+        return int(agente_fresh.get(key) or 0)
 
     pers_aprobadas     = _kv("kpi_cuentas_pers_aprobadas")
     pers_rechazadas    = _kv("kpi_cuentas_pers_rechazadas")

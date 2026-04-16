@@ -12,9 +12,13 @@ Flujo:
 import os
 import base64
 import time
+import hmac
+import hashlib
+import json
 from pathlib import Path
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import extra_streamlit_components as stx
 
 # ── Rutas de logos (misma detección que main.py) ─────────────
 _LOGOS_DIR   = Path(__file__).resolve().parent.parent / "static" / "img" / "logos"
@@ -53,6 +57,129 @@ def _get_logos() -> tuple[bytes | None, bytes | None]:
 # ── Constantes de rate-limiting ───────────────────────────────
 _MAX_FAILS       = 5   # intentos consecutivos antes de bloqueo
 _LOCKOUT_SECONDS = 60  # segundos de bloqueo temporal
+
+
+# ── Cookie de sesión ──────────────────────────────────────────
+_SESSION_COOKIE = "adamo_session_token"
+_SESSION_TTL_H  = 8   # horas de validez
+
+
+def _get_cookie_manager() -> stx.CookieManager:
+    """Retrieves the CookieManager rendered once per run by require_auth()."""
+    if "_cookie_manager" not in st.session_state:
+        # Fallback: render it now if accessed before require_auth initialises it
+        st.session_state["_cookie_manager"] = stx.CookieManager(key="adamo_cm_fallback")
+    return st.session_state["_cookie_manager"]
+
+
+def _sign_token(payload: dict) -> str:
+    """Firma el payload con HMAC-SHA256 y retorna el token codificado en base64."""
+    secret = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production").encode()
+    body   = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    sig    = hmac.new(secret, body.encode(), hashlib.sha256).hexdigest()
+    return base64.b64encode(json.dumps({"p": body, "s": sig}).encode()).decode()
+
+
+def _verify_token(token: str) -> dict | None:
+    """Verifica firma HMAC y TTL. Retorna el payload o None si es inválido/expirado."""
+    try:
+        outer    = json.loads(base64.b64decode(token.encode()).decode())
+        body     = outer["p"]
+        sig      = outer["s"]
+        secret   = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production").encode()
+        expected = hmac.new(secret, body.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        payload = json.loads(body)
+        if datetime.now(timezone.utc).timestamp() > payload.get("exp", 0):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+def save_session_cookie(user: dict) -> None:
+    """Crea y almacena la cookie de sesión firmada (TTL 8 h)."""
+    exp = datetime.now(timezone.utc) + timedelta(hours=_SESSION_TTL_H)
+    payload = {
+        "username": user["username"],
+        "user_id":  user["id"],
+        "exp":      exp.timestamp(),
+    }
+    _get_cookie_manager().set(_SESSION_COOKIE, _sign_token(payload), expires_at=exp)
+
+
+def check_active_session() -> bool:
+    """
+    Intenta re-hidratar la sesión desde la cookie firmada.
+
+    - Lee la cookie y verifica firma HMAC + TTL.
+    - Para usuarios de BD: re-consulta para confirmar que siguen activos.
+    - Invalida la cookie automáticamente si la validación falla.
+    - Retorna True si la sesión fue restaurada correctamente.
+    """
+    if st.session_state.get("authenticated"):
+        return True
+
+    token = _get_cookie_manager().get(_SESSION_COOKIE)
+    if not token:
+        return False
+
+    payload = _verify_token(token)
+    if not payload:
+        _get_cookie_manager().delete(_SESSION_COOKIE)
+        return False
+
+    user_id  = payload.get("user_id")
+    username = payload.get("username")
+
+    # Administrador de ENV (id=0) — no existe en la BD
+    if user_id == 0:
+        st.session_state["authenticated"] = True
+        st.session_state["user"] = {
+            "id":              0,
+            "username":        username,
+            "nombre_completo": "Administrador del Sistema",
+            "rol":             "admin",
+            "email":           os.getenv("ADMIN_EMAIL", "compliance@adamoservices.co"),
+        }
+        return True
+
+    # Usuario de BD — re-consultar para verificar que sigue activo
+    try:
+        from db.database import get_session as _get_db_session
+        from sqlalchemy import text as _text
+
+        _gen     = _get_db_session()
+        _session = next(_gen)
+        try:
+            row = _session.execute(
+                _text("SELECT * FROM usuarios WHERE id = :id AND activo = true"),
+                {"id": user_id},
+            ).mappings().first()
+        finally:
+            _session.close()
+
+        if not row:
+            _get_cookie_manager().delete(_SESSION_COOKIE)
+            return False
+
+        st.session_state["authenticated"] = True
+        st.session_state["user"]          = dict(row)
+        return True
+    except Exception:
+        return False
+
+
+def logout() -> None:
+    """Elimina la cookie de sesión y limpia el estado de la aplicación."""
+    try:
+        _get_cookie_manager().delete(_SESSION_COOKIE)
+    except Exception:
+        pass
+    for _k in ("user", "authenticated", "nav_agente", "login_fails", "login_locked_until"):
+        st.session_state.pop(_k, None)
+    st.rerun()
 
 
 # ── IP del cliente ────────────────────────────────────────────
@@ -491,6 +618,7 @@ def login_screen() -> None:
             st.session_state["user"]              = user
             st.session_state["login_fails"]       = 0
             st.session_state["login_locked_until"] = 0.0
+            save_session_cookie(user)
             _audit_login(
                 success=True,
                 username=username.strip(),
@@ -553,6 +681,9 @@ def require_auth() -> dict:
 
     Si está autenticado, retorna el dict del usuario.
     """
+    # Render CookieManager exactly once per run (must be outside cached functions)
+    st.session_state["_cookie_manager"] = stx.CookieManager(key="adamo_cm")
+    check_active_session()
     if not st.session_state.get("authenticated") or "user" not in st.session_state:
         login_screen()
         st.stop()
