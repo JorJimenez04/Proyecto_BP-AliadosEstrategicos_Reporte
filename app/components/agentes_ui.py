@@ -1115,7 +1115,8 @@ def _form_nuevo_agente(user: dict) -> None:
             nombre   = st.text_input("Nombre Completo *")
             username = st.text_input(
                 "Identificador *",
-                placeholder="ej: maria_garcia (sin espacios, \u00fanico)",
+                placeholder="ej: maria_garcia",
+                help="Solo min\u00fasculas, n\u00fameros y guion bajo. Ej: maria_garcia, juan01. Sin espacios ni acentos.",
             )
             email    = st.text_input("Email corporativo")
         with c2:
@@ -1134,9 +1135,12 @@ def _form_nuevo_agente(user: dict) -> None:
             from db.models import AgenteCreate
             from pydantic import ValidationError
             # ── Pydantic validation ───────────────────────────
+            # Sanitizar username: minúsculas, espacios→_, quitar caracteres no permitidos
+            import re as _re
+            username_clean = _re.sub(r"[^a-z0-9_]", "", username.strip().lower().replace(" ", "_").replace("-", "_"))
             try:
                 datos = AgenteCreate(
-                    username=username.strip().lower(),
+                    username=username_clean,
                     nombre_completo=nombre.strip(),
                     equipo=equipo,
                     cargo=cargo.strip() or None,
@@ -1148,7 +1152,10 @@ def _form_nuevo_agente(user: dict) -> None:
             except ValidationError as ve:
                 for err in ve.errors():
                     campo = str(err["loc"][0]) if err["loc"] else "campo"
-                    st.error(f"\u274c **{campo}**: {err['msg']}")
+                    msg = err["msg"]
+                    if campo == "username" and "pattern" in msg:
+                        msg = f"Solo se permiten min\u00fasculas, n\u00fameros y guion bajo. Valor recibido: '{username_clean}'"
+                    st.error(f"\u274c **{campo}**: {msg}")
                 return
             # ── Persistencia ─────────────────────────────────
             try:
