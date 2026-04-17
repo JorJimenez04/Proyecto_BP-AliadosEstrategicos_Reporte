@@ -72,6 +72,58 @@ def _get_cookie_manager() -> stx.CookieManager:
     return st.session_state["_cookie_manager"]
 
 
+def _render_splash() -> None:
+    """
+    Pantalla minimalista de espera mientras stx.CookieManager
+    lee la sesión del navegador via JavaScript (primer ciclo de Streamlit).
+    Dura ~1 run (~200 ms) — oculta el formulario de login antes de que
+    el CookieManager dispare el rerun automático con el valor real.
+    """
+    logo1, _ = _get_logos()
+    logo_html = ""
+    if logo1:
+        if logo1[:4] == b'\x89PNG':
+            mime = "image/png"
+        elif logo1[:2] == b'\xff\xd8':
+            mime = "image/jpeg"
+        elif b'<svg' in logo1[:200]:
+            mime = "image/svg+xml"
+        else:
+            mime = "image/png"
+        src = f"data:{mime};base64,{base64.b64encode(logo1).decode()}"
+        logo_html = (
+            f'<img src="{src}" style="max-height:80px;max-width:240px;'
+            f'object-fit:contain;filter:brightness(0) invert(1);opacity:0.85;">'
+        )
+    st.markdown(f"""
+    <style>
+    [data-testid="stHeader"],[data-testid="stToolbar"],
+    [data-testid="stSidebar"]{{display:none!important;}}
+    [data-testid="stAppViewContainer"]>.main{{background:#0A1628!important;}}
+    [data-testid="stAppViewBlockContainer"]{{padding-top:0!important;}}
+    @keyframes splashPulse{{0%,100%{{opacity:0.4;}}50%{{opacity:1;}}}}
+    @keyframes splashFade{{from{{opacity:0;transform:translateY(10px);}}
+                          to{{opacity:1;transform:translateY(0);}}}}
+    .splash-wrap{{
+        display:flex;flex-direction:column;align-items:center;
+        justify-content:center;min-height:85vh;
+        animation:splashFade 0.45s ease-out;
+    }}
+    .splash-logo{{margin-bottom:36px;}}
+    .splash-msg{{
+        color:#5fe9d0;font-size:0.78rem;letter-spacing:2.5px;
+        text-transform:uppercase;font-weight:600;
+        animation:splashPulse 1.7s ease-in-out infinite;
+        font-family:'Inter','Segoe UI',sans-serif;
+    }}
+    </style>
+    <div class="splash-wrap">
+        <div class="splash-logo">{logo_html}</div>
+        <div class="splash-msg">🔐 &nbsp;Estableciendo conexión segura...</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 def _sign_token(payload: dict) -> str:
     """Firma el payload con HMAC-SHA256 y retorna el token codificado en base64."""
     secret = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production").encode()
@@ -102,9 +154,12 @@ def save_session_cookie(user: dict) -> None:
     """Crea y almacena la cookie de sesión firmada (TTL 8 h)."""
     exp = datetime.now(timezone.utc) + timedelta(hours=_SESSION_TTL_H)
     payload = {
-        "username": user["username"],
-        "user_id":  user["id"],
-        "exp":      exp.timestamp(),
+        "username":        user["username"],
+        "user_id":         user["id"],
+        "rol":             user.get("rol", "consulta"),
+        "nombre_completo": user.get("nombre_completo", ""),
+        "email":           user.get("email", ""),
+        "exp":             exp.timestamp(),
     }
     _get_cookie_manager().set(_SESSION_COOKIE, _sign_token(payload), expires_at=exp)
 
@@ -148,7 +203,8 @@ def check_active_session() -> bool:
         }
         return True
 
-    # Usuario de BD — re-consultar para verificar que sigue activo
+    # Usuario de BD — verificación ligera: solo id + activo = 1
+    # El payload completo ya fue verificado con HMAC — no necesitamos SELECT *
     try:
         from db.database import get_session as _get_db_session
         from sqlalchemy import text as _text
@@ -156,19 +212,26 @@ def check_active_session() -> bool:
         _gen     = _get_db_session()
         _session = next(_gen)
         try:
-            row = _session.execute(
-                _text("SELECT * FROM usuarios WHERE id = :id AND activo = 1"),
+            exists = _session.execute(
+                _text("SELECT id FROM usuarios WHERE id = :id AND activo = 1"),
                 {"id": user_id},
-            ).mappings().first()
+            ).first()
         finally:
             _session.close()
 
-        if not row:
+        if not exists:
             _get_cookie_manager().delete(_SESSION_COOKIE)
             return False
 
+        # Restaurar sesión desde el payload firmado (HMAC ya verificado arriba)
         st.session_state["authenticated"] = True
-        st.session_state["user"]          = dict(row)
+        st.session_state["user"] = {
+            "id":              user_id,
+            "username":        payload.get("username", username),
+            "nombre_completo": payload.get("nombre_completo", ""),
+            "rol":             payload.get("rol", "consulta"),
+            "email":           payload.get("email", ""),
+        }
         return True
     except Exception:
         return False
@@ -352,6 +415,17 @@ def login_screen() -> None:
         0%   { box-shadow: 0 2px 0 0 rgba(95,233,208,0.4); }
         50%  { box-shadow: 0 2px 6px 0 rgba(95,233,208,0.65); }
         100% { box-shadow: 0 2px 0 0 rgba(95,233,208,0.4); }
+    }
+    @keyframes fadeInLogin {
+        from { opacity: 0; transform: translateY(12px); }
+        to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Fade-in del contenido de login ──────────────────────── */
+    [data-testid="stForm"],
+    .login-logos-bar,
+    .login-title-bar {
+        animation: fadeInLogin 0.65s ease-out both;
     }
 
     /* ── Fondo: malla de partículas animada ──────────────────── */
@@ -737,13 +811,30 @@ def require_auth() -> dict:
     """
     Gate de autenticación para usar al inicio de main().
 
-    Si el usuario no está autenticado, renderiza login_screen() y
-    detiene la ejecución con st.stop() — nunca retorna en ese caso.
+    Flujo de arranque anti-parpadeo:
+      Run 1 — stx.CookieManager se renderiza pero la cookie aún no está
+               disponible (JS no ha comunicado el valor). Se muestra el
+               splash screen para ocultar el formulario de login.
+               El componente dispara un rerun automático al leer las cookies.
+      Run 2 — cookie disponible → check_active_session() puede validar.
+               Si la sesión es válida, retorna el usuario directamente.
+               Si no hay sesión, muestra login_screen() con fade-in suave.
 
-    Si está autenticado, retorna el dict del usuario.
+    Nunca retorna si el usuario no está autenticado (llama st.stop()).
     """
-    # Render CookieManager exactly once per run (must be outside cached functions)
+    # CookieManager debe renderizarse una sola vez por run,
+    # fuera de funciones cacheadas o condicionales.
     st.session_state["_cookie_manager"] = stx.CookieManager(key="adamo_cm")
+
+    # ── Splash en el primer ciclo de renderizado ──────────────
+    # En el primer run la cookie JS aún no está disponible.
+    # Mostramos splash para evitar que el formulario de login
+    # aparezca brevemente antes de la redirección al hub.
+    if not st.session_state.get("_boot_done") and not st.session_state.get("authenticated"):
+        st.session_state["_boot_done"] = True
+        _render_splash()
+        st.stop()
+
     check_active_session()
     if not st.session_state.get("authenticated") or "user" not in st.session_state:
         login_screen()
