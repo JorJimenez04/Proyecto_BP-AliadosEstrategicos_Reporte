@@ -1,6 +1,6 @@
 """
 app/components/dashboard_ui.py
-Dashboard Ejecutivo — AdamoPay / AdamoServices Partner Manager.
+Dashboard Ejecutivo — Core Operations Hub · Adamo Services Partner Manager.
 
 Disenado para Compliance Officers: herramienta de decision de primera mano
 con vision corporativa, monitor de riesgo operativo y analisis de volumen.
@@ -188,7 +188,7 @@ def _termometro_row(label: str, valor: int, total: int, color: str) -> None:
 
 def page_dashboard(user: dict) -> None:
     """
-    Dashboard ejecutivo de AdamoPay para Compliance Officers.
+    Dashboard ejecutivo de Adamo Services — Core Operations Hub.
 
     Secciones:
       1. KPIs globales
@@ -206,13 +206,30 @@ def page_dashboard(user: dict) -> None:
     import plotly.graph_objects as go
 
     st.markdown(
-        "<h1 style='margin-bottom:4px;'>Dashboard Ejecutivo &mdash; AdamoPay</h1>",
+        f"""
+        <div style='margin-bottom:6px;'>
+            <h1 style='margin-bottom:4px;letter-spacing:4px;font-size:1.95rem;
+                       background:linear-gradient(135deg,#ffffff 30%,{_C_CYAN} 70%);
+                       -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+                       background-clip:text;display:inline-block;'>
+                CORE OPERATIONS HUB
+            </h1>
+            <div style='color:#9ca3af;font-size:0.88rem;margin-top:2px;letter-spacing:0.3px;'>
+                Gestión de Ecosistema Bancario y Gobierno de Datos
+            </div>
+            <div style='display:inline-flex;align-items:center;gap:6px;
+                        background:rgba(95,233,208,0.1);border:1px solid rgba(95,233,208,0.28);
+                        border-radius:20px;padding:3px 12px;margin-top:8px;font-size:0.72rem;
+                        color:{_C_CYAN};font-weight:600;letter-spacing:0.5px;'>
+                <span style='width:7px;height:7px;background:{_C_CYAN};border-radius:50%;
+                             display:inline-block;box-shadow:0 0 6px {_C_CYAN};'></span>
+                Monitoreo Activo: Online
+            </div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
-    st.markdown(
-        f"<hr style='border-color:{_C_BORDER};margin-bottom:24px;'>",
-        unsafe_allow_html=True,
-    )
+    st.divider()
 
     try:
         with next(get_session()) as session:

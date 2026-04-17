@@ -80,7 +80,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
     Retorna (page, agente_username | None).
 
     page puede ser:
-      "📊 Dashboard" | "🤝 Partners" | "➕ Nuevo Partner" |
+      "� Core Operations" | "🤝 Partners" | "➕ Nuevo Partner" |
       "📋 Log de Auditoría" | "👤 Perfil Agente"
     agente_username solo está definido cuando page == "👤 Perfil Agente".
     """
@@ -119,7 +119,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         # ── Navegación principal ──────────────────────────────
         # Clave interna _radio_nav — nunca se escribe desde fuera del widget.
         # on_change limpia nav_agente cuando el usuario vuelve al radio.
-        _nav_opts = ["📊 Dashboard", "🤝 Partners"]
+        _nav_opts = ["� Core Operations", "🤝 Partners"]
         if user.get("rol") in Roles.CAN_CREATE_PARTNERS:
             _nav_opts.append("➕ Nuevo Partner")
         if user.get("rol") in {"admin", "compliance"}:
@@ -287,7 +287,7 @@ def main():
 
     page, agente_username = sidebar(user)
 
-    if page == "📊 Dashboard":
+    if page == "� Core Operations":
         from app.components.dashboard_ui import page_dashboard
         page_dashboard(user)
     elif page == "🤝 Partners":

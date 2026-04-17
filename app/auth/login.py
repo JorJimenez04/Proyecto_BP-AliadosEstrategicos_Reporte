@@ -634,7 +634,7 @@ def login_screen() -> None:
 
         st.markdown("""
         <div class='login-footer'>
-            🔒 Conexión segura · AdamoServices S.A.S · 2026
+            🔒 Conexión segura · Intelligence Hub - Operaciones Globales · AdamoServices S.A.S · 2026
         </div>
         """, unsafe_allow_html=True)
 
