@@ -72,7 +72,18 @@ def _get_cookie_manager() -> stx.CookieManager:
     return st.session_state["_cookie_manager"]
 
 
-def _render_splash() -> None:
+def _read_session_cookie_sync() -> str | None:
+    """
+    Lee la cookie de sesión de forma síncrona desde los headers HTTP
+    (Streamlit ≥ 1.33 expone st.context.cookies).
+    Retorna el valor crudo o None si no está disponible.
+    """
+    try:
+        return st.context.cookies.get(_SESSION_COOKIE)  # type: ignore[attr-defined]
+    except AttributeError:
+        return None
+
+() -> None:
     """
     Pantalla minimalista de espera mientras stx.CookieManager
     lee la sesión del navegador via JavaScript (primer ciclo de Streamlit).
@@ -179,7 +190,7 @@ def check_active_session() -> bool:
     if st.session_state.get("_logged_out"):
         return False
 
-    token = _get_cookie_manager().get(_SESSION_COOKIE)
+    token = _read_session_cookie_sync() or _get_cookie_manager().get(_SESSION_COOKIE)
     if not token:
         return False
 
@@ -822,18 +833,34 @@ def require_auth() -> dict:
 
     Nunca retorna si el usuario no está autenticado (llama st.stop()).
     """
-    # CookieManager debe renderizarse una sola vez por run,
-    # fuera de funciones cacheadas o condicionales.
+    # CookieManager se renderiza siempre para que set/delete funcionen
+    # (logout necesita que el componente esté en el DOM)
     st.session_state["_cookie_manager"] = stx.CookieManager(key="adamo_cm")
 
-    # ── Splash en el primer ciclo de renderizado ──────────────
-    # En el primer run la cookie JS aún no está disponible.
-    # Mostramos splash para evitar que el formulario de login
-    # aparezca brevemente antes de la redirección al hub.
-    if not st.session_state.get("_boot_done") and not st.session_state.get("authenticated"):
+    # ── Fast path: sesión activa en este run ──────────────────
+    # El splash NO puede aparecer si el usuario ya está autenticado.
+    # Cubre navegación normal y reruns del propio CookieManager.
+    if st.session_state.get("authenticated") and "user" in st.session_state:
+        return st.session_state["user"]
+
+    # ── Logout explícito: ir al login sin splash ──────────────
+    if st.session_state.get("_logged_out"):
+        login_screen()
+        st.stop()
+
+    # ── Lectura síncrona de cookie (Streamlit ≥ 1.33) ─────────
+    # Si la cookie existe en los headers HTTP ya la tenemos sin JS.
+    # En este caso saltamos el splash por completo.
+    _sync_token = _read_session_cookie_sync()
+
+    # ── Splash solo si no hay cookie síncrona y es primer boot ─
+    if not st.session_state.get("_boot_done") and _sync_token is None:
         st.session_state["_boot_done"] = True
         _render_splash()
         st.stop()
+
+    # Marcar boot completado para runs siguientes
+    st.session_state["_boot_done"] = True
 
     check_active_session()
     if not st.session_state.get("authenticated") or "user" not in st.session_state:
