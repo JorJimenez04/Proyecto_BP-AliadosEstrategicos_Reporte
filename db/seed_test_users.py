@@ -2,21 +2,58 @@
 db/seed_test_users.py
 Inserta usuarios de prueba para validar la lógica RBAC de AdamoServices.
 
-La contraseña de todos los usuarios es la misma que ADMIN_PASSWORD en .env
-(la app acepta PLACEHOLDER_HASH en modo APP_ENV=development).
+Modos de uso:
+  Desarrollo local (PLACEHOLDER_HASH — contraseña = ADMIN_PASSWORD del .env):
+      python db/seed_test_users.py
 
-Uso:
-    python db/seed_test_users.py
+  Producción / Railway (hash bcrypt real):
+      python db/seed_test_users.py --password "$ADMIN_PASSWORD"
+      — o bien —
+      DATABASE_URL=<url> python db/seed_test_users.py --password MiPassword
+
+El script es idempotente: usa ON CONFLICT DO NOTHING, nunca falla si los
+usuarios ya existen. Railway lo llama automáticamente en cada deploy desde
+entrypoint.sh, pasando $ADMIN_PASSWORD como argumento.
 """
 
+import os
 import sys
 from pathlib import Path
 
-# Asegurar que la raíz del proyecto esté en el path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import text
 from db.database import get_session
+
+# ── Resolver contraseña ───────────────────────────────────────
+# Prioridad: --password CLI > ADMIN_PASSWORD env > modo desarrollo
+_real_password: str | None = None
+
+if "--password" in sys.argv:
+    idx = sys.argv.index("--password")
+    if idx + 1 < len(sys.argv):
+        _real_password = sys.argv[idx + 1].strip()
+    else:
+        print("❌ --password requiere un valor.")
+        sys.exit(1)
+
+if not _real_password:
+    _real_password = os.getenv("ADMIN_PASSWORD", "").strip() or None
+
+# ── Calcular hash ─────────────────────────────────────────────
+_app_env = os.getenv("APP_ENV", "development")
+
+if _real_password:
+    import bcrypt as _bcrypt
+    _HASH = _bcrypt.hashpw(_real_password.encode(), _bcrypt.gensalt()).decode()
+    print("[seed] Usando hash bcrypt real.")
+elif _app_env == "production":
+    print("❌ En producción ADMIN_PASSWORD debe estar definida en Railway.")
+    print("   Variables → ADMIN_PASSWORD=<tu-password>")
+    sys.exit(1)
+else:
+    _HASH = "PLACEHOLDER_HASH"
+    print("[seed] Modo desarrollo: PLACEHOLDER_HASH (contraseña = ADMIN_PASSWORD del .env).")
 
 # ── Usuarios de prueba ────────────────────────────────────────
 _TEST_USERS = [
@@ -40,10 +77,6 @@ _TEST_USERS = [
     },
 ]
 
-# PLACEHOLDER_HASH es reconocido por authenticate() en modo development.
-# La contraseña efectiva es el valor de ADMIN_PASSWORD en tu .env
-_HASH = "PLACEHOLDER_HASH"
-
 
 def seed_test_users() -> None:
     try:
@@ -51,29 +84,18 @@ def seed_test_users() -> None:
         session = next(session_gen)
     except Exception as exc:
         print(f"❌ No se pudo conectar a la base de datos: {exc}")
-        print("   Asegúrate de que el contenedor Docker (adamo_postgres) esté corriendo:")
-        print("   docker compose up -d postgres")
         sys.exit(1)
 
     try:
         created = 0
         for u in _TEST_USERS:
-            # Verificar si el usuario ya existe
-            existing = session.execute(
-                text("SELECT id FROM usuarios WHERE username = :username"),
-                {"username": u["username"]},
-            ).fetchone()
-
-            if existing:
-                print(f"⚠️  Usuario '{u['username']}' ya existe — omitido.")
-                continue
-
-            session.execute(
+            result = session.execute(
                 text("""
                     INSERT INTO usuarios
                         (username, nombre_completo, email, password_hash, rol, activo)
                     VALUES
                         (:username, :nombre_completo, :email, :password_hash, :rol, 1)
+                    ON CONFLICT (username) DO NOTHING
                 """),
                 {
                     "username":        u["username"],
@@ -83,29 +105,25 @@ def seed_test_users() -> None:
                     "rol":             u["rol"],
                 },
             )
-            print(f"✅ Usuario '{u['username']}' creado con rol '{u['rol']}'.")
-            created += 1
+            if result.rowcount > 0:
+                print(f"[seed] ✅ '{u['username']}' creado con rol '{u['rol']}'.")
+                created += 1
+            else:
+                print(f"[seed] ⚠️  '{u['username']}' ya existe — omitido.")
 
         session.commit()
-
-        if created == 0:
-            print("\nTodos los usuarios de prueba ya existían.")
-        else:
-            print(f"\n{created} usuario(s) insertado(s) correctamente.")
+        print(f"[seed] {created} usuario(s) nuevos. {len(_TEST_USERS) - created} ya existían.")
 
     except Exception as exc:
         session.rollback()
-        print(f"❌ Error al insertar usuarios: {exc}")
+        print(f"❌ Error en seed: {exc}")
         sys.exit(1)
     finally:
         session.close()
 
-    print("\n─── Credenciales de prueba ───────────────────────────")
-    print("  Usuario            │ Rol        │ Password")
-    print("  ─────────────────────────────────────────────────")
-    for u in _TEST_USERS:
-        print(f"  {u['username']:<18} │ {u['rol']:<10} │ (tu ADMIN_PASSWORD del .env)")
-    print("\n  Para probar: cierra sesión en la app y usa el username de prueba.")
+
+if __name__ == "__main__":
+    seed_test_users()
 
 
 if __name__ == "__main__":
