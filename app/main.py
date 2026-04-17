@@ -120,7 +120,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         # Clave interna _radio_nav — nunca se escribe desde fuera del widget.
         # on_change limpia nav_agente cuando el usuario vuelve al radio.
         _nav_opts = ["📊 Dashboard", "🤝 Partners", "➕ Nuevo Partner", "📋 Log de Auditoría"]
-        if user.get("rol") == "admin":
+        if user.get("rol") in Roles.CAN_VIEW_AGENTES:
             _nav_opts.append("👥 Gestión de Agentes")
         nav_choice = st.radio(
             "Navegación",
@@ -173,7 +173,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
 
 # ── Página Nuevo Partner (Formulario Reestructurado) ──────────
 def page_nuevo_partner(user: dict):
-    if user["rol"] not in (Roles.ADMIN, Roles.COMPLIANCE, Roles.COMERCIAL):
+    if user["rol"] not in Roles.CAN_CREATE_PARTNERS:
         st.error("No tienes permisos para crear partners.")
         return
 
@@ -266,10 +266,11 @@ def page_nuevo_partner(user: dict):
                 
                 # Registrar en auditoría
                 audit.registrar(
-                    username=user["username"], usuario_id=user["id"], accion="CREATE", 
-                    entidad="aliados", entidad_id=nuevo_id, 
+                    username=user["username"], usuario_id=user["id"], accion="CREATE",
+                    entidad="aliados", entidad_id=nuevo_id,
                     descripcion=f"Nuevo partner registrado: {nombre} (NIT: {nit})",
-                    valores_nuevos=nuevo.model_dump(mode="json")
+                    valores_nuevos=nuevo.model_dump(mode="json"),
+                    rol_usuario=user.get("rol"),
                 )
                 st.success(f"✅ Partner **{nombre}** registrado exitosamente con ID #{nuevo_id}")
         except Exception as e:

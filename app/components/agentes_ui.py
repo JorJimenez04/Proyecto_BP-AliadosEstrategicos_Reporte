@@ -270,7 +270,7 @@ def _form_registro_diario(agente_db: dict, user: Optional[dict]) -> None:
     agente_kpi_diario (con auditoría) y st.rerun().
     """
     from config.settings import Roles
-    if not (user and user.get("rol") == Roles.ADMIN):
+    if not (user and user.get("rol") in Roles.CAN_REGISTER_KPIS):
         return
 
     from datetime import date
@@ -826,6 +826,7 @@ def _tab_info(agente_db: Optional[dict], user: Optional[dict]) -> None:
                         descripcion=f"Perfil actualizado: {agente_db['username']}",
                         valores_anteriores={k: agente_db.get(k) for k in fields},
                         valores_nuevos=fields,
+                        rol_usuario=user.get("rol"),
                     )
                 st.success("Informaci\u00f3n guardada correctamente.")
                 st.rerun()
@@ -1283,6 +1284,7 @@ def _form_nuevo_agente(user: dict) -> None:
                             f"Colaborador registrado: {datos.nombre_completo} ({datos.equipo})"
                         ),
                         valores_nuevos=datos.model_dump(exclude_none=True),
+                        rol_usuario=user.get("rol"),
                     )
                 st.success(
                     f"\u2705 **{datos.nombre_completo}** registrado en "
@@ -1367,6 +1369,7 @@ def _form_editar_agente(user: dict) -> None:
                         descripcion=f"Colaborador actualizado: {agente['username']}",
                         valores_anteriores={k: agente.get(k) for k in fields},
                         valores_nuevos=fields,
+                        rol_usuario=user.get("rol"),
                     )
                 st.success(f"\u2705 **{agente['nombre_completo']}** actualizado correctamente.")
                 st.rerun()

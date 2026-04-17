@@ -47,6 +47,7 @@ class AuditRepository:
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
         resultado: str = "exitoso",
+        rol_usuario: Optional[str] = None,
     ) -> None:
         """
         Registra una acción en el log de auditoría.
@@ -63,6 +64,7 @@ class AuditRepository:
             ip_address:         IP del cliente.
             user_agent:         User agent del navegador.
             resultado:          'exitoso' | 'fallido'.
+            rol_usuario:        Rol del usuario al momento de ejecutar la acción.
         """
         # Normalizar resultado antes de insertar
         resultado = _RESULTADO_MAP.get(resultado.lower(), resultado)
@@ -80,11 +82,11 @@ class AuditRepository:
                 INSERT INTO log_auditoria (
                     usuario_id, username, accion, entidad, entidad_id,
                     descripcion, valores_anteriores, valores_nuevos,
-                    ip_address, user_agent, resultado
+                    ip_address, user_agent, resultado, rol_usuario
                 ) VALUES (
                     :usuario_id, :username, :accion, :entidad, :entidad_id,
                     :descripcion, :valores_anteriores, :valores_nuevos,
-                    :ip_address, :user_agent, :resultado
+                    :ip_address, :user_agent, :resultado, :rol_usuario
                 )
             """),
             {
@@ -99,10 +101,11 @@ class AuditRepository:
                 "ip_address":         ip_address,
                 "user_agent":         user_agent,
                 "resultado":          resultado,
+                "rol_usuario":        rol_usuario,
             },
         )
         self.session.commit()
-        logger.info(f"[AUDIT] {username} | {accion} | {entidad}:{entidad_id} | {resultado}")
+        logger.info(f"[AUDIT] {username} | {rol_usuario or '-'} | {accion} | {entidad}:{entidad_id} | {resultado}")
 
     def list_log(
         self,

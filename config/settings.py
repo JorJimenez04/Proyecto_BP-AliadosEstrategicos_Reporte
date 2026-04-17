@@ -87,12 +87,43 @@ SESSION_TIMEOUT_MINUTES: int = int(os.getenv("SESSION_TIMEOUT_MINUTES", "60"))
 
 # ── Roles del sistema ─────────────────────────────────────
 class Roles:
-    ADMIN      = "admin"
-    COMPLIANCE = "compliance"
-    COMERCIAL  = "comercial"
-    CONSULTA   = "consulta"
+    # ── Valores canónicos en BD ───────────────────────────
+    # Nivel 1 — Acceso total
+    ADMIN              = "admin"
+    # Nivel 2 — Gestión de equipo y KPIs operativos
+    COMPLIANCE         = "compliance"       # Manager Compliance (legacy alias)
+    COMERCIAL          = "comercial"        # Manager Pagos (legacy alias)
+    # Nivel 3 — Ejecución técnica
+    AGENTE_KYC         = "agente_kyc"
+    AGENTE_OPERATIVO   = "agente_operativo"
+    # Nivel 4 — Solo lectura
+    CONSULTA           = "consulta"
 
-    ALL = [ADMIN, COMPLIANCE, COMERCIAL, CONSULTA]
+    # ── Aliases semánticos (mismos valores que los canónicos) ─
+    ADMIN_PRO            = "admin"          # acceso total
+    MANAGER_COMPLIANCE   = "compliance"     # gestión equipo Compliance
+    MANAGER_PAGOS        = "comercial"      # gestión cartera y pagos
+
+    # ── Lista completa para selectores de UI ─────────────
+    ALL = [ADMIN, COMPLIANCE, COMERCIAL, AGENTE_KYC, AGENTE_OPERATIVO, CONSULTA]
+
+    # ── Grupos de permiso reutilizables ───────────────────
+    # Pueden editar información operativa de partners
+    CAN_EDIT_PARTNERS: frozenset[str] = frozenset(
+        {"admin", "compliance", "comercial", "agente_kyc", "agente_operativo"}
+    )
+    # Solo estos roles pueden eliminar registros permanentemente
+    CAN_DELETE: frozenset[str] = frozenset({"admin"})
+    # Pueden crear/editar campos SARLAFT y listas vinculantes
+    CAN_EDIT_SARLAFT: frozenset[str] = frozenset({"admin", "agente_kyc"})
+    # Pueden registrar/editar KPIs de gestión diaria
+    CAN_REGISTER_KPIS: frozenset[str] = frozenset({"admin", "compliance", "comercial"})
+    # Pueden acceder al módulo de Gestión de Agentes
+    CAN_VIEW_AGENTES: frozenset[str] = frozenset({"admin", "compliance"})
+    # Pueden crear nuevos partners
+    CAN_CREATE_PARTNERS: frozenset[str] = frozenset(
+        {"admin", "compliance", "comercial"}
+    )
 
 # ── Pipeline de estados de aliados ───────────────────────
 class EstadosAliado:

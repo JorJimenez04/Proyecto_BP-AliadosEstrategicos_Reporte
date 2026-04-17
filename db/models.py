@@ -24,9 +24,12 @@ class UsuarioBase(BaseModel):
     @field_validator("rol")
     @classmethod
     def validar_rol(cls, v: str) -> str:
-        roles_validos = {"admin", "compliance", "comercial", "consulta"}
+        roles_validos = {
+            "admin", "compliance", "comercial",
+            "agente_kyc", "agente_operativo", "consulta",
+        }
         if v not in roles_validos:
-            raise ValueError(f"Rol inválido. Opciones: {roles_validos}")
+            raise ValueError(f"Rol inválido. Opciones: {sorted(roles_validos)}")
         return v
 
 

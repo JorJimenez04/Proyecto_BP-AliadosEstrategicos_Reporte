@@ -671,6 +671,33 @@ def login_screen() -> None:
         )
 
 
+# ── Verificación de permisos ──────────────────────────────────
+def check_permission(required_roles: list[str], user: dict | None = None) -> bool:
+    """
+    Verifica si el usuario activo tiene al menos uno de los roles requeridos.
+
+    Parámetros:
+        required_roles: Lista de strings de rol que tienen acceso.
+        user:           Dict del usuario; si None, se obtiene de session_state.
+
+    Retorna True si el usuario tiene permiso; False si no.
+
+    Uso típico en UI:
+        if not check_permission([Roles.ADMIN, Roles.AGENTE_KYC]):
+            st.error("Acceso denegado.")
+            st.stop()
+    """
+    if user is None:
+        user = st.session_state.get("user", {})
+    return user.get("rol", "") in required_roles
+
+
+def access_denied(message: str = "No tienes permisos para acceder a esta sección.") -> None:
+    """Muestra un banner de acceso denegado y detiene la ejecución de la página."""
+    st.error(f"🔒 {message}")
+    st.stop()
+
+
 # ── Gate de autenticación ─────────────────────────────────────
 def require_auth() -> dict:
     """

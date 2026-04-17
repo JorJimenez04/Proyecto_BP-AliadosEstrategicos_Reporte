@@ -91,7 +91,12 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    es_comercial = user.get("rol") == Roles.COMERCIAL
+    es_comercial     = user.get("rol") == Roles.COMERCIAL
+    rol_activo       = user.get("rol", "")
+    # Solo ADMIN_PRO y AGENTE_KYC pueden editar campos SARLAFT / riesgo / PEP
+    puede_sarlaft    = rol_activo in Roles.CAN_EDIT_SARLAFT
+    # Comercial y agentes operativos no editan información básica
+    solo_operativo   = rol_activo in (Roles.COMERCIAL, Roles.AGENTE_OPERATIVO)
 
     st.markdown(
         f'<h4 style="color:#5fe9d0;margin:0 0 16px 0">✏️ Editar: {aliado["nombre_razon_social"]}</h4>',
@@ -108,7 +113,7 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 "Razón Social",
                 value=aliado.get("nombre_razon_social", ""),
                 key=prefix + "nombre",
-                disabled=es_comercial,
+                disabled=solo_operativo,
             )
             tipo = st.selectbox(
                 "Tipo de Aliado",
@@ -116,7 +121,7 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 index=TiposAliado.ALL.index(aliado.get("tipo_aliado", TiposAliado.ALL[0]))
                 if aliado.get("tipo_aliado") in TiposAliado.ALL else 0,
                 key=prefix + "tipo",
-                disabled=es_comercial,
+                disabled=solo_operativo,
             )
         with col2:
             estado_pipeline = st.selectbox(
@@ -132,7 +137,7 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 index=NivelesRiesgo.ALL.index(aliado.get("nivel_riesgo", NivelesRiesgo.MEDIO))
                 if aliado.get("nivel_riesgo") in NivelesRiesgo.ALL else 1,
                 key=prefix + "riesgo",
-                disabled=es_comercial,
+                disabled=not puede_sarlaft,
             )
 
     # ── Sección 2: Relación Corporativa ──────────────────────────────────────
@@ -143,15 +148,15 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
         with col1:
             est_hbpo = st.selectbox("HoldingsBPO Corp", _ESTADOS_EMPRESA,
                                     index=_val("estado_hbpocorp", _ESTADOS_EMPRESA),
-                                    key=prefix + "hbpo", disabled=es_comercial)
+                                    key=prefix + "hbpo", disabled=solo_operativo)
         with col2:
             est_adamo = st.selectbox("Adamo", _ESTADOS_EMPRESA,
                                      index=_val("estado_adamo", _ESTADOS_EMPRESA),
-                                     key=prefix + "adamo", disabled=es_comercial)
+                                     key=prefix + "adamo", disabled=solo_operativo)
         with col3:
             est_paycop = st.selectbox("Paycop", _ESTADOS_EMPRESA,
                                       index=_val("estado_paycop", _ESTADOS_EMPRESA),
-                                      key=prefix + "paycop", disabled=es_comercial)
+                                      key=prefix + "paycop", disabled=solo_operativo)
 
         col4, col5 = st.columns(2)
         with col4:
@@ -183,13 +188,15 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 index=EstadosSARLAFT.ALL.index(aliado.get("estado_sarlaft", EstadosSARLAFT.PENDIENTE))
                 if aliado.get("estado_sarlaft") in EstadosSARLAFT.ALL else 0,
                 key=prefix + "sarlaft",
-                disabled=es_comercial,
+                disabled=not puede_sarlaft,
+                help="Solo Admin Pro y Agente KYC pueden modificar el estado SARLAFT.",
             )
             es_pep = st.checkbox(
                 "Es PEP",
                 value=bool(aliado.get("es_pep", False)),
                 key=prefix + "pep",
-                disabled=es_comercial,
+                disabled=not puede_sarlaft,
+                help="Solo Admin Pro y Agente KYC pueden modificar el flag PEP.",
             )
         with col2:
             monedas = st.text_input(
@@ -214,7 +221,8 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 "Adult Friendly",
                 value=bool(aliado.get("adult_friendly", False)),
                 key=prefix + "adult",
-                disabled=es_comercial,
+                disabled=not puede_sarlaft,
+                help="Solo Admin Pro y Agente KYC pueden modificar este campo.",
             )
         with col4:
             monetizacion = st.checkbox(
@@ -276,6 +284,7 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                         valores_anteriores={k: aliado.get(k) for k in cambios.model_fields_set},
                         valores_nuevos=cambios.model_dump(exclude_none=True),
                         resultado="exitoso",
+                        rol_usuario=user.get("rol"),
                     )
                 st.success("Aliado actualizado.")
             except Exception as exc:
@@ -307,11 +316,20 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
 # ── Panel de Eliminación ──────────────────────────────────────────────────────
 
 def _panel_eliminar(aliado_id: int, user: dict) -> None:
-    """Panel de confirmación de eliminación con borde rojo."""
+    """Panel de confirmación de eliminación con borde rojo. Solo ADMIN_PRO."""
     import streamlit as st
     from db.database import get_session
     from db.repositories.partner_repo import PartnerRepository
     from db.repositories.audit_repo import AuditRepository
+    from config.settings import Roles as _R
+
+    # Gatekeeper server-side — aunque el botón esté oculto en la UI
+    if user.get("rol", "") not in _R.CAN_DELETE:
+        st.error("🔒 Solo el Administrador Pro puede eliminar partners.")
+        if st.button("Cerrar", key="del_perm_denied"):
+            st.session_state.pop("delete_id", None)
+            st.rerun()
+        return
 
     try:
         with next(get_session()) as session:
@@ -376,6 +394,7 @@ def _panel_eliminar(aliado_id: int, user: dict) -> None:
                         valores_anteriores=dict(aliado),
                         valores_nuevos=None,
                         resultado="exitoso",
+                        rol_usuario=user.get("rol"),
                     )
                 st.warning(f"Aliado '{nombre}' eliminado.")
             except Exception as exc:
@@ -389,6 +408,7 @@ def _panel_eliminar(aliado_id: int, user: dict) -> None:
                             usuario_id=user.get("id"),
                             entidad_id=aliado_id,
                             resultado="fallido",
+                            rol_usuario=user.get("rol"),
                         )
                 except Exception:
                     pass
@@ -415,8 +435,8 @@ def page_partners(user: dict) -> None:
 
     # ── Permisos ──────────────────────────────────────────────────────────────
     rol = user.get("rol", "")
-    puede_editar = rol in (Roles.ADMIN, Roles.COMPLIANCE, Roles.COMERCIAL)
-    puede_eliminar = rol == Roles.ADMIN
+    puede_editar   = rol in Roles.CAN_EDIT_PARTNERS
+    puede_eliminar = rol in Roles.CAN_DELETE
 
     # ── Session state ─────────────────────────────────────────────────────────
     if "edit_id" not in st.session_state:
