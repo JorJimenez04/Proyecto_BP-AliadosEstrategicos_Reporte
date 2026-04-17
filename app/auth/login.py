@@ -121,6 +121,9 @@ def check_active_session() -> bool:
     if st.session_state.get("authenticated"):
         return True
 
+    if st.session_state.get("_logged_out"):
+        return False
+
     token = _get_cookie_manager().get(_SESSION_COOKIE)
     if not token:
         return False
@@ -154,7 +157,7 @@ def check_active_session() -> bool:
         _session = next(_gen)
         try:
             row = _session.execute(
-                _text("SELECT * FROM usuarios WHERE id = :id AND activo = true"),
+                _text("SELECT * FROM usuarios WHERE id = :id AND activo = 1"),
                 {"id": user_id},
             ).mappings().first()
         finally:
@@ -179,6 +182,7 @@ def logout() -> None:
         pass
     for _k in ("user", "authenticated", "nav_agente", "login_fails", "login_locked_until"):
         st.session_state.pop(_k, None)
+    st.session_state["_logged_out"] = True
     st.rerun()
 
 
@@ -266,7 +270,7 @@ def authenticate(username: str, password: str) -> dict | None:
     session = next(session_gen)
     try:
         row = session.execute(
-            text("SELECT * FROM usuarios WHERE username = :u AND activo = true"),
+            text("SELECT * FROM usuarios WHERE username = :u AND activo = 1"),
             {"u": username},
         ).mappings().first()
 
@@ -618,6 +622,7 @@ def login_screen() -> None:
             st.session_state["user"]              = user
             st.session_state["login_fails"]       = 0
             st.session_state["login_locked_until"] = 0.0
+            st.session_state.pop("_logged_out", None)
             save_session_cookie(user)
             _audit_login(
                 success=True,

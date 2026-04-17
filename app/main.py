@@ -119,7 +119,11 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         # ── Navegación principal ──────────────────────────────
         # Clave interna _radio_nav — nunca se escribe desde fuera del widget.
         # on_change limpia nav_agente cuando el usuario vuelve al radio.
-        _nav_opts = ["📊 Dashboard", "🤝 Partners", "➕ Nuevo Partner", "📋 Log de Auditoría"]
+        _nav_opts = ["📊 Dashboard", "🤝 Partners"]
+        if user.get("rol") in Roles.CAN_CREATE_PARTNERS:
+            _nav_opts.append("➕ Nuevo Partner")
+        if user.get("rol") in {"admin", "compliance"}:
+            _nav_opts.append("📋 Log de Auditoría")
         if user.get("rol") in Roles.CAN_VIEW_AGENTES:
             _nav_opts.append("👥 Gestión de Agentes")
         nav_choice = st.radio(
@@ -292,9 +296,15 @@ def main():
     elif page == "➕ Nuevo Partner":
         page_nuevo_partner(user)
     elif page == "📋 Log de Auditoría":
+        if user.get("rol") not in {"admin", "compliance"}:
+            st.error("🚫 Acceso Denegado. No tienes permisos para ver el Log de Auditoría.")
+            st.stop()
         from app.components.audit_ui import page_auditoria
         page_auditoria(user)
     elif page == "👥 Gestión de Agentes":
+        if user.get("rol") not in Roles.CAN_VIEW_AGENTES:
+            st.error("🚫 Acceso Denegado. No tienes permisos para acceder a Gestión de Agentes.")
+            st.stop()
         from app.components.agentes_ui import render_gestion_agentes
         render_gestion_agentes(user)
     elif page == "👤 Perfil Agente" and agente_username:

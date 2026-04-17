@@ -750,7 +750,8 @@ def _tab_info(agente_db: Optional[dict], user: Optional[dict]) -> None:
         st.info("Colaborador sin registro en la base de datos.")
         return
 
-    es_admin = bool(user and user.get("rol") == "admin")
+    from config.settings import Roles as _Roles
+    puede_editar = bool(user and user.get("rol") in {_Roles.ADMIN, _Roles.COMPLIANCE})
 
     _section_title("\U0001f4cb Ficha de Contacto")
     _email_val    = agente_db.get("email")    or "\u2014"
@@ -782,7 +783,7 @@ def _tab_info(agente_db: Optional[dict], user: Optional[dict]) -> None:
             unsafe_allow_html=True,
         )
 
-    if not es_admin:
+    if not puede_editar:
         return
 
     _section_title("\u270f\ufe0f Editar Informaci\u00f3n")
