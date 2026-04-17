@@ -408,19 +408,22 @@ def login_screen() -> None:
         margin-bottom: 4px;
     }
     .login-title-bar .app-title {
-        font-size: 1.15rem;
+        font-family: 'Inter', 'Roboto', 'Segoe UI', sans-serif;
+        font-size: 1.25rem;
         font-weight: 800;
         letter-spacing: 2px;
         text-transform: uppercase;
         color: #FFFFFF;
         -webkit-text-fill-color: #FFFFFF;
+        text-shadow: 0 1px 6px rgba(0,0,0,0.45);
     }
     .login-title-bar .app-subtitle {
-        font-size: 0.72rem;
-        color: #9CA3AF;
+        font-family: 'Inter', 'Roboto', 'Segoe UI', sans-serif;
+        font-size: 0.75rem;
+        color: #E5E7EB;
         letter-spacing: 2px;
         text-transform: uppercase;
-        margin-top: 6px;
+        margin-top: 8px;
     }
 
     /* ── Tarjeta contenedor (mate, sin blur) ──────────────── */
@@ -578,8 +581,8 @@ def login_screen() -> None:
         <div class="logo-slot">{logo2_tag}</div>
     </div>
     <div class="login-title-bar">
-        <div class="app-title">Partner Manager</div>
-        <div class="app-subtitle">Compliance &amp; Technology</div>
+        <div class="app-title">Centro de Inteligencia Corporativa</div>
+        <div class="app-subtitle">Compliance, Data &amp; Technology Intelligent Hub</div>
     </div>
     """, unsafe_allow_html=True)
 

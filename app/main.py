@@ -42,7 +42,7 @@ def _get_logos() -> tuple[Path | None, Path | None]:
 
 # ── Configuración de página ───────────────────────────────────
 st.set_page_config(
-    page_title=APP_NAME,
+    page_title="Adamo Services | Intelligence Hub",
     page_icon="🔹",
     layout="wide",
     initial_sidebar_state="expanded",
