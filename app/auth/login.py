@@ -340,17 +340,33 @@ def login_screen() -> None:
     [data-testid="stAppViewContainer"] > .main { background: #0F1B2D !important; }
     [data-testid="stAppViewBlockContainer"] { padding-top: 2rem !important; }
 
-    /* ── Fondo: degradado + malla de datos (dot grid) ─────── */
+    /* ── Animaciones globales ─────────────────────────────── */
+    @keyframes meshFloat {
+        0%   { background-position: 0 0, 0 0, 0 0, 0 0; }
+        25%  { background-position: 30px 15px, -20px 25px, 0 0, 14px 14px; }
+        50%  { background-position: 60px -15px, 40px -30px, 0 0, 28px 28px; }
+        75%  { background-position: -30px 40px, -40px 15px, 0 0, 14px 0px; }
+        100% { background-position: 0 0, 0 0, 0 0, 0 0; }
+    }
+    @keyframes inputGlow {
+        0%   { box-shadow: 0 2px 0 0 rgba(95,233,208,0.4); }
+        50%  { box-shadow: 0 2px 6px 0 rgba(95,233,208,0.65); }
+        100% { box-shadow: 0 2px 0 0 rgba(95,233,208,0.4); }
+    }
+
+    /* ── Fondo: malla de partículas animada ──────────────────── */
     [data-testid="stAppViewContainer"]::before {
         content: "";
         position: fixed;
         inset: 0;
-        background-color: #0F1B2D;
+        background-color: #0A1628;
         background-image:
             radial-gradient(ellipse 70% 55% at 15% 25%, rgba(95,233,208,0.07) 0%, transparent 65%),
             radial-gradient(ellipse 60% 50% at 85% 75%, rgba(95,233,208,0.05) 0%, transparent 60%),
-            radial-gradient(circle, #1E293B 1px, transparent 1px);
-        background-size: auto, auto, 28px 28px;
+            radial-gradient(circle, rgba(95,233,208,0.07) 1px, transparent 1px),
+            radial-gradient(circle, rgba(95,233,208,0.03) 1px, transparent 1px);
+        background-size: 100% 100%, 100% 100%, 28px 28px, 14px 14px;
+        animation: meshFloat 22s ease-in-out infinite;
         pointer-events: none;
         z-index: 0;
     }
@@ -413,9 +429,11 @@ def login_screen() -> None:
         font-weight: 800;
         letter-spacing: 2px;
         text-transform: uppercase;
-        color: #FFFFFF;
-        -webkit-text-fill-color: #FFFFFF;
-        text-shadow: 0 1px 6px rgba(0,0,0,0.45);
+        background: linear-gradient(135deg, #FFFFFF 0%, #5FE9D0 38%, #FFFFFF 58%, #A8F0E8 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        filter: drop-shadow(0 1px 6px rgba(95,233,208,0.35));
     }
     .login-title-bar .app-subtitle {
         font-family: 'Inter', 'Roboto', 'Segoe UI', sans-serif;
@@ -426,14 +444,17 @@ def login_screen() -> None:
         margin-top: 8px;
     }
 
-    /* ── Tarjeta contenedor (mate, sin blur) ──────────────── */
+    /* ── Tarjeta contenedor (glassmorphism) ─────────────────── */
     [data-testid="stForm"] {
-        background: #111827 !important;
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-        border-radius: 8px !important;
-        border: 1px solid #293056 !important;
-        box-shadow: 0 4px 24px rgba(0,0,0,0.5) !important;
+        background: rgba(15, 27, 45, 0.55) !important;
+        backdrop-filter: blur(20px) saturate(150%) !important;
+        -webkit-backdrop-filter: blur(20px) saturate(150%) !important;
+        border-radius: 16px !important;
+        border: 1px solid rgba(95, 233, 208, 0.22) !important;
+        box-shadow:
+            0 8px 32px rgba(0, 0, 0, 0.45),
+            inset 0 1px 0 rgba(95, 233, 208, 0.12),
+            inset 0 -1px 0 rgba(0, 0, 0, 0.2) !important;
         padding: 36px 32px 28px !important;
     }
 
@@ -466,21 +487,26 @@ def login_screen() -> None:
 
     /* ── Inputs: fondo oscuro, solo borde inferior activo ─── */
     .stTextInput input {
-        background: #0F1B2D !important;
+        background: rgba(10, 22, 40, 0.7) !important;
         border: none !important;
-        border-bottom: 1.5px solid #293056 !important;
-        border-radius: 4px 4px 0 0 !important;
+        border-bottom: 1.5px solid rgba(95,233,208,0.25) !important;
+        border-radius: 6px 6px 0 0 !important;
         color: #E2E8F0 !important;
         padding: 11px 14px !important;
         font-size: 0.92rem !important;
-        transition: border-color 0.2s, box-shadow 0.2s !important;
+        transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease !important;
         box-shadow: none !important;
     }
     .stTextInput input::placeholder { color: #4B5563 !important; }
+    .stTextInput input:hover {
+        border-bottom-color: rgba(95,233,208,0.5) !important;
+        background: rgba(10, 22, 40, 0.85) !important;
+    }
     .stTextInput input:focus {
         border-bottom-color: #5FE9D0 !important;
-        box-shadow: 0 2px 0 0 rgba(95,233,208,0.45) !important;
+        background: rgba(10, 22, 40, 0.9) !important;
         outline: none !important;
+        animation: inputGlow 2s ease-in-out infinite !important;
     }
 
     /* ── Ícono de ojo (toggle password) ───────────────────── */
