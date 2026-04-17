@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-04-16 (rev. 2)
+> Última actualización: 2026-04-17 (rev. 3)
 
 ---
 
@@ -15,7 +15,9 @@ Proyecto_PartnersStatus/
 ├── 📄 .gitignore                      # Exclusiones de Git (.env, .venv, __pycache__)
 ├── 📄 .dockerignore                   # Exclusiones del build Docker (.env, .venv, tests/)
 ├── 📄 Dockerfile                      # Imagen Docker basada en python:3.12-slim para Railway
-├── 📄 entrypoint.sh                   # Script de arranque: migraciones → Streamlit (Puerto $PORT)
+├── 📄 entrypoint.sh                   # Script de arranque: production_check → migraciones → seed → Streamlit ($PORT)
+│                                      # Paso 3 (nuevo): seed_test_users.py --password $ADMIN_PASSWORD
+│                                      #   idempotente: ON CONFLICT DO NOTHING, nunca falla en redeploy
 ├── 📄 railway.toml                    # Configuración Railway (Dockerfile builder, healthcheck /_stcore/health)
 ├── 📄 requirements.txt                # Dependencias Python (incluye psycopg2-binary para PG)
 ├── 📄 README.md                       # Documentación principal del proyecto
@@ -29,9 +31,14 @@ Proyecto_PartnersStatus/
 │   ├── 📄 main.py                     # Entry point · router de páginas · CSS global
 │   │                                  # _on_nav_radio_change() — callback on_change del radio
 │   │                                  # sidebar() → tuple(page, agente_username | None)
-│   │                                  #   Radio principal: Dashboard · Partners · Nuevo · Auditoría
+│   │                                  #   _nav_opts construido condicionalmente por rol (RBAC):
+│   │                                  #     CAN_CREATE_PARTNERS → ➕ Nuevo Partner
+│   │                                  #     admin/compliance    → 📋 Log de Auditoría
+│   │                                  #     CAN_VIEW_AGENTES    → 👥 Gestión de Agentes
 │   │                                  #   Expander "🏢 Equipos Operativos": carga agentes desde BD
 │   │                                  #   nav_agente en session_state — nunca toca la clave del widget
+│   │                                  # main() router — gatekeepers server-side antes de cada page_*()
+│   │                                  #   bloquea Auditoría y Gestión de Agentes si rol insuficiente
 │   │                                  # page_nuevo_partner() · main()
 │   │
 │   ├── 📂 auth/                       # Sistema de autenticación y control de acceso
@@ -40,7 +47,10 @@ Proyecto_PartnersStatus/
 │   │                                  # login_screen() — st.form + rate-limiting progresivo
 │   │                                  #   (delay 1-3 s + bloqueo 60 s tras 5 fallos consecutivos)
 │   │                                  # require_auth() — gate de sesión, llama st.stop()
-│   │                                  # SQL: activo = true (boolean PostgreSQL idiomático)
+│                                  # logout() — borra cookie + limpia session_state + _logged_out=True
+│                                  #   _logged_out flag bloquea restauración de cookie en el rerun
+│                                  #   (fix: stx.CookieManager.delete() es asíncrono)
+│                                  # SQL: activo = 1 (INTEGER — la columna no es BOOLEAN)
 │   │                                  # _get_client_ip() · _audit_login()
 │   │
 │   ├── 📂 pages/                      # Páginas como módulos independientes (expansión futura)
@@ -87,7 +97,8 @@ Proyecto_PartnersStatus/
 │   │                                  #     2 Plotly pie (distribución riesgo + pipeline) + barra de meta
 │   │                                  #   Tab 📋 Información: ficha contacto + notas
 │   │                                  #     admin: form inline de edición (sin contraseña)
-│   │                                  # render_gestion_agentes(user): solo ADMIN
+│   │                                  # render_gestion_agentes(user): ADMIN y COMPLIANCE
+│                                  #   puede_editar = rol in {ADMIN, COMPLIANCE}
 │   │                                  #   Tab 🏢 Vista por Equipo: cards agrupadas por equipo
 │   │                                  #   Tab ➕ Nuevo Colaborador: form sin contraseña → agente_repo.create()
 │   │                                  #   Tab ✏️ Editar Colaborador: select + form → agente_repo.update()
@@ -126,9 +137,15 @@ Proyecto_PartnersStatus/
 │   │   ├── 📄 002_add_corporate_metrics.sql       # Columnas gestión corporativa (estado_hbpocorp/adamo/paycop)
 │   │   ├── 📄 003_fix_constraints_and_corporate_metrics.sql  # Fix constraints + perfil operativo
 │   │   ├── 📄 004_agentes_perfil.sql              # foto_url · equipo · cargo en tabla usuarios
-│   │   └── 📄 005_tabla_agentes.sql              # Tabla agentes (catálogo sin credenciales)
-│   │                                             #   + columna agente_id FK en aliados
-│   │                                             #   + trigger updated_at · índices equipo/activo/agente_id
+│   ├── 📄 005_tabla_agentes.sql              # Tabla agentes (catálogo sin credenciales)
+│   │                                         #   + columna agente_id FK en aliados
+│   │                                         #   + trigger updated_at · índices equipo/activo/agente_id
+│   ├── 📄 006_kpi_fields.sql                 # Columnas KPI manuales en agentes (edición inline)
+│   ├── 📄 007_kpi_history.sql                # Tabla historial diario de KPIs por agente
+│   ├── 📄 008_cuentas_segmentadas.sql        # Segmentación cuentas: aprobadas/rechazadas/investigación
+│   │                                         #   separadas entre tipo personal y comercial
+│   └── 📄 009_rbac_roles.sql                 # Jerarquía RBAC extendida — expande CHECK constraint
+│                                             #   usuarios.rol: admin·compliance·comercial·consulta
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
@@ -158,8 +175,15 @@ Proyecto_PartnersStatus/
 │       │                              # get_metrics(agente_id) — KPIs desde aliados.agente_id:
 │       │                              #   total_partners · partners_activos · partners_riesgo_alto
 │       │                              #   tasa_activacion_pct · distribucion_riesgo · distribucion_estado
-│       └── 📄 user_repo.py            # CRUD de usuarios del sistema (con bcrypt)
-│                                      # create_user() · update_user() · get_by_username()
+│       ├── 📄 user_repo.py            # CRUD de usuarios del sistema (con bcrypt)
+│       │                              # create_user() · update_user() · get_by_username()
+│       │                              # activo = 1 (INTEGER) en inserts y queries
+│       └── 📄 seed_test_users.py      # Seed idempotente de usuarios de prueba (RBAC)
+│                                      # Modos: PLACEHOLDER_HASH (dev) · bcrypt real (prod)
+│                                      #   --password CLI > ADMIN_PASSWORD env > modo dev
+│                                      # ON CONFLICT (username) DO NOTHING — nunca falla en redeploy
+│                                      # Usuarios: test_compliance · test_comercial · test_consulta
+│                                      # Llamado automáticamente por entrypoint.sh en cada deploy
 │
 └── 📂 tests/                          # Suite de pruebas
     └── 📄 __init__.py
@@ -249,12 +273,12 @@ git push origin main   # Railway reconstruye la imagen con la foto incluida
 
 ## 👥 Roles de Acceso (RBAC)
 
-| Rol           | Dashboard | Ver Partners | Crear/Editar | Cambiar Estado | Auditoría | Eliminar | Equipos |
-|---------------|:---------:|:------------:|:------------:|:--------------:|:---------:|:--------:|:-------:|
-| `admin`       | ✅        | ✅           | ✅           | ✅             | ✅        | ✅       | ✅      |
-| `compliance`  | ✅        | ✅           | ✅           | ✅             | ✅        | ❌       | ✅      |
-| `comercial`   | ✅        | ✅           | Parcial      | Parcial        | ❌        | ❌       | ✅      |
-| `consulta`    | ✅        | ✅           | ❌           | ❌             | ❌        | ❌       | ✅      |
+| Rol           | Dashboard | Ver Partners | Crear/Editar | Cambiar Estado | Auditoría | Eliminar | Equipos | Gestión Agentes |
+|---------------|:---------:|:------------:|:------------:|:--------------:|:---------:|:--------:|:-------:|:---------------:|
+| `admin`       | ✅        | ✅           | ✅           | ✅             | ✅        | ✅       | ✅      | ✅              |
+| `compliance`  | ✅        | ✅           | ✅           | ✅             | ✅        | ❌       | ✅      | ✅              |
+| `comercial`   | ✅        | ✅           | Parcial      | Parcial        | ❌        | ❌       | ✅      | ❌              |
+| `consulta`    | ✅        | ✅           | ❌           | ❌             | ❌        | ❌       | ✅      | ❌              |
 
 ---
 
@@ -292,9 +316,15 @@ git add app/static/img/agentes/
 git commit -m "feat: foto agente <username>"
 git push origin main              # Railway reconstruye con la foto incluida
 
+# ── Seed manual contra Railway (opcional) ────────────────────
+# El entrypoint.sh ya ejecuta el seed automáticamente en cada deploy.
+# Solo usar esto si necesitas insertar usuarios sin redesplegar:
+$env:DATABASE_URL="postgresql://usuario:password@host.railway.app:5432/railway"
+.venv\Scripts\python.exe db/seed_test_users.py --password $env:ADMIN_PASSWORD
+
 # ── Deploy a Railway ──────────────────────────────────────────
 # Railway usa auto-deploy desde GitHub (rama main)
-# El entrypoint.sh ejecuta: production_check → db.database → streamlit
+# El entrypoint.sh ejecuta: production_check → db.database → seed → streamlit
 git add .
 git commit -m "mensaje"
 git push origin main
@@ -334,6 +364,8 @@ git push origin main
 - **Seguridad**: passwords hasheadas con `bcrypt` (12 rounds) — nunca texto plano en BD
 - **Hardening**: `SECRET_KEY` ≥ 43 chars · `ADMIN_PASSWORD` ≥ 16 chars con 4 clases · `DEBUG=false` en producción
 - **Auth**: `require_auth()` como gate en `main()` — ENV bootstrap → bcrypt BD → PLACEHOLDER_HASH (solo dev)
+- **Logout**: `_logged_out=True` en session_state bloquea restauración de cookie hasta el siguiente login exitoso
+- **activo**: columna `INTEGER` (1/0) en tabla `usuarios` — nunca comparar con `true`/`false` en SQL
 - **Rate-limiting**: `st.session_state["login_fails"]` + `login_locked_until` — bloqueo 60 s tras 5 fallos
 - **Pool BD**: `QueuePool` en PostgreSQL (pool_size=5, pool_recycle=30min)
 - **EBR**: registros ordenados por riesgo descendente (Muy Alto → Alto → Medio → Bajo) según GAFI R.1
