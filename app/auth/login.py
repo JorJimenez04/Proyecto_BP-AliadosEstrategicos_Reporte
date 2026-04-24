@@ -9,6 +9,8 @@ Flujo:
   4. Registro de cada intento (exitoso o fallido) en log_auditoria.
 """
 
+from __future__ import annotations
+
 import os
 import base64
 import time
@@ -83,7 +85,8 @@ def _read_session_cookie_sync() -> str | None:
     except AttributeError:
         return None
 
-() -> None:
+
+def _render_splash() -> None:
     """
     Pantalla minimalista de espera mientras stx.CookieManager
     lee la sesión del navegador via JavaScript (primer ciclo de Streamlit).

@@ -4,6 +4,8 @@ Entry point principal de AdamoServices Partner Manager.
 Actualizado con métricas de gestión corporativa y operativa.
 """
 
+from __future__ import annotations
+
 import streamlit as st
 from datetime import date, datetime
 import sys
