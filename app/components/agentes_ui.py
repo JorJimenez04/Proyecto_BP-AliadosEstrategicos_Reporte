@@ -117,8 +117,12 @@ def _foto_base64(username: str) -> str | None:
     for ext in _IMG_FORMATS:
         path = _AGENTES_DIR / f"{username}{ext}"
         if path.exists():
-            mime = "image/jpeg" if ext in (".jpg", ".jpeg") else f"image/{ext.lstrip('.')}"
-            return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode()}"
+            try:
+                raw  = path.read_bytes()
+                mime = "image/jpeg" if ext in (".jpg", ".jpeg") else f"image/{ext.lstrip('.')}"
+                return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+            except Exception:
+                logger.warning("agentes_ui: no se pudo leer foto de %s%s", username, ext)
     return None
 
 
@@ -206,16 +210,19 @@ def _render_header_agente(
     telefono: str = "",
 ) -> None:
     foto = _foto_base64(username)
+    _glow = f"0 0 12px {equipo_color}66, 0 0 24px {equipo_color}33"
     if foto:
         avatar = (
             f"<img src='{foto}' style='width:72px;height:72px;border-radius:50%;"
-            f"object-fit:cover;border:2px solid {equipo_color};flex-shrink:0;'>"
+            f"object-fit:cover;border:3px solid {equipo_color};"
+            f"box-shadow:{_glow};flex-shrink:0;'>"
         )
     else:
         inicial = nombre[0].upper()
         avatar = (
             f"<div style='width:72px;height:72px;border-radius:50%;flex-shrink:0;"
-            f"background:{equipo_color}22;border:2px solid {equipo_color};"
+            f"background:{equipo_color}22;border:3px solid {equipo_color};"
+            f"box-shadow:{_glow};"
             f"display:flex;align-items:center;justify-content:center;"
             f"color:{equipo_color};font-size:1.8rem;font-weight:800;'>{inicial}</div>"
         )
