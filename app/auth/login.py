@@ -9,8 +9,6 @@ Flujo:
   4. Registro de cada intento (exitoso o fallido) en log_auditoria.
 """
 
-from __future__ import annotations
-
 import os
 import base64
 import time
@@ -199,7 +197,12 @@ def check_active_session() -> bool:
 
     payload = _verify_token(token)
     if not payload:
-        _get_cookie_manager().delete(_SESSION_COOKIE)
+        cm = _get_cookie_manager()
+        if cm.get(_SESSION_COOKIE):
+            try:
+                cm.delete(_SESSION_COOKIE)
+            except KeyError:
+                pass
         return False
 
     user_id  = payload.get("user_id")
@@ -234,7 +237,12 @@ def check_active_session() -> bool:
             _session.close()
 
         if not exists:
-            _get_cookie_manager().delete(_SESSION_COOKIE)
+            cm = _get_cookie_manager()
+            if cm.get(_SESSION_COOKIE):
+                try:
+                    cm.delete(_SESSION_COOKIE)
+                except KeyError:
+                    pass
             return False
 
         # Restaurar sesión desde el payload firmado (HMAC ya verificado arriba)
