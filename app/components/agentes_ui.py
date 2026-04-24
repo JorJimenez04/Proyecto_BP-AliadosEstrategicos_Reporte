@@ -114,6 +114,7 @@ _IMG_FORMATS = (".jpg", ".jpeg", ".png", ".webp")
 
 
 def _foto_base64(username: str) -> str | None:
+    # 1. Filesystem (git-committed — siempre tiene prioridad)
     for ext in _IMG_FORMATS:
         path = _AGENTES_DIR / f"{username}{ext}"
         if path.exists():
@@ -123,7 +124,106 @@ def _foto_base64(username: str) -> str | None:
                 return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
             except Exception:
                 logger.warning("agentes_ui: no se pudo leer foto de %s%s", username, ext)
+    # 2. Carga en sesión activa (temporal hasta recarga de página)
+    session_foto = st.session_state.get(f"_foto_upload_{username}")
+    if session_foto:
+        return session_foto.get("data_uri")
     return None
+
+
+# ─────────────────────────────────────────────────────────────
+# Gestión dinámica de fotos (upload en sesión)
+# ─────────────────────────────────────────────────────────────
+
+def _preview_avatar(data_uri: str, equipo_color: str) -> None:
+    """Renderiza la vista previa circular del avatar subido."""
+    _glow = f"0 0 12px {equipo_color}66"
+    st.markdown(
+        f"<div style='display:inline-flex;align-items:center;gap:12px;"
+        f"background:{_C_BG};border-radius:10px;padding:10px 16px;"
+        f"border:1px solid {_C_BORDER};margin-top:6px;'>"
+        f"<img src='{data_uri}' style='width:52px;height:52px;border-radius:50%;"
+        f"object-fit:cover;border:3px solid {equipo_color};"
+        f"box-shadow:{_glow};flex-shrink:0;'>"
+        f"<span style='color:{_C_CYAN};font-size:0.72rem;font-weight:700;"
+        f"text-transform:uppercase;letter-spacing:1px;'>✓ Vista previa</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _seccion_foto_uploader(
+    username: str,
+    equipo_color: str,
+    key: str,
+    puede_subir: bool,
+) -> None:
+    """Muestra el uploader + live preview. Guarda el resultado en session_state."""
+    if not puede_subir:
+        return
+    st.markdown(
+        f"<p style='color:{_C_GRAY};font-size:0.72rem;text-transform:uppercase;"
+        f"letter-spacing:0.8px;font-weight:600;margin-bottom:6px;"
+        f"border-bottom:1px solid {_C_BORDER};padding-bottom:6px;margin-top:16px;'>"
+        f"📸 Foto del Colaborador</p>",
+        unsafe_allow_html=True,
+    )
+    archivo = st.file_uploader(
+        "Selecciona una imagen",
+        type=["jpg", "jpeg", "png"],
+        key=key,
+        label_visibility="collapsed",
+    )
+    if archivo:
+        raw  = archivo.read()
+        mime = "image/jpeg" if archivo.name.lower().endswith((".jpg", ".jpeg")) else "image/png"
+        data_uri = f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+        st.session_state[f"_foto_upload_{username}"] = {
+            "data_uri": data_uri,
+            "raw":      raw,
+            "mime":     mime,
+        }
+        _preview_avatar(data_uri, equipo_color)
+    elif st.session_state.get(f"_foto_upload_{username}"):
+        _preview_avatar(
+            st.session_state[f"_foto_upload_{username}"]["data_uri"],
+            equipo_color,
+        )
+
+
+def _guardar_foto_agente(username: str) -> None:
+    """
+    Persiste la foto del agente:
+    - Local (dev): escribe en app/static/img/agentes/<username>.jpg
+    - Producción (Railway): muestra instrucción git — las fotos viven en el repo.
+    La imagen ya está en session_state y se sirve desde allí hasta la próxima recarga.
+    """
+    import os as _os
+    foto_data = st.session_state.get(f"_foto_upload_{username}")
+    if not foto_data:
+        return
+    is_prod = (
+        _os.getenv("APP_ENV", "development") == "production"
+        or bool(_os.getenv("RAILWAY_ENVIRONMENT"))
+        or bool(_os.getenv("RAILWAY_SERVICE_NAME"))
+    )
+    ext = ".jpg" if "jpeg" in foto_data["mime"] else ".png"
+    if is_prod:
+        st.info(
+            f"📎 La foto se ve en esta sesión. Para hacerla **permanente**, "
+            f"descarga la imagen y ejecuta:\n```bash\n"
+            f"git add app/static/img/agentes/{username}{ext}\n"
+            f"git commit -m 'feat: foto {username}'\n"
+            f"git push origin main\n```"
+        )
+    else:
+        dest = _AGENTES_DIR / f"{username}{ext}"
+        try:
+            _AGENTES_DIR.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(foto_data["raw"])
+            st.success(f"✅ Foto guardada en `app/static/img/agentes/{username}{ext}`")
+        except Exception as exc:
+            st.warning(f"No se pudo guardar la foto en disco: {exc}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1104,7 +1204,7 @@ def render_gestion_agentes(user: dict) -> None:
             "\U0001f4ca Gesti\u00f3n de Rendimiento",
         ])
         with tab_vista:
-            _panel_vista_equipos()
+            _panel_vista_equipos(user)
         with tab_nuevo:
             _form_nuevo_agente(user)
         with tab_editar:
@@ -1118,7 +1218,7 @@ def render_gestion_agentes(user: dict) -> None:
             _panel_rendimiento(user)
 
 
-def _panel_vista_equipos() -> None:
+def _panel_vista_equipos(user: Optional[dict] = None) -> None:
     st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
     try:
         from db.database import get_session
@@ -1205,6 +1305,22 @@ def _panel_vista_equipos() -> None:
                     """,
                     unsafe_allow_html=True,
                 )
+                # ── Botón cámara (solo admin) ─────────────
+                if user and user.get("rol") == "admin":
+                    _flag = f"_show_cam_{ag['username']}"
+                    _btn_lbl = "🔼 Cerrar" if st.session_state.get(_flag) else "📷 Foto"
+                    if st.button(_btn_lbl, key=f"btn_cam_{ag['username']}", use_container_width=True):
+                        st.session_state[_flag] = not st.session_state.get(_flag, False)
+                        st.rerun()
+                    if st.session_state.get(_flag):
+                        _seccion_foto_uploader(
+                            ag["username"], color,
+                            f"cam_up_{ag['username']}", True,
+                        )
+                        if st.button("💾 Aplicar foto", key=f"save_cam_{ag['username']}", type="primary", use_container_width=True):
+                            _guardar_foto_agente(ag["username"])
+                            st.session_state[_flag] = False
+                            st.rerun()
 
 
 def _form_nuevo_agente(user: dict) -> None:
@@ -1213,6 +1329,11 @@ def _form_nuevo_agente(user: dict) -> None:
     from db.repositories.audit_repo import AuditRepository
 
     st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
+
+    # ── Foto del colaborador (fuera del form para live preview) ──
+    from config.settings import Roles as _RolesNuevo
+    _puede_foto_nuevo = user.get("rol") in {_RolesNuevo.ADMIN, _RolesNuevo.COMPLIANCE}
+    _seccion_foto_uploader("_nuevo_agente", _C_CYAN, "up_nuevo_agente", _puede_foto_nuevo)
 
     with st.form("form_nuevo_agente", clear_on_submit=True):
         st.markdown('<p class="section-title">Datos del Nuevo Colaborador</p>',
@@ -1294,6 +1415,11 @@ def _form_nuevo_agente(user: dict) -> None:
                         valores_nuevos=datos.model_dump(exclude_none=True),
                         rol_usuario=user.get("rol"),
                     )
+                # Foto: mover clave temporal a clave real y persistir
+                _foto_temp = st.session_state.pop("_foto_upload__nuevo_agente", None)
+                if _foto_temp:
+                    st.session_state[f"_foto_upload_{datos.username}"] = _foto_temp
+                    _guardar_foto_agente(datos.username)
                 st.success(
                     f"\u2705 **{datos.nombre_completo}** registrado en "
                     f"**{datos.equipo}** (ID #{nuevo_id})."
@@ -1328,6 +1454,16 @@ def _form_editar_agente(user: dict) -> None:
         "Seleccionar colaborador", list(opciones.keys()), key="sel_editar_agente"
     )
     agente = opciones[sel]
+
+    # ── Foto del colaborador (fuera del form para live preview) ──
+    from config.settings import Roles as _RolesEdit
+    _eq_color_edit  = _EQUIPOS_COLORES.get(agente.get("equipo", ""), _C_GRAY)
+    _puede_foto_edit = user.get("rol") in {_RolesEdit.ADMIN, _RolesEdit.COMPLIANCE}
+    _seccion_foto_uploader(
+        agente["username"], _eq_color_edit,
+        f"up_edit_{agente['username']}", _puede_foto_edit,
+    )
+
     eq_opts = ["Cumplimiento", "Pagos", "Soporte"]
     eq_idx  = eq_opts.index(agente["equipo"]) if agente["equipo"] in eq_opts else 0
 
@@ -1379,6 +1515,7 @@ def _form_editar_agente(user: dict) -> None:
                         valores_nuevos=fields,
                         rol_usuario=user.get("rol"),
                     )
+                _guardar_foto_agente(agente["username"])
                 st.success(f"\u2705 **{agente['nombre_completo']}** actualizado correctamente.")
                 st.rerun()
             except Exception as exc:
