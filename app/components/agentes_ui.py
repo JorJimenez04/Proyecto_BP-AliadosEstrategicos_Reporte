@@ -175,6 +175,7 @@ def _seccion_foto_uploader(
         label_visibility="collapsed",
     )
     if archivo:
+        import os as _os_up
         raw  = archivo.read()
         mime = "image/jpeg" if archivo.name.lower().endswith((".jpg", ".jpeg")) else "image/png"
         data_uri = f"data:{mime};base64,{base64.b64encode(raw).decode()}"
@@ -183,6 +184,31 @@ def _seccion_foto_uploader(
             "raw":      raw,
             "mime":     mime,
         }
+        # ── Auto-save al disco para nombres reales (no temporales) ──────────
+        if not username.startswith("_"):
+            ext = ".jpg" if "jpeg" in mime else ".png"
+            is_prod = (
+                _os_up.getenv("APP_ENV", "development") == "production"
+                or bool(_os_up.getenv("RAILWAY_ENVIRONMENT"))
+                or bool(_os_up.getenv("RAILWAY_SERVICE_NAME"))
+            )
+            if is_prod:
+                # En producción: ofrecer descarga para luego hacer commit
+                st.download_button(
+                    label="⬇️ Descargar para commit",
+                    data=raw,
+                    file_name=f"{username}{ext}",
+                    mime=mime,
+                    key=f"dl_{key}",
+                    help=f"Descarga y haz commit en app/static/img/agentes/{username}{ext}",
+                )
+            else:
+                try:
+                    _AGENTES_DIR.mkdir(parents=True, exist_ok=True)
+                    (_AGENTES_DIR / f"{username}{ext}").write_bytes(raw)
+                    st.toast(f"✅ Foto de {username} guardada", icon="✅")
+                except Exception as _exc:
+                    st.warning(f"No se pudo guardar en disco: {_exc}")
         _preview_avatar(data_uri, equipo_color)
     elif st.session_state.get(f"_foto_upload_{username}"):
         _preview_avatar(
@@ -1317,8 +1343,7 @@ def _panel_vista_equipos(user: Optional[dict] = None) -> None:
                             ag["username"], color,
                             f"cam_up_{ag['username']}", True,
                         )
-                        if st.button("💾 Aplicar foto", key=f"save_cam_{ag['username']}", type="primary", use_container_width=True):
-                            _guardar_foto_agente(ag["username"])
+                        if st.button("✅ Listo", key=f"save_cam_{ag['username']}", use_container_width=True):
                             st.session_state[_flag] = False
                             st.rerun()
 
