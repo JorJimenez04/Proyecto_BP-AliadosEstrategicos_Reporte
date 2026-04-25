@@ -1035,6 +1035,204 @@ def _tab_actividad(agente_db: Optional[dict]) -> None:
 
 
 # ─────────────────────────────────────────────────────────────
+# Tab: IA Insights — Análisis de Gestión Operativa
+# ─────────────────────────────────────────────────────────────
+
+_URGENCIA_COLOR = {
+    "Bajo":  "#22c55e",   # verde
+    "Medio": "#f59e0b",   # amarillo
+    "Alto":  "#ef4444",   # rojo
+}
+_URGENCIA_ICON = {"Bajo": "🟢", "Medio": "🟡", "Alto": "🔴"}
+
+
+def _badge_urgencia(urgencia: str) -> str:
+    color = _URGENCIA_COLOR.get(urgencia, _C_GRAY)
+    icon  = _URGENCIA_ICON.get(urgencia, "⚪")
+    return (
+        f"<span style='background:{color}22;color:{color};border-radius:9999px;"
+        f"padding:2px 12px;font-size:0.70rem;font-weight:700;"
+        f"text-transform:uppercase;letter-spacing:0.5px;'>{icon} {urgencia}</span>"
+    )
+
+
+def _tab_ia_insights(agente_db: Optional[dict], equipo_color: str) -> None:
+    """Pestaña de análisis de IA de las últimas gestiones del colaborador."""
+    from app.utils.ai_handler import analyze_gestion, AI_PROVIDER, GEMINI_KEY, OPENAI_KEY
+
+    _section_title("🤖 Análisis IA — Gestión Operativa")
+
+    if agente_db is None:
+        st.info("No se encontraron datos del colaborador en la base de datos.")
+        return
+
+    agente_id = agente_db.get("id")
+    if not agente_id:
+        st.info("ID de colaborador no disponible.")
+        return
+
+    # ── Verificación de API key ────────────────────────────
+    api_key_ok = bool(GEMINI_KEY if AI_PROVIDER == "gemini" else OPENAI_KEY)
+    if not api_key_ok:
+        provider_label = "GEMINI_API_KEY" if AI_PROVIDER == "gemini" else "OPENAI_API_KEY"
+        st.warning(
+            f"**IA no configurada.** Agrega `{provider_label}` en tu archivo `.env` "
+            f"(o variables de Railway) para activar el análisis automático.",
+            icon="🔑",
+        )
+        st.markdown(
+            f"<div style='background:{_C_BG};border-radius:10px;padding:16px;"
+            f"border:1px dashed {_C_BORDER};color:{_C_GRAY};font-size:0.82rem;'>"
+            f"<b style='color:#f9fafb;'>Pasos para activar:</b><br><br>"
+            f"1. Obtén una API key en "
+            f"<b>aistudio.google.com</b> (Gemini gratuito) o <b>platform.openai.com</b><br>"
+            f"2. Agrega al <code>.env</code>:<br><br>"
+            f"<code style='color:{_C_CYAN};'>"
+            f"AI_PROVIDER=gemini  # o openai<br>"
+            f"GEMINI_API_KEY=tu_clave_aqui<br>"
+            f"</code><br>"
+            f"3. Reinicia la app."
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    # ── Carga de gestiones ─────────────────────────────────
+    gestiones: list[dict] = []
+    try:
+        from db.database import get_session
+        from db.repositories.agente_repo import AgenteRepository
+        with next(get_session()) as session:
+            gestiones = AgenteRepository(session).get_recent_gestiones(agente_id, limit=5)
+    except Exception as exc:
+        st.error(f"Error cargando gestiones: {exc}")
+        return
+
+    if not gestiones:
+        st.markdown(
+            f"<div style='color:{_C_GRAY};font-style:italic;font-size:0.85rem;"
+            f"padding:20px 0;text-align:center;'>"
+            f"Sin gestiones registradas para este colaborador aún.</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    # ── Info sobre caché y privacidad ─────────────────────
+    proveedor_badge = (
+        "<span style='background:#4f46e522;color:#818cf8;border-radius:9999px;"
+        "padding:2px 10px;font-size:0.68rem;font-weight:600;'>"
+        f"{'✦ Gemini' if AI_PROVIDER == 'gemini' else '✦ OpenAI'}</span>"
+    )
+    st.markdown(
+        f"<div style='display:flex;align-items:center;gap:10px;"
+        f"background:{_C_BG};border-radius:8px;padding:8px 14px;"
+        f"border:1px solid {_C_BORDER};margin-bottom:16px;font-size:0.75rem;"
+        f"color:{_C_GRAY};'>"
+        f"{proveedor_badge}"
+        f"<span>🔒 PII anonimizado antes de enviar · "
+        f"⚡ Caché 30 min por análisis</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── Botón refrescar ────────────────────────────────────
+    col_ref, _ = st.columns([1, 5])
+    with col_ref:
+        if st.button("🔄 Refrescar", key=f"ia_refresh_{agente_id}", use_container_width=True):
+            # Limpiar caché de session_state para este agente
+            keys_to_del = [k for k in st.session_state if k.startswith("ai_cache_")]
+            for k in keys_to_del:
+                del st.session_state[k]
+            st.rerun()
+
+    # ── Tarjeta por gestión ────────────────────────────────
+    with st.spinner("Analizando gestiones con IA…"):
+        for idx, g in enumerate(gestiones):
+            result = analyze_gestion(g)
+            urgencia   = result.get("urgencia", "Medio")
+            resumen    = result.get("resumen", "—")
+            red_flags  = result.get("red_flags", [])
+            cached_lbl = (
+                " <span style='color:#6b7280;font-size:0.65rem;'>(caché)</span>"
+                if result.get("cached") else ""
+            )
+            borde = _URGENCIA_COLOR.get(urgencia, _C_GRAY)
+
+            # Red flags HTML
+            if red_flags:
+                flags_html = "".join(
+                    f"<div style='display:flex;align-items:flex-start;gap:6px;"
+                    f"margin-top:4px;'>"
+                    f"<span style='color:#ef4444;font-size:0.80rem;flex-shrink:0;'>⚑</span>"
+                    f"<span style='color:#fca5a5;font-size:0.78rem;line-height:1.4;'>{f}</span>"
+                    f"</div>"
+                    for f in red_flags
+                )
+                section_flags = (
+                    f"<div style='background:#ef444411;border-radius:6px;"
+                    f"padding:8px 10px;margin-top:8px;border-left:3px solid #ef4444;'>"
+                    f"<div style='color:#ef4444;font-size:0.68rem;font-weight:700;"
+                    f"text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;'>"
+                    f"⚑ Red Flags</div>"
+                    f"{flags_html}"
+                    f"</div>"
+                )
+            else:
+                section_flags = (
+                    f"<div style='color:{_C_GRAY};font-size:0.74rem;"
+                    f"margin-top:6px;'>✓ Sin red flags detectadas</div>"
+                )
+
+            tipo_badge = (
+                f"<span style='background:{equipo_color}22;color:{equipo_color};"
+                f"border-radius:9999px;padding:1px 9px;font-size:0.68rem;"
+                f"font-weight:600;'>{g.get('tipo_aliado','—')}</span>"
+            )
+            riesgo     = g.get("nivel_riesgo", "—")
+            pipeline   = g.get("estado_pipeline", "—")
+            updated_at = g.get("updated_at")
+            fecha_str  = (
+                updated_at.strftime("%d/%m/%Y") if hasattr(updated_at, "strftime")
+                else str(updated_at or "")[:10]
+            )
+
+            st.markdown(
+                f"<div style='background:{_C_BG};border-radius:10px;"
+                f"border-left:4px solid {borde};"
+                f"padding:14px 16px;margin-bottom:12px;"
+                f"border-top:1px solid {_C_BORDER};"
+                f"border-right:1px solid {_C_BORDER};"
+                f"border-bottom:1px solid {_C_BORDER};'>"
+                f"<!-- Header -->"
+                f"<div style='display:flex;justify-content:space-between;"
+                f"align-items:center;margin-bottom:8px;'>"
+                f"<div style='display:flex;align-items:center;gap:8px;'>"
+                f"{tipo_badge}"
+                f"<span style='color:{_C_GRAY};font-size:0.72rem;'>"
+                f"Riesgo: <b style='color:#f9fafb;'>{riesgo}</b> · "
+                f"Pipeline: <b style='color:#f9fafb;'>{pipeline}</b> · "
+                f"Actualizado: {fecha_str}</span>"
+                f"</div>"
+                f"{_badge_urgencia(urgencia)}{cached_lbl}"
+                f"</div>"
+                f"<!-- Resumen -->"
+                f"<div style='color:#f9fafb;font-size:0.85rem;line-height:1.5;"
+                f"font-style:italic;margin-bottom:4px;'>"
+                f"📋 {resumen}"
+                f"</div>"
+                f"<!-- Red Flags -->"
+                f"{section_flags}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            # Mostrar error de API si falló (sin romper el loop)
+            if not result.get("ok") and result.get("error") != "no_key":
+                with st.expander("⚠️ Detalle del error", expanded=False):
+                    st.code(result.get("error", "Desconocido"))
+
+
+# ─────────────────────────────────────────────────────────────
 # Vista del Perfil
 # ─────────────────────────────────────────────────────────────
 
@@ -1072,10 +1270,11 @@ def render_perfil_agente(username: str, user: Optional[dict] = None) -> None:
 
     _render_header_agente(username, nombre, cargo, equipo_label, equipo_color, email, telefono)
 
-    tab_kpis, tab_info, tab_hist = st.tabs([
+    tab_kpis, tab_info, tab_hist, tab_ia = st.tabs([
         "\U0001f4c8 KPIs de Gesti\u00f3n",
         "\U0001f4cb Informaci\u00f3n",
         "\U0001f4c5 Actividad",
+        "\U0001f916 IA Insights",
     ])
     with tab_kpis:
         _tab_kpis(agente_db, equipo_color, user)
@@ -1083,6 +1282,8 @@ def render_perfil_agente(username: str, user: Optional[dict] = None) -> None:
         _tab_info(agente_db, user)
     with tab_hist:
         _tab_actividad(agente_db)
+    with tab_ia:
+        _tab_ia_insights(agente_db, equipo_color)
 
 
 # ─────────────────────────────────────────────────────────────

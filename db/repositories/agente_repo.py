@@ -566,3 +566,39 @@ class AgenteRepository:
             valores_anteriores = {k: int(prev.get(k) or 0) for k in _COLS_DIARIO},
             valores_nuevos     = {k: int(data.get(k) or 0) for k in _COLS_DIARIO},
         )
+
+    # ── IA Insights — Gestiones recientes para análisis ───
+
+    def get_recent_gestiones(self, agente_id: int, limit: int = 5) -> list[dict]:
+        """
+        Recupera los últimos `limit` aliados asignados al agente con sus
+        datos de compliance para el análisis de IA.
+
+        Las observaciones se devuelven SIN anonimizar — la anonimización
+        ocurre en ai_handler.anonymize_text() antes de enviar a la API.
+
+        Retorna lista de dicts con:
+          nombre_alias, tipo_aliado, nivel_riesgo, estado_pipeline,
+          estado_sarlaft, estado_due_diligence, es_pep,
+          resultado_listas, alertas_activas, observaciones.
+        """
+        rows = self.session.execute(text("""
+            SELECT
+                LEFT(nombre_razon_social, 3) || '***' AS nombre_alias,
+                tipo_aliado,
+                nivel_riesgo,
+                estado_pipeline,
+                estado_sarlaft,
+                estado_due_diligence,
+                COALESCE(es_pep, FALSE)          AS es_pep,
+                COALESCE(resultado_listas,
+                    'Sin coincidencias')         AS resultado_listas,
+                COALESCE(alertas_activas, 0)     AS alertas_activas,
+                observaciones_compliance         AS observaciones,
+                updated_at
+            FROM aliados
+            WHERE agente_id = :id
+            ORDER BY updated_at DESC NULLS LAST
+            LIMIT :lim
+        """), {"id": agente_id, "lim": limit}).mappings().all()
+        return [dict(r) for r in rows]
