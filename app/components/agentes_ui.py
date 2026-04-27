@@ -1152,8 +1152,8 @@ def _tab_ia_insights(agente_db: Optional[dict], equipo_color: str) -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Botón refrescar ────────────────────────────────────
-    col_ref, _ = st.columns([1, 5])
+    # ── Botón refrescar + fecha de cobertura ──────────────
+    col_ref, col_lbl = st.columns([1, 5])
     with col_ref:
         if st.button("🔄 Refrescar", key=f"ia_refresh_{agente_id}", use_container_width=True):
             # Limpiar caché de session_state para este agente
@@ -1161,92 +1161,97 @@ def _tab_ia_insights(agente_db: Optional[dict], equipo_color: str) -> None:
             for k in keys_to_del:
                 del st.session_state[k]
             st.rerun()
+    with col_lbl:
+        from datetime import date as _date_cls
+        st.caption(f"Analizando gestiones hasta el: **{_date_cls.today().strftime('%Y-%m-%d')}**")
+
+    # ── Pre-cargar gestiones fuera del spinner ─────────────
+    # (el spinner solo aparece mientras la IA procesa, no durante la carga de BD)
+    resultados_ia: list[tuple] = []
+    with st.spinner("Analizando gestiones con IA…"):
+        for g in gestiones:
+            resultados_ia.append((g, analyze_gestion(g)))
 
     # ── Tarjeta por gestión ────────────────────────────────
-    with st.spinner("Analizando gestiones con IA…"):
-        for idx, g in enumerate(gestiones):
-            result = analyze_gestion(g)
-            urgencia   = result.get("urgencia", "Medio")
-            resumen    = result.get("resumen", "—")
-            red_flags  = result.get("red_flags", [])
-            cached_lbl = (
-                " <span style='color:#6b7280;font-size:0.65rem;'>(caché)</span>"
-                if result.get("cached") else ""
-            )
-            borde = _URGENCIA_COLOR.get(urgencia, _C_GRAY)
+    for idx, (g, result) in enumerate(resultados_ia):
+        urgencia   = result.get("urgencia", "Medio")
+        resumen    = result.get("resumen", "—")
+        red_flags  = result.get("red_flags", [])
+        cached_lbl = (
+            " <span style='color:#6b7280;font-size:0.65rem;'>(caché)</span>"
+            if result.get("cached") else ""
+        )
+        borde = _URGENCIA_COLOR.get(urgencia, _C_GRAY)
 
-            # Red flags HTML
-            if red_flags:
-                flags_html = "".join(
-                    f"<div style='display:flex;align-items:flex-start;gap:6px;"
-                    f"margin-top:4px;'>"
-                    f"<span style='color:#ef4444;font-size:0.80rem;flex-shrink:0;'>⚑</span>"
-                    f"<span style='color:#fca5a5;font-size:0.78rem;line-height:1.4;'>{f}</span>"
-                    f"</div>"
-                    for f in red_flags
-                )
-                section_flags = (
-                    f"<div style='background:#ef444411;border-radius:6px;"
-                    f"padding:8px 10px;margin-top:8px;border-left:3px solid #ef4444;'>"
-                    f"<div style='color:#ef4444;font-size:0.68rem;font-weight:700;"
-                    f"text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;'>"
-                    f"⚑ Red Flags</div>"
-                    f"{flags_html}"
-                    f"</div>"
-                )
-            else:
-                section_flags = (
-                    f"<div style='color:{_C_GRAY};font-size:0.74rem;"
-                    f"margin-top:6px;'>✓ Sin red flags detectadas</div>"
-                )
-
-            tipo_badge = (
-                f"<span style='background:{equipo_color}22;color:{equipo_color};"
-                f"border-radius:9999px;padding:1px 9px;font-size:0.68rem;"
-                f"font-weight:600;'>{g.get('tipo_aliado','—')}</span>"
-            )
-            riesgo     = g.get("nivel_riesgo", "—")
-            pipeline   = g.get("estado_pipeline", "—")
-            updated_at = g.get("updated_at")
-            fecha_str  = (
-                updated_at.strftime("%d/%m/%Y") if hasattr(updated_at, "strftime")
-                else str(updated_at or "")[:10]
-            )
-
-            st.markdown(
-                f"<div style='background:{_C_BG};border-radius:10px;"
-                f"border-left:4px solid {borde};"
-                f"padding:14px 16px;margin-bottom:12px;"
-                f"border-top:1px solid {_C_BORDER};"
-                f"border-right:1px solid {_C_BORDER};"
-                f"border-bottom:1px solid {_C_BORDER};'>"
-                f"<!-- Header -->"
-                f"<div style='display:flex;justify-content:space-between;"
-                f"align-items:center;margin-bottom:8px;'>"
-                f"<div style='display:flex;align-items:center;gap:8px;'>"
-                f"{tipo_badge}"
-                f"<span style='color:{_C_GRAY};font-size:0.72rem;'>"
-                f"Riesgo: <b style='color:#f9fafb;'>{riesgo}</b> · "
-                f"Pipeline: <b style='color:#f9fafb;'>{pipeline}</b> · "
-                f"Actualizado: {fecha_str}</span>"
+        # Red flags HTML
+        if red_flags:
+            flags_html = "".join(
+                f"<div style='display:flex;align-items:flex-start;gap:6px;"
+                f"margin-top:4px;'>"
+                f"<span style='color:#ef4444;font-size:0.80rem;flex-shrink:0;'>⚑</span>"
+                f"<span style='color:#fca5a5;font-size:0.78rem;line-height:1.4;'>{f}</span>"
                 f"</div>"
-                f"{_badge_urgencia(urgencia)}{cached_lbl}"
+                for f in red_flags
+            )
+            section_flags = (
+                f"<div style='background:#ef444411;border-radius:6px;"
+                f"padding:8px 10px;margin-top:8px;border-left:3px solid #ef4444;'>"
+                f"<div style='color:#ef4444;font-size:0.68rem;font-weight:700;"
+                f"text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;'>"
+                f"⚑ Red Flags</div>"
+                f"{flags_html}"
                 f"</div>"
-                f"<!-- Resumen -->"
-                f"<div style='color:#f9fafb;font-size:0.85rem;line-height:1.5;"
-                f"font-style:italic;margin-bottom:4px;'>"
-                f"📋 {resumen}"
-                f"</div>"
-                f"<!-- Red Flags -->"
-                f"{section_flags}"
-                f"</div>",
-                unsafe_allow_html=True,
+            )
+        else:
+            section_flags = (
+                f"<div style='color:{_C_GRAY};font-size:0.74rem;"
+                f"margin-top:6px;'>✓ Sin red flags detectadas</div>"
             )
 
-            # Mostrar error de API si falló (sin romper el loop)
-            if not result.get("ok") and result.get("error") != "no_key":
-                with st.expander("⚠️ Detalle del error", expanded=False):
-                    st.code(result.get("error", "Desconocido"))
+        tipo_badge = (
+            f"<span style='background:{equipo_color}22;color:{equipo_color};"
+            f"border-radius:9999px;padding:1px 9px;font-size:0.68rem;"
+            f"font-weight:600;'>{g.get('tipo_aliado','—')}</span>"
+        )
+        riesgo     = g.get("nivel_riesgo", "—")
+        pipeline   = g.get("estado_pipeline", "—")
+        updated_at = g.get("updated_at")
+        fecha_str  = (
+            updated_at.strftime("%d/%m/%Y") if hasattr(updated_at, "strftime")
+            else str(updated_at or "")[:10]
+        )
+
+        st.markdown(
+            f"<div style='background:{_C_BG};border-radius:10px;"
+            f"border-left:4px solid {borde};"
+            f"padding:14px 16px;margin-bottom:12px;"
+            f"border-top:1px solid {_C_BORDER};"
+            f"border-right:1px solid {_C_BORDER};"
+            f"border-bottom:1px solid {_C_BORDER};'>"
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:center;margin-bottom:8px;'>"
+            f"<div style='display:flex;align-items:center;gap:8px;'>"
+            f"{tipo_badge}"
+            f"<span style='color:{_C_GRAY};font-size:0.72rem;'>"
+            f"Riesgo: <b style='color:#f9fafb;'>{riesgo}</b> · "
+            f"Pipeline: <b style='color:#f9fafb;'>{pipeline}</b> · "
+            f"Actualizado: {fecha_str}</span>"
+            f"</div>"
+            f"{_badge_urgencia(urgencia)}{cached_lbl}"
+            f"</div>"
+            f"<div style='color:#f9fafb;font-size:0.85rem;line-height:1.5;"
+            f"font-style:italic;margin-bottom:4px;'>"
+            f"📋 {resumen}"
+            f"</div>"
+            f"{section_flags}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        # Mostrar error de API si falló (sin romper el loop)
+        if not result.get("ok") and result.get("error") != "no_key":
+            with st.expander("⚠️ Detalle del error", expanded=False):
+                st.code(result.get("error", "Desconocido"))
 
 
 # ─────────────────────────────────────────────────────────────

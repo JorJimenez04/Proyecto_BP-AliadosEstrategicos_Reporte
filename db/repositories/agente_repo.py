@@ -582,29 +582,48 @@ class AgenteRepository:
 
     def get_recent_gestiones(self, agente_id: int, limit: int = 5) -> list[dict]:
         """
-        Recupera los últimos `limit` aliados asignados al agente con sus
-        datos de compliance para el análisis de IA.
+        Recupera los últimos `limit` aliados asignados al agente con sus datos
+        de compliance, enriquecidos con las notas de jornada de agente_kpi_diario.
 
-        Si existe una nota de jornada del día de hoy en agente_kpi_diario,
-        se incorpora como `observaciones` adicionales al contexto.
+        Lógica de notas:
+        - Toma los últimos `limit` registros de agente_kpi_diario ordenados
+          por fecha DESC (sin filtro de fecha estricto).
+        - Construye un bloque de texto unificado con todas las notas no vacías.
+        - Si ningún registro tiene notas, el campo `observaciones` queda None
+          (la IA analiza sólo los campos estructurados del aliado).
 
         Las observaciones se devuelven SIN anonimizar — la anonimización
         ocurre en ai_handler.anonymize_text() antes de enviar a la API.
-
-        Retorna lista de dicts con:
-          nombre_alias, tipo_aliado, nivel_riesgo, estado_pipeline,
-          estado_sarlaft, estado_due_diligence, es_pep,
-          resultado_listas, alertas_activas, observaciones.
         """
-        # Nota de jornada de hoy
-        nota_hoy: str = ""
-        try:
-            hoy = self.get_kpi_diario(agente_id)
-            if hoy and hoy.get("observaciones"):
-                nota_hoy = hoy["observaciones"]
-        except Exception:
-            pass
+        # ── 1. Últimas notas de jornada (sin filtro de fecha estricto) ───────
+        kpi_rows = self.session.execute(text("""
+            SELECT fecha, observaciones
+            FROM agente_kpi_diario
+            WHERE agente_id = :id
+              AND observaciones IS NOT NULL
+              AND TRIM(observaciones) <> ''
+            ORDER BY fecha DESC, created_at DESC
+            LIMIT :lim
+        """), {"id": agente_id, "lim": limit}).mappings().all()
 
+        # Sanity check: log para depuración en Railway
+        if kpi_rows:
+            primer_obs = (kpi_rows[0]["observaciones"] or "")[:20]
+            logger.info(
+                "[IA] agente_id=%s notas_diario=%d primera_obs='%s...'",
+                agente_id, len(kpi_rows), primer_obs,
+            )
+        else:
+            logger.info("[IA] agente_id=%s sin notas de jornada registradas.", agente_id)
+
+        # Bloque unificado de notas ordenadas cronológicamente
+        bloques = []
+        for row in kpi_rows:
+            fecha_str = str(row["fecha"])[:10]
+            bloques.append(f"[{fecha_str}] {(row['observaciones'] or '').strip()}")
+        notas_unificadas: str = "\n".join(bloques) if bloques else ""
+
+        # ── 2. Últimos aliados asignados (contexto estructurado) ─────────────
         rows = self.session.execute(text("""
             SELECT
                 LEFT(nombre_razon_social, 3) || '***' AS nombre_alias,
@@ -613,11 +632,11 @@ class AgenteRepository:
                 estado_pipeline,
                 estado_sarlaft,
                 estado_due_diligence,
-                COALESCE(es_pep, FALSE)          AS es_pep,
+                COALESCE(es_pep, FALSE)              AS es_pep,
                 COALESCE(resultado_listas,
-                    'Sin coincidencias')         AS resultado_listas,
-                COALESCE(alertas_activas, 0)     AS alertas_activas,
-                observaciones_compliance         AS observaciones,
+                    'Sin coincidencias')             AS resultado_listas,
+                COALESCE(alertas_activas, 0)         AS alertas_activas,
+                observaciones_compliance             AS observaciones,
                 updated_at
             FROM aliados
             WHERE agente_id = :id
@@ -627,10 +646,18 @@ class AgenteRepository:
 
         result = [dict(r) for r in rows]
 
-        # Enriquecer el primer registro con la nota de jornada de hoy si existe
-        if nota_hoy and result:
-            obs_existente = result[0].get("observaciones") or ""
-            sep = "\n\n[Nota de jornada hoy]: " if obs_existente else "[Nota de jornada hoy]: "
-            result[0]["observaciones"] = obs_existente + sep + nota_hoy
+        # ── 3. Enriquecer primer registro con notas de jornada ───────────────
+        if notas_unificadas and result:
+            obs_partner = result[0].get("observaciones") or ""
+            if obs_partner:
+                result[0]["observaciones"] = (
+                    obs_partner
+                    + "\n\n[Notas de jornada del colaborador]:\n"
+                    + notas_unificadas
+                )
+            else:
+                result[0]["observaciones"] = (
+                    "[Notas de jornada del colaborador]:\n" + notas_unificadas
+                )
 
         return result
