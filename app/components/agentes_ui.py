@@ -535,6 +535,19 @@ def _form_registro_diario(agente_db: dict, user: Optional[dict]) -> None:
                     key=f"cci_{agente_id}",
                 )
 
+            st.markdown(
+                f"<div style='border-top:1px solid {_C_BORDER};margin:14px 0 10px;'></div>",
+                unsafe_allow_html=True,
+            )
+            observaciones = st.text_area(
+                "\U0001f4dd Observaciones de la Jornada",
+                value=hoy_data.get("observaciones") or "",
+                placeholder="Ej: Se detect\u00f3 un perfil PEP en el onboarding de hoy...",
+                height=90,
+                key=f"obs_{agente_id}",
+                help="Estas notas ser\u00e1n analizadas por la IA en la pesta\u00f1a \U0001f916 IA Insights.",
+            )
+
             guardado = st.form_submit_button(
                 "\U0001f4be Guardar Gesti\u00f3n",
                 type="primary",
@@ -553,6 +566,7 @@ def _form_registro_diario(agente_db: dict, user: Optional[dict]) -> None:
                             "sanciones":        sanc,
                             "hardstop":         hs,
                             "tx_ongoing":       tx,
+                            "observaciones":    observaciones.strip() or None,
                         },
                         admin_user=user,
                     )
@@ -564,7 +578,10 @@ def _form_registro_diario(agente_db: dict, user: Optional[dict]) -> None:
                         "kpi_cuentas_com_rechazadas":     int(form_com_rechazadas),
                         "kpi_cuentas_com_investigacion":  int(form_com_investigacion),
                     })
-                st.success("\u2705 Gesti\u00f3n del d\u00eda guardada correctamente.")
+                st.success(
+                    "\u2705 Gesti\u00f3n del d\u00eda guardada. "
+                    "Ve a la pesta\u00f1a **\U0001f916 IA Insights** para ver el an\u00e1lisis autom\u00e1tico."
+                )
                 st.rerun()
             except Exception as exc:
                 st.error(f"Error al guardar: {exc}")

@@ -442,6 +442,7 @@ class AgenteRepository:
                 SELECT id, agente_id, fecha,
                        docs_personales, docs_comerciales,
                        sanciones, hardstop, tx_ongoing,
+                       observaciones,
                        updated_at
                 FROM agente_kpi_diario
                 WHERE agente_id = :id
@@ -452,6 +453,7 @@ class AgenteRepository:
                 SELECT id, agente_id, fecha,
                        docs_personales, docs_comerciales,
                        sanciones, hardstop, tx_ongoing,
+                       observaciones,
                        updated_at
                 FROM agente_kpi_diario
                 WHERE agente_id = :id
@@ -464,12 +466,21 @@ class AgenteRepository:
         Inserta o actualiza el registro de KPIs del día actual para el agente.
 
         ``data`` puede contener cualquier subconjunto de las columnas editables:
-        docs_personales, docs_comerciales, sanciones, hardstop, tx_ongoing.
+        docs_personales, docs_comerciales, sanciones, hardstop, tx_ongoing,
+        observaciones.
 
         Usa INSERT … ON CONFLICT (agente_id, fecha) DO UPDATE.
         """
-        _COLS = ("docs_personales", "docs_comerciales", "sanciones", "hardstop", "tx_ongoing")
-        safe  = {k: max(0, int(v or 0)) for k, v in data.items() if k in _COLS}
+        _COLS_INT  = ("docs_personales", "docs_comerciales", "sanciones", "hardstop", "tx_ongoing")
+        _COLS_TEXT = ("observaciones",)
+        safe: dict = {}
+        for k in _COLS_INT:
+            if k in data:
+                safe[k] = max(0, int(data[k] or 0))
+        for k in _COLS_TEXT:
+            if k in data:
+                val = data[k]
+                safe[k] = str(val).strip() if val else None
         if not safe:
             return
 
@@ -549,7 +560,7 @@ class AgenteRepository:
         """
         from db.repositories.audit_repo import AuditRepository
 
-        _COLS_DIARIO = ("docs_personales", "docs_comerciales", "sanciones", "hardstop", "tx_ongoing")
+        _COLS_DIARIO = ("docs_personales", "docs_comerciales", "sanciones", "hardstop", "tx_ongoing", "observaciones")
         prev = self.get_kpi_diario(agente_id) or {}
         self.upsert_kpi_diario(agente_id, data)
 
@@ -563,8 +574,8 @@ class AgenteRepository:
                 f"Bitácora diaria actualizada: agente_id={agente_id} "
                 f"por {admin_user.get('username', 'sistema')}"
             ),
-            valores_anteriores = {k: int(prev.get(k) or 0) for k in _COLS_DIARIO},
-            valores_nuevos     = {k: int(data.get(k) or 0) for k in _COLS_DIARIO},
+            valores_anteriores = {k: prev.get(k) for k in _COLS_DIARIO if k in prev},
+            valores_nuevos     = {k: data.get(k) for k in _COLS_DIARIO if k in data},
         )
 
     # ── IA Insights — Gestiones recientes para análisis ───
@@ -574,6 +585,9 @@ class AgenteRepository:
         Recupera los últimos `limit` aliados asignados al agente con sus
         datos de compliance para el análisis de IA.
 
+        Si existe una nota de jornada del día de hoy en agente_kpi_diario,
+        se incorpora como `observaciones` adicionales al contexto.
+
         Las observaciones se devuelven SIN anonimizar — la anonimización
         ocurre en ai_handler.anonymize_text() antes de enviar a la API.
 
@@ -582,6 +596,15 @@ class AgenteRepository:
           estado_sarlaft, estado_due_diligence, es_pep,
           resultado_listas, alertas_activas, observaciones.
         """
+        # Nota de jornada de hoy
+        nota_hoy: str = ""
+        try:
+            hoy = self.get_kpi_diario(agente_id)
+            if hoy and hoy.get("observaciones"):
+                nota_hoy = hoy["observaciones"]
+        except Exception:
+            pass
+
         rows = self.session.execute(text("""
             SELECT
                 LEFT(nombre_razon_social, 3) || '***' AS nombre_alias,
@@ -601,4 +624,13 @@ class AgenteRepository:
             ORDER BY updated_at DESC NULLS LAST
             LIMIT :lim
         """), {"id": agente_id, "lim": limit}).mappings().all()
-        return [dict(r) for r in rows]
+
+        result = [dict(r) for r in rows]
+
+        # Enriquecer el primer registro con la nota de jornada de hoy si existe
+        if nota_hoy and result:
+            obs_existente = result[0].get("observaciones") or ""
+            sep = "\n\n[Nota de jornada hoy]: " if obs_existente else "[Nota de jornada hoy]: "
+            result[0]["observaciones"] = obs_existente + sep + nota_hoy
+
+        return result
