@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-04-17 (rev. 3)
+> Última actualización: 2026-04-27 (rev. 6)
 
 ---
 
@@ -47,10 +47,12 @@ Proyecto_PartnersStatus/
 │   │                                  # login_screen() — st.form + rate-limiting progresivo
 │   │                                  #   (delay 1-3 s + bloqueo 60 s tras 5 fallos consecutivos)
 │   │                                  # require_auth() — gate de sesión, llama st.stop()
-│                                  # logout() — borra cookie + limpia session_state + _logged_out=True
-│                                  #   _logged_out flag bloquea restauración de cookie en el rerun
-│                                  #   (fix: stx.CookieManager.delete() es asíncrono)
-│                                  # SQL: activo = 1 (INTEGER — la columna no es BOOLEAN)
+│   │                                  # logout() — borra cookie + limpia session_state + _logged_out=True
+│   │                                  #   _logged_out flag bloquea restauración de cookie en el rerun
+│   │                                  #   (fix: stx.CookieManager.delete() es asíncrono)
+│   │                                  # check_active_session() — cm.get() antes de cm.delete()
+│   │                                  #   try/except KeyError: evita crash si la cookie ya no existe
+│   │                                  # SQL: activo = 1 (INTEGER — la columna no es BOOLEAN)
 │   │                                  # _get_client_ip() · _audit_login()
 │   │
 │   ├── 📂 pages/                      # Páginas como módulos independientes (expansión futura)
@@ -89,7 +91,24 @@ Proyecto_PartnersStatus/
 │   │                                  # _USERNAME_TO_EQUIPO — mapa rápido username→equipo (fallback)
 │   │                                  # _foto_base64(username) — busca en static/img/agentes/
 │   │                                  #   formatos: .jpg .jpeg .png .webp
+│   │                                  #   lee bytes + codifica Base64 → data-URI (compatible Railway)
+│   │                                  #   try/except en read_bytes(): archivos corruptos → logger.warning
 │   │                                  #   fallback: inicial del nombre con color del equipo
+│   │                                  # _render_header_agente(): avatar circular border:3px + box-shadow
+│   │                                  #   glow doble capa con color del equipo (0 0 12px / 0 0 24px)
+│   │                                  #   aplica tanto a foto real como a avatar de inicial
+│   │                                  # GESTIÓN DINÁMICA DE AVATARES:
+│   │                                  # _foto_base64(username) — fallback filesystem → session_state → None
+│   │                                  #   prioridad: static/img/agentes/<username>.ext > session upload
+│   │                                  # _preview_avatar(data_uri, equipo_color) — círculo 52px con glow
+│   │                                  # _seccion_foto_uploader(username, color, key, puede_subir)
+│   │                                  #   st.file_uploader JPG/PNG → data-URI base64
+│   │                                  #   auto-save al disco en local al seleccionar (sin clic extra)
+│   │                                  #   producción: st.download_button para commit posterior
+│   │                                  #   guarda en session_state[_foto_upload_{username}]
+│   │                                  # _guardar_foto_agente(username) — persiste al filesystem local
+│   │                                  # TARJETAS de equipo: botón 📷 Foto (solo admin) por cada agente
+│   │                                  #   toggle _show_cam_{username} → abre uploader inline
 │   │                                  # get_agentes_sidebar() — lee tabla agentes (fallback: EQUIPOS dict)
 │   │                                  # render_perfil_agente(username, user):
 │   │                                  #   Header: foto/avatar + nombre + cargo + badge equipo
@@ -97,6 +116,12 @@ Proyecto_PartnersStatus/
 │   │                                  #     2 Plotly pie (distribución riesgo + pipeline) + barra de meta
 │   │                                  #   Tab 📋 Información: ficha contacto + notas
 │   │                                  #     admin: form inline de edición (sin contraseña)
+│   │                                  #   Tab 📅 Actividad: últimas acciones del sistema (log_auditoria)
+│   │                                  #   Tab 🤖 IA Insights: análisis LLM de las últimas 5 gestiones
+│   │                                  #     badge urgencia color-coded · resumen ejecutivo
+│   │                                  #     red flags resaltadas en rojo · caché 30 min
+│   │                                  #     botón 🔄 Refrescar (limpia caché IA del agente)
+│   │                                  #     info de configuración si API key no está presente
 │   │                                  # render_gestion_agentes(user): ADMIN y COMPLIANCE
 │                                  #   puede_editar = rol in {ADMIN, COMPLIANCE}
 │   │                                  #   Tab 🏢 Vista por Equipo: cards agrupadas por equipo
@@ -113,10 +138,19 @@ Proyecto_PartnersStatus/
 │   │
 │   └── 📂 utils/                      # Funciones auxiliares de utilidad
 │       ├── 📄 __init__.py
-│       └── 📄 production_check.py     # Hardening pre-arranque (GAFI R.1 / CSBF Circular 027)
-│                                      # raise_if_insecure() · run_checks()
-│                                      # SECRET_KEY ≥ 43 chars · ADMIN_PASSWORD ≥ 16 chars
-│                                      # DATABASE_URL debe ser PostgreSQL · ADMIN_USERNAME/EMAIL presentes
+│       ├── 📄 production_check.py     # Hardening pre-arranque (GAFI R.1 / CSBF Circular 027)
+│       │                              # raise_if_insecure() · run_checks()
+│       │                              # SECRET_KEY ≥ 43 chars · ADMIN_PASSWORD ≥ 16 chars
+│       │                              # DATABASE_URL debe ser PostgreSQL · ADMIN_USERNAME/EMAIL presentes
+│       └── 📄 ai_handler.py           # Motor centralizado de IA — Gemini / OpenAI
+│                                      # AI_PROVIDER · GEMINI_KEY · OPENAI_KEY (desde .env)
+│                                      # anonymize_text() — elimina NIT, CC, teléfonos, emails,
+│                                      #   cuentas y nombres en MAYÚSCULAS antes de enviar a API
+│                                      # analyze_gestion(context_data) → {urgencia, resumen, red_flags}
+│                                      #   Prompt: Oficial de Cumplimiento SARLAFT
+│                                      #   Proveedores: _call_gemini() / _call_openai()
+│                                      #   Caché session_state con TTL 30 min (sha256 del texto)
+│                                      #   Retorna ok=False (sin romper UI) si no hay API key
 │
 ├── 📂 config/                         # Configuración centralizada
 │   ├── 📄 __init__.py
@@ -128,6 +162,9 @@ Proyecto_PartnersStatus/
 │   ├── 📄 database.py                 # Motor SQLAlchemy · QueuePool PostgreSQL
 │   │                                  # SessionLocal (generador) · init_database() · health_check()
 │   │                                  # Uso: with next(get_session()) as session:
+│   ├── 📄 sync_db.py                  # Script CLI de sincronización de migraciones
+│   │                                  # Aplica scripts SQL en orden numérico y valida relaciones
+│   │                                  # Uso: python db/sync_db.py [--only 005 006] [--check]
 │   ├── 📄 models.py                   # Modelos Pydantic v2
 │   │                                  # AliadoBase · AliadoCreate · AliadoUpdate · AliadoOut
 │   │                                  # UsuarioBase · UsuarioCreate · UsuarioUpdate · UsuarioOut
@@ -175,6 +212,13 @@ Proyecto_PartnersStatus/
 │       │                              # get_metrics(agente_id) — KPIs desde aliados.agente_id:
 │       │                              #   total_partners · partners_activos · partners_riesgo_alto
 │       │                              #   tasa_activacion_pct · distribucion_riesgo · distribucion_estado
+│       │                              # get_compliance_kpis(agente_id) — docs/cuentas/sanciones/SARLAFT
+│       │                              # get_kpi_table() · update_kpis_from_editor() — editor inline
+│       │                              # get_kpi_diario() · upsert_kpi_diario() — bitácora diaria
+│       │                              # registrar_gestion_diaria() — upsert + auditoría
+│       │                              # get_recent_gestiones(agente_id, limit=5) — para análisis IA
+│       │                              #   retorna tipo, riesgo, pipeline, SARLAFT, PEP, listas,
+│       │                              #   alertas, observaciones; nombre parcialmente enmascarado
 │       ├── 📄 user_repo.py            # CRUD de usuarios del sistema (con bcrypt)
 │       │                              # create_user() · update_user() · get_by_username()
 │       │                              # activo = 1 (INTEGER) en inserts y queries
@@ -292,6 +336,15 @@ pip install -r requirements.txt
 # Inicializar / resetear la base de datos
 python -m db.database
 
+# Aplicar todas las migraciones pendientes
+python db/sync_db.py
+
+# Aplicar migraciones específicas
+python db/sync_db.py --only 008 009
+
+# Solo validar que las tablas críticas existen (sin aplicar nada)
+python db/sync_db.py --check
+
 # Ejecutar la aplicación en local (usar ejecutable del venv en Windows)
 .venv\Scripts\streamlit.exe run app/main.py --server.port 8501
 
@@ -347,6 +400,11 @@ git push origin main
 | `ADMIN_USERNAME`      | **Producción**  | Username del admin seed                   | `admin`                                  |
 | `PORT`                | Railway (auto)  | Puerto inyectado por Railway              | `8501` en local                          |
 | `DEBUG`               | Desarrollo      | Muestra SQL en consola                    | `true` en dev, `false` en prod           |
+| `AI_PROVIDER`         | Ambos           | Proveedor LLM activo                      | `gemini` (default) · `openai`            |
+| `GEMINI_API_KEY`      | Ambos           | API key de Google AI Studio               | [aistudio.google.com](https://aistudio.google.com/apikey) · tier gratuito |
+| `GEMINI_MODEL`        | Ambos           | Modelo Gemini a usar                      | `gemini-1.5-flash`                       |
+| `OPENAI_API_KEY`      | Ambos           | API key de OpenAI (alternativa)           | Solo si `AI_PROVIDER=openai`             |
+| `OPENAI_MODEL`        | Ambos           | Modelo OpenAI a usar                      | `gpt-4o-mini`                            |
 
 > ⚠️ `production_check.py` bloquea el arranque si `SECRET_KEY` ( < 43 chars) o `ADMIN_PASSWORD` (< 16 chars o sin complejidad suficiente) usan valores débiles cuando `APP_ENV=production`.  
 > Usa `raise_if_insecure()` en tests de integración para validar la configuración programáticamente.
@@ -365,6 +423,7 @@ git push origin main
 - **Hardening**: `SECRET_KEY` ≥ 43 chars · `ADMIN_PASSWORD` ≥ 16 chars con 4 clases · `DEBUG=false` en producción
 - **Auth**: `require_auth()` como gate en `main()` — ENV bootstrap → bcrypt BD → PLACEHOLDER_HASH (solo dev)
 - **Logout**: `_logged_out=True` en session_state bloquea restauración de cookie hasta el siguiente login exitoso
+- **CookieManager.delete()**: siempre verificar con `cm.get()` antes de llamar `cm.delete()` — lanza `KeyError` si la cookie no existe en el dict interno
 - **activo**: columna `INTEGER` (1/0) en tabla `usuarios` — nunca comparar con `true`/`false` en SQL
 - **Rate-limiting**: `st.session_state["login_fails"]` + `login_locked_until` — bloqueo 60 s tras 5 fallos
 - **Pool BD**: `QueuePool` en PostgreSQL (pool_size=5, pool_recycle=30min)
@@ -373,6 +432,9 @@ git push origin main
 - **Session State edición**: `st.session_state["edit_id"]` / `st.session_state["delete_id"]` para acciones en tabla
 - **Acción Rápida**: `cambiar_estado()` + `AuditRepository.registrar()` siempre en el mismo bloque try/finally
 - **Docker**: `.dockerignore` excluye `.env`, `.venv` y tests del contenedor de producción
+- **Fotos de agentes**: el archivo debe llamarse exactamente `<username>.jpg` (todo minúsculas) — Linux/Railway es case-sensitive. Convención: `adrian_c.jpg` para username `adrian_c`
+- **Avatar upload**: `_seccion_foto_uploader()` auto-save al disco en local al seleccionar el archivo — no se requiere botón extra. En producción, ofrece `st.download_button` para commit manual
+- **IA Insights**: `ai_handler.analyze_gestion()` anonimiza PII con regex antes de enviar a la API. Caché en `session_state` (TTL 30 min, clave = sha256 del texto). La pestaña funciona en modo degradado (sin romper UI) si `AI_PROVIDER` o API key no están configurados
 
 ---
 
