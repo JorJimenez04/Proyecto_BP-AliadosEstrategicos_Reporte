@@ -582,49 +582,41 @@ class AgenteRepository:
 
     def get_recent_gestiones(self, agente_id: int, limit: int = 5) -> list[dict]:
         """
-        Recupera los últimos `limit` aliados asignados al agente con sus datos
-        de compliance, enriquecidos con las notas de jornada de agente_kpi_diario.
+        Recupera contexto operativo del agente para el análisis de IA.
 
-        Lógica de notas:
-        - Toma los últimos `limit` registros de agente_kpi_diario ordenados
-          por fecha DESC (sin filtro de fecha estricto).
-        - Construye un bloque de texto unificado con todas las notas no vacías.
-        - Si ningún registro tiene notas, el campo `observaciones` queda None
-          (la IA analiza sólo los campos estructurados del aliado).
+        Estrategia dual:
+          - Si existen registros en `aliados` → los usa como gestiones principales
+            y enriquece el primero con notas históricas de `agente_kpi_diario`.
+          - Si `aliados` está vacío → construye gestiones sintéticas directamente
+            desde `agente_kpi_diario` (cada fila diaria = una gestión analizable).
 
-        Las observaciones se devuelven SIN anonimizar — la anonimización
-        ocurre en ai_handler.anonymize_text() antes de enviar a la API.
+        De esta forma la IA siempre recibe contexto aunque el colaborador
+        aún no tenga aliados asignados en cartera.
         """
-        # ── 1. Últimas notas de jornada (sin filtro de fecha estricto) ───────
+        # ── 1. Últimas filas de KPI diario (siempre las necesitamos) ────────
         kpi_rows = self.session.execute(text("""
-            SELECT fecha, observaciones
+            SELECT fecha, docs_personales, docs_comerciales,
+                   sanciones, hardstop, tx_ongoing,
+                   observaciones, updated_at
             FROM agente_kpi_diario
             WHERE agente_id = :id
-              AND observaciones IS NOT NULL
-              AND TRIM(observaciones) <> ''
             ORDER BY fecha DESC, created_at DESC
             LIMIT :lim
         """), {"id": agente_id, "lim": limit}).mappings().all()
 
-        # Sanity check: log para depuración en Railway
+        kpi_rows = [dict(r) for r in kpi_rows]
+
+        # Log de diagnóstico
         if kpi_rows:
-            primer_obs = (kpi_rows[0]["observaciones"] or "")[:20]
             logger.info(
-                "[IA] agente_id=%s notas_diario=%d primera_obs='%s...'",
-                agente_id, len(kpi_rows), primer_obs,
+                "[IA] agente_id=%s kpi_rows=%d primera_fecha=%s",
+                agente_id, len(kpi_rows), str(kpi_rows[0].get("fecha", "?"))[:10],
             )
         else:
-            logger.info("[IA] agente_id=%s sin notas de jornada registradas.", agente_id)
+            logger.info("[IA] agente_id=%s sin registros en agente_kpi_diario.", agente_id)
 
-        # Bloque unificado de notas ordenadas cronológicamente
-        bloques = []
-        for row in kpi_rows:
-            fecha_str = str(row["fecha"])[:10]
-            bloques.append(f"[{fecha_str}] {(row['observaciones'] or '').strip()}")
-        notas_unificadas: str = "\n".join(bloques) if bloques else ""
-
-        # ── 2. Últimos aliados asignados (contexto estructurado) ─────────────
-        rows = self.session.execute(text("""
+        # ── 2. Intentar aliados ──────────────────────────────────────────────
+        aliado_rows = self.session.execute(text("""
             SELECT
                 LEFT(nombre_razon_social, 3) || '***' AS nombre_alias,
                 tipo_aliado,
@@ -644,20 +636,81 @@ class AgenteRepository:
             LIMIT :lim
         """), {"id": agente_id, "lim": limit}).mappings().all()
 
-        result = [dict(r) for r in rows]
+        aliado_rows = [dict(r) for r in aliado_rows]
 
-        # ── 3. Enriquecer primer registro con notas de jornada ───────────────
-        if notas_unificadas and result:
-            obs_partner = result[0].get("observaciones") or ""
-            if obs_partner:
-                result[0]["observaciones"] = (
-                    obs_partner
-                    + "\n\n[Notas de jornada del colaborador]:\n"
-                    + notas_unificadas
+        if aliado_rows:
+            # ── Ruta A: hay aliados — enriquecer con notas de jornada ─────
+            # Construir bloque de notas históricas
+            bloques = []
+            for row in kpi_rows:
+                obs = (row.get("observaciones") or "").strip()
+                if obs:
+                    fecha_str = str(row["fecha"])[:10]
+                    bloques.append(f"[{fecha_str}] {obs}")
+            notas_unificadas = "\n".join(bloques) if bloques else ""
+
+            if notas_unificadas:
+                obs_partner = aliado_rows[0].get("observaciones") or ""
+                sep = "\n\n[Notas de jornada del colaborador]:\n"
+                aliado_rows[0]["observaciones"] = (
+                    (obs_partner + sep if obs_partner else sep.lstrip("\n")) + notas_unificadas
                 )
+            return aliado_rows
+
+        # ── Ruta B: sin aliados — sintetizar gestiones desde kpi_diario ──
+        if not kpi_rows:
+            return []
+
+        result = []
+        for row in kpi_rows:
+            fecha_str   = str(row.get("fecha", ""))[:10]
+            docs_p      = row.get("docs_personales", 0)  or 0
+            docs_c      = row.get("docs_comerciales", 0) or 0
+            sanciones   = row.get("sanciones", 0)        or 0
+            hardstop    = row.get("hardstop", 0)         or 0
+            tx_ongoing  = row.get("tx_ongoing", 0)       or 0
+            obs         = (row.get("observaciones") or "").strip()
+
+            # Derivar nivel_riesgo desde hardstop
+            if hardstop >= 3:
+                nivel_riesgo = "Alto"
+            elif hardstop >= 1:
+                nivel_riesgo = "Medio"
             else:
-                result[0]["observaciones"] = (
-                    "[Notas de jornada del colaborador]:\n" + notas_unificadas
-                )
+                nivel_riesgo = "Bajo"
 
+            # Estado SARLAFT derivado de sanciones
+            estado_sarlaft = "Pendiente" if sanciones > 0 else "Al día"
+
+            # Texto enriquecido para el análisis
+            lineas = [
+                f"Jornada: {fecha_str}",
+                f"Documentos personales procesados: {docs_p}",
+                f"Documentos comerciales procesados: {docs_c}",
+                f"Listas de sanciones revisadas: {sanciones}",
+                f"Alertas Hardstop activas: {hardstop}",
+                f"Transacciones Ongoing en gestión: {tx_ongoing}",
+            ]
+            if obs:
+                lineas.append(f"Nota de jornada: {obs}")
+            observaciones_texto = "\n".join(lineas)
+
+            result.append({
+                "nombre_alias":        f"Jornada {fecha_str}",
+                "tipo_aliado":         "KPI Diario",
+                "nivel_riesgo":        nivel_riesgo,
+                "estado_pipeline":     "Activo",
+                "estado_sarlaft":      estado_sarlaft,
+                "estado_due_diligence": "—",
+                "es_pep":              False,
+                "resultado_listas":    f"{sanciones} lista(s) revisada(s)",
+                "alertas_activas":     hardstop,
+                "observaciones":       observaciones_texto,
+                "updated_at":          row.get("updated_at"),
+            })
+
+        logger.info(
+            "[IA] agente_id=%s usando ruta B (kpi_diario) — %d gestión(es) sintética(s).",
+            agente_id, len(result),
+        )
         return result
