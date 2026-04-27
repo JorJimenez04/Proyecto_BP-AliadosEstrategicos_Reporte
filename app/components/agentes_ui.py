@@ -1075,18 +1075,38 @@ def _badge_urgencia(urgencia: str) -> str:
 
 def _tab_ia_insights(agente_db: Optional[dict], equipo_color: str) -> None:
     """Pestaña de análisis de IA de las últimas gestiones del colaborador."""
+    import os as _os
+    from datetime import date as _date_cls
     from app.utils.ai_handler import analyze_gestion, AI_PROVIDER, GEMINI_KEY, OPENAI_KEY
 
     _section_title("🤖 Análisis IA — Gestión Operativa")
 
+    # ── Guardas duras (sin agente no hay nada que analizar) ─
     if agente_db is None:
         st.info("No se encontraron datos del colaborador en la base de datos.")
         return
-
     agente_id = agente_db.get("id")
     if not agente_id:
         st.info("ID de colaborador no disponible.")
         return
+
+    # ── BOTÓN REFRESCAR — siempre visible (antes de toda validación) ──────────
+    col_ref, col_lbl = st.columns([1, 5])
+    with col_ref:
+        refrescar = st.button(
+            "🔄 Refrescar Análisis",
+            key=f"ia_refresh_{agente_id}",
+            use_container_width=True,
+        )
+    with col_lbl:
+        st.caption(f"Analizando gestiones hasta el: **{_date_cls.today().strftime('%Y-%m-%d')}**")
+
+    if refrescar:
+        # Limpiar toda la caché de IA de la sesión
+        keys_to_del = [k for k in st.session_state if k.startswith("ai_cache_")]
+        for k in keys_to_del:
+            del st.session_state[k]
+        st.rerun()
 
     # ── Verificación de API key ────────────────────────────
     api_key_ok = bool(GEMINI_KEY if AI_PROVIDER == "gemini" else OPENAI_KEY)
@@ -1123,16 +1143,27 @@ def _tab_ia_insights(agente_db: Optional[dict], equipo_color: str) -> None:
             gestiones = AgenteRepository(session).get_recent_gestiones(agente_id, limit=5)
     except Exception as exc:
         st.error(f"Error cargando gestiones: {exc}")
-        return
+        # No se hace return — el botón ya está visible arriba
+
+    # ── Diagnóstico (visible solo en APP_ENV=development) ──
+    if _os.getenv("APP_ENV", "development") == "development":
+        obs_preview = (gestiones[0].get("observaciones") or "")[:60] if gestiones else "—"
+        st.caption(
+            f"🔍 Debug · {len(gestiones)} gestión(es) · "
+            f"agente_id={agente_id} · "
+            f"obs[0]='{obs_preview}'"
+        )
 
     if not gestiones:
         st.markdown(
             f"<div style='color:{_C_GRAY};font-style:italic;font-size:0.85rem;"
             f"padding:20px 0;text-align:center;'>"
-            f"Sin gestiones registradas para este colaborador aún.</div>",
+            f"Sin gestiones registradas para este colaborador aún.<br>"
+            f"<small>Usa 🔄 Refrescar si acabas de registrar datos.</small>"
+            f"</div>",
             unsafe_allow_html=True,
         )
-        return
+        return  # Nada más que renderizar; el botón de refrescar ya está visible arriba
 
     # ── Info sobre caché y privacidad ─────────────────────
     proveedor_badge = (
@@ -1152,21 +1183,9 @@ def _tab_ia_insights(agente_db: Optional[dict], equipo_color: str) -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Botón refrescar + fecha de cobertura ──────────────
-    col_ref, col_lbl = st.columns([1, 5])
-    with col_ref:
-        if st.button("🔄 Refrescar", key=f"ia_refresh_{agente_id}", use_container_width=True):
-            # Limpiar caché de session_state para este agente
-            keys_to_del = [k for k in st.session_state if k.startswith("ai_cache_")]
-            for k in keys_to_del:
-                del st.session_state[k]
-            st.rerun()
-    with col_lbl:
-        from datetime import date as _date_cls
-        st.caption(f"Analizando gestiones hasta el: **{_date_cls.today().strftime('%Y-%m-%d')}**")
-
-    # ── Pre-cargar gestiones fuera del spinner ─────────────
-    # (el spinner solo aparece mientras la IA procesa, no durante la carga de BD)
+    # ── Análisis IA ────────────────────────────────────────
+    # El spinner solo se activa cuando la API necesita procesar;
+    # si todos los resultados están en caché es prácticamente instantáneo.
     resultados_ia: list[tuple] = []
     with st.spinner("Analizando gestiones con IA…"):
         for g in gestiones:
