@@ -480,27 +480,22 @@ def page_compliance(user: dict) -> None:
         return
     logger.info("[Compliance] empresa=%s docs=%d", filtro_empresa or "todas", len(todos))
 
-    # ── Estado vacío: mensaje amigable para carga manual ─────────────────
-    if stats["total"] == 0 and len(todos) == 0:
-        _kpi_cards(stats)   # muestra KPIs en 0 (sin riesgo de división por cero)
-        st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
-        st.markdown(
-            f"""<div style="background:{_C_CARD};border:1px solid {_C_BORDER};
-            border-radius:10px;padding:28px 24px;text-align:center;">
-            <div style="font-size:2.4rem;margin-bottom:12px;">📂</div>
-            <div style="color:{_C_TEXT};font-size:1.05rem;font-weight:600;
-                margin-bottom:8px;">El Centro Documental está listo.</div>
-            <div style="color:{_C_GRAY};font-size:0.88rem;">
-                Utiliza el formulario de abajo para cargar el primer documento
-                de tu entidad.
-            </div>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-        return
-    # ── KPI cards ────────────────────────────────────────────────────────────
+    # ── KPI cards (siempre visibles) ─────────────────────────────────────────
     _kpi_cards(stats)
     st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
+
+    # ── Estado vacío: mensaje amigable (no hace return — las tabs siguen) ────
+    if stats["total"] == 0 and len(todos) == 0:
+        st.markdown(
+            f'<div style="background:{_C_CARD};border:1px solid {_C_BORDER};'
+            f'border-radius:10px;padding:28px 24px;text-align:center;">'
+            f'<div style="font-size:2.4rem;margin-bottom:12px;">📂</div>'
+            f'<div style="color:{_C_TEXT};font-size:1.05rem;font-weight:600;margin-bottom:8px;">El Centro Documental está listo.</div>'
+            + (f'<div style="color:{_C_GRAY};font-size:0.88rem;">Selecciona una empresa y una carpeta para agregar el primer documento.</div>' if filtro_empresa else f'<div style="color:{_C_GRAY};font-size:0.88rem;">Selecciona una empresa en el filtro para comenzar a cargar documentos.</div>')
+            + '</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
 
     # ── Alertas de estado ────────────────────────────────────────────────────
     if stats["vencidos"] > 0:
