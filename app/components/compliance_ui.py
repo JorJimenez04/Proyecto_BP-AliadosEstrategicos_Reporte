@@ -346,19 +346,36 @@ def _form_nueva_version(doc: dict, key_prefix: str = "") -> None:
             st.error(f"Error al guardar: {exc}")
 
 
-def _form_nuevo_documento(user: dict, carpeta_default: str | None = None) -> None:
+def _form_nuevo_documento(
+    user: dict,
+    carpeta_default: str | None = None,
+    empresa_default: str | None = None,
+) -> None:
     """Formulario para agregar un nuevo documento (admin/compliance)."""
-    with st.expander("➕ Agregar nuevo documento", expanded=False):
-        with st.form(f"form_nuevo_doc_{carpeta_default or 'todos'}", clear_on_submit=True):
+    with st.expander("➕ Agregar nuevo documento a esta sección", expanded=False):
+        # Clave única por carpeta + empresa para evitar DuplicateWidgetID entre tabs/empresas
+        form_key = f"form_nuevo_doc_{carpeta_default or 'X'}_{empresa_default or 'X'}"
+        with st.form(form_key, clear_on_submit=True):
             fa, fb = st.columns(2)
             with fa:
+                # Empresa: pre-seleccionada y bloqueada cuando viene del filtro
+                _emp_opts = ["(Compartido)"] + _EMPRESAS[1:]
+                emp_idx = _emp_opts.index(empresa_default) if empresa_default in _emp_opts else 0
                 empresa = st.selectbox(
                     "Empresa",
-                    ["(Compartido)"] + _EMPRESAS[1:],
-                    help="Entidad propietaria. 'Compartido' es visible para todas.",
+                    _emp_opts,
+                    index=emp_idx,
+                    disabled=empresa_default is not None,
+                    help="Entidad propietaria. '(Compartido)' es visible para todas.",
                 )
+                # Carpeta: pre-seleccionada y bloqueada cuando viene de la tab
                 carpeta_idx = _CARPETAS_ORDEN.index(carpeta_default) if carpeta_default in _CARPETAS_ORDEN else 0
-                carpeta = st.selectbox("Carpeta *", _CARPETAS_ORDEN, index=carpeta_idx, disabled=carpeta_default is not None)
+                carpeta = st.selectbox(
+                    "Carpeta *",
+                    _CARPETAS_ORDEN,
+                    index=carpeta_idx,
+                    disabled=carpeta_default is not None,
+                )
                 codigo  = st.text_input("Código", placeholder="ej. POL-004")
                 nombre  = st.text_input("Nombre del documento *")
                 version = st.text_input("Versión", value="1.0")
@@ -562,6 +579,13 @@ def page_compliance(user: dict) -> None:
                 with col:
                     _doc_card(doc, puede_editar, key_prefix=f"t{tab_idx}_")
 
-            # Formulario agregar documento (solo en tabs de carpeta específica, no en "Todos")
-            if carpeta_filtro and puede_editar:
-                _form_nuevo_documento(user, carpeta_default=carpeta_filtro)
+            # Formulario agregar documento:
+            # - Solo en tabs de carpeta específica (nunca en "Todos")
+            # - Solo cuando hay una empresa seleccionada (no "Todas")
+            # - Rol validado por puede_editar (admin/compliance)
+            if carpeta_filtro and puede_editar and filtro_empresa is not None:
+                _form_nuevo_documento(
+                    user,
+                    carpeta_default=carpeta_filtro,
+                    empresa_default=filtro_empresa,
+                )
