@@ -75,7 +75,13 @@ class ComplianceRepository:
     ) -> list:
         """
         Devuelve documentos activos (no archivados) con filtros opcionales.
+        empresa="Todos" o None → sin filtro de empresa (retorna todos).
+        Siempre retorna una lista Python; nunca una fuente alternativa.
         """
+        # Normalizar: "Todos" equivale a sin filtro
+        if empresa == "Todos":
+            empresa = None
+
         conditions = ["estado != 'Archivado'"]
         params: dict = {}
 
@@ -100,7 +106,10 @@ class ComplianceRepository:
             WHERE {where}
             ORDER BY carpeta, codigo, nombre
         """), params).mappings().fetchall()
-        return [dict(r) for r in rows]
+        result = [dict(r) for r in rows]
+        logger.debug("[Compliance] get_documentos → %d filas (carpeta=%s empresa=%s)",
+                     len(result), carpeta, empresa)
+        return result
 
     def get_by_id(self, doc_id: int) -> Optional[dict]:
         row = self.session.execute(text("""

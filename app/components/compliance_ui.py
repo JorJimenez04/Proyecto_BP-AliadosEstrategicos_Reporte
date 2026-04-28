@@ -429,6 +429,9 @@ def _form_nuevo_documento(user: dict) -> None:
 def page_compliance(user: dict) -> None:
     """Pagina principal del Centro Documental de Cumplimiento."""
 
+    # Limpiar cualquier caché residual de Streamlit (defensivo)
+    st.cache_data.clear()
+
     puede_editar = user.get("rol") in _ROLES_EDITOR
 
     st.markdown(
@@ -539,7 +542,15 @@ def page_compliance(user: dict) -> None:
                 docs_tab = [d for d in docs_tab if d["estado"] == filtro_estado]
 
             if not docs_tab:
-                st.info("No hay documentos con los filtros seleccionados.")
+                if not todos:
+                    # Tabla vacía para este filtro de empresa — invitar a cargar
+                    st.info(
+                        "📂 El Centro Documental está listo. "
+                        "No hay documentos cargados para esta selección."
+                    )
+                else:
+                    # Hay documentos pero no coinciden con los filtros activos
+                    st.info("No hay documentos con los filtros seleccionados.")
                 continue
 
             # Barra de progreso carpeta (solo en tabs de carpeta especifica)
