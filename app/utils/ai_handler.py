@@ -30,7 +30,10 @@ logger = logging.getLogger(__name__)
 AI_PROVIDER:  str = os.getenv("AI_PROVIDER", "gemini").lower()
 GEMINI_KEY:   str = os.getenv("GEMINI_API_KEY", "")
 OPENAI_KEY:   str = os.getenv("OPENAI_API_KEY", "")
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+# El nombre canónico para google-generativeai es sin prefijo "models/"
+# La librería lo resuelve automáticamente contra la API v1 estable.
+GEMINI_MODEL:  str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+GEMINI_FALLBACK: str = "gemini-pro"  # Fallback si el modelo principal falla
 OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 _CACHE_TTL_SECONDS: int = 30 * 60  # 30 min
@@ -150,15 +153,41 @@ def _parse_ai_response(raw: str) -> dict:
 # ─────────────────────────────────────────────────────────────
 # Clientes LLM
 # ─────────────────────────────────────────────────────────────
-def _call_gemini(prompt: str) -> str:
+def _call_gemini(prompt: str, model_name: str | None = None) -> str:
+    """
+    Llama a la API de Gemini usando la librería google-generativeai.
+    - Usa API v1 estable (client_options sin forzar v1beta).
+    - El nombre de modelo NO debe llevar prefijo 'models/' — la librería lo resuelve.
+    - En caso de fallo 404/400 por modelo inválido, hace fallback a GEMINI_FALLBACK.
+    """
     import google.generativeai as genai  # type: ignore
+
+    target_model = model_name or GEMINI_MODEL
+    # Eliminar prefijos que Google AI Studio a veces muestra en la UI
+    # pero que google-generativeai NO necesita (los añade internamente).
+    target_model = target_model.removeprefix("models/")
+
     genai.configure(api_key=GEMINI_KEY)
-    model = genai.GenerativeModel(
-        model_name=GEMINI_MODEL,
-        system_instruction=_SYSTEM_PROMPT,
-    )
-    response = model.generate_content(prompt)
-    return response.text
+    try:
+        model = genai.GenerativeModel(
+            model_name=target_model,
+            system_instruction=_SYSTEM_PROMPT,
+        )
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as exc:
+        err_str = str(exc).lower()
+        # 404 / invalid argument → el modelo configurado no existe en esta API key
+        if ("404" in err_str or "not found" in err_str or "invalid" in err_str)\
+                and target_model != GEMINI_FALLBACK:
+            logger.warning(
+                "ai_handler: modelo '%s' falló (%s). "
+                "Verifica GEMINI_MODEL en .env. "
+                "Reintentando con fallback '%s'…",
+                target_model, exc, GEMINI_FALLBACK,
+            )
+            return _call_gemini(prompt, model_name=GEMINI_FALLBACK)
+        raise
 
 
 def _call_openai(prompt: str) -> str:
@@ -219,7 +248,12 @@ def analyze_gestion(context_data: dict) -> dict:
         }
 
     # Armar texto a analizar con anonimización
-    obs_raw = context_data.get("observaciones") or ""
+    # Sanear observaciones: eliminar caracteres de control y normalizar saltos de línea
+    obs_raw  = context_data.get("observaciones") or ""
+    obs_clean = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", obs_raw)   # ctrl chars
+    obs_clean = re.sub(r"\r\n|\r", "\n", obs_clean).strip()           # normalize CRLF
+    obs_anon  = anonymize_text(obs_clean) or "Sin observaciones registradas."
+
     texto = (
         f"Tipo: {context_data.get('tipo_aliado', 'N/A')}\n"
         f"Riesgo: {context_data.get('nivel_riesgo', 'N/A')}\n"
@@ -229,7 +263,7 @@ def analyze_gestion(context_data: dict) -> dict:
         f"PEP: {'Sí' if context_data.get('es_pep') else 'No'}\n"
         f"Listas restrictivas: {context_data.get('resultado_listas', 'N/A')}\n"
         f"Alertas activas: {context_data.get('alertas_activas', 0)}\n"
-        f"Observaciones: {anonymize_text(obs_raw) or 'Sin observaciones registradas.'}"
+        f"Observaciones:\n{obs_anon}"
     )
 
     ckey = _cache_key(texto)
@@ -247,13 +281,24 @@ def analyze_gestion(context_data: dict) -> dict:
 
         result = _parse_ai_response(raw)
     except Exception as exc:
-        logger.error("ai_handler: error llamando a %s: %s", AI_PROVIDER, exc)
+        err_str = str(exc)
+        logger.error("ai_handler: error llamando a %s: %s", AI_PROVIDER, err_str)
+        # Mensaje de ayuda contextual
+        if "404" in err_str or "not found" in err_str.lower():
+            hint = (
+                "Modelo no encontrado. Revisa GEMINI_MODEL en .env — "
+                "usa 'gemini-1.5-flash' (sin prefijo 'models/')."
+            )
+        elif "api_key" in err_str.lower() or "authentication" in err_str.lower():
+            hint = "API key inválida. Verifica GEMINI_API_KEY en .env."
+        else:
+            hint = err_str
         result = {
             "urgencia":  "Medio",
             "resumen":   "Error al contactar la API de IA.",
             "red_flags": [],
             "ok":        False,
-            "error":     str(exc),
+            "error":     hint,
         }
 
     _set_cached(ckey, result)
