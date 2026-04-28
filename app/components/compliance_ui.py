@@ -77,82 +77,37 @@ _EMPRESA_COLOR: dict[str, str] = {
 }
 
 # ─────────────────────────────────────────────────────────────
-# Utilidades Google Drive
+# Utilidades OneDrive / SharePoint
 # ─────────────────────────────────────────────────────────────
-_DRIVE_ID_RE     = _re.compile(r'/d/([a-zA-Z0-9_-]{20,})')
-_DRIVE_ID_ALT_RE = _re.compile(r'[?&]id=([a-zA-Z0-9_-]{20,})')
-_ALLOWED_DRIVE   = frozenset({"drive.google.com", "docs.google.com"})
-_MAX_DL_BYTES    = 25 * 1024 * 1024   # 25 MB
+_ALLOWED_ONEDRIVE = frozenset({"onedrive.live.com", "1drv.ms"})
+_SHAREPOINT_RE    = _re.compile(r'^[a-zA-Z0-9-]+\.sharepoint\.com$', _re.IGNORECASE)
 
 
-def _extract_drive_id(url: str) -> Optional[str]:
-    """Extrae el file-ID de cualquier URL de Google Drive."""
-    m = _DRIVE_ID_RE.search(url)
-    if m:
-        return m.group(1)
-    m = _DRIVE_ID_ALT_RE.search(url)
-    return m.group(1) if m else None
-
-
-def _is_drive_url(url: str) -> bool:
-    """True si la URL pertenece a drive.google.com o docs.google.com."""
+def _is_onedrive_url(url: str) -> bool:
+    """True si la URL es de OneDrive personal o SharePoint corporativo."""
     if not url:
         return False
     try:
-        return _urlparse(url).netloc in _ALLOWED_DRIVE
+        netloc = _urlparse(url).netloc
+        return netloc in _ALLOWED_ONEDRIVE or bool(_SHAREPOINT_RE.match(netloc))
     except Exception:
         return False
 
 
-def _to_drive_preview(url: str) -> Optional[str]:
-    """Convierte cualquier URL de Drive al endpoint /preview del archivo."""
-    fid = _extract_drive_id(url)
-    return f"https://drive.google.com/file/d/{fid}/preview" if fid else None
-
-
-def _download_drive_file(url: str) -> tuple[bytes, str]:
+def _to_onedrive_embed(url: str) -> str:
     """
-    Descarga un archivo de Google Drive.
-    Protección SSRF: extrae el ID y reconstruye la URL desde cero.
-    Límite 25 MB · timeout 20 s.
+    Devuelve la URL de incrustación iframe.
+    SharePoint: añade action=embedview.
+    OneDrive personal: devuelve la URL tal cual.
     """
-    import requests  # lazy import — disponible via streamlit/transitive dep
-
-    fid = _extract_drive_id(url)
-    if not fid:
-        raise ValueError("No se encontró un ID válido de Google Drive en la URL.")
-
-    # Reconstruir URL desde ID extraído (protección SSRF)
-    dl_url  = f"https://drive.google.com/uc?export=download&id={fid}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    sess    = requests.Session()
-
-    resp = sess.get(dl_url, timeout=20, stream=True,
-                    allow_redirects=True, headers=headers)
-    resp.raise_for_status()
-
-    # Manejar página de confirmación antivirus de Google (archivos grandes)
-    if "text/html" in resp.headers.get("Content-Type", ""):
-        token_m = _re.search(r'confirm=([0-9A-Za-z_-]+)', resp.text)
-        if token_m:
-            resp = sess.get(
-                dl_url + f"&confirm={token_m.group(1)}",
-                timeout=20, stream=True, allow_redirects=True, headers=headers,
-            )
-            resp.raise_for_status()
-
-    # Leer con límite de tamaño
-    content = b""
-    for chunk in resp.iter_content(chunk_size=65536):
-        content += chunk
-        if len(content) > _MAX_DL_BYTES:
-            raise ValueError("El archivo supera el límite de 25 MB para descarga directa.")
-
-    # Nombre de archivo desde Content-Disposition
-    cd      = resp.headers.get("content-disposition", "")
-    fname_m = _re.search(r'filename[^;=\n]*=([\'"]?)([^\'"\n;]+)\1', cd)
-    filename = fname_m.group(2).strip() if fname_m else f"documento_{fid[:8]}.pdf"
-    return content, filename
+    try:
+        netloc = _urlparse(url).netloc
+        if _SHAREPOINT_RE.match(netloc):
+            sep = "&" if "?" in url else "?"
+            return url + sep + "action=embedview"
+    except Exception:
+        pass
+    return url
 
 
 # ─────────────────────────────────────────────────────────────
@@ -241,47 +196,20 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Previsualizar + Descargar (solo si URL es de Drive) ────────────────────────
-    is_drive      = bool(url and _is_drive_url(url))
-    prev_open_key = f"_prev_{key_prefix}{doc_id}"   # tab-local preview toggle
-    dl_data_key   = f"_dldata_{doc_id}"               # global download cache
+    # ── Previsualizar (solo si URL es de OneDrive/SharePoint) ──────────────────────
+    is_onedrive   = bool(url and _is_onedrive_url(url))
+    prev_open_key = f"_prev_{key_prefix}{doc_id}"
 
-    if is_drive:
-        ca, cb = st.columns(2)
-        with ca:
-            prev_lbl = "⬆️ Ocultar" if st.session_state.get(prev_open_key) else "👁️ Previsualizar"
-            if st.button(prev_lbl, key=f"{key_prefix}prev_{doc_id}",
-                         use_container_width=True):
-                st.session_state[prev_open_key] = not st.session_state.get(
-                    prev_open_key, False
-                )
-        with cb:
-            if st.session_state.get(dl_data_key):
-                dl_bytes, dl_name = st.session_state[dl_data_key]
-                st.download_button(
-                    "💾 Guardar archivo",
-                    data=dl_bytes,
-                    file_name=dl_name,
-                    key=f"{key_prefix}dlsave_{doc_id}",
-                    use_container_width=True,
-                )
-            else:
-                if st.button("⬇️ Descargar", key=f"{key_prefix}dl_{doc_id}",
-                             use_container_width=True):
-                    with st.spinner("Preparando descarga…"):
-                        try:
-                            data, fname = _download_drive_file(url)
-                            st.session_state[dl_data_key] = (data, fname)
-                            st.rerun()
-                        except Exception as exc:
-                            st.error(str(exc))
-
+    if is_onedrive:
+        prev_lbl = "⬆️ Ocultar" if st.session_state.get(prev_open_key) else "👁️ Previsualizar"
+        if st.button(prev_lbl, key=f"{key_prefix}prev_{doc_id}",
+                     use_container_width=True):
+            st.session_state[prev_open_key] = not st.session_state.get(
+                prev_open_key, False
+            )
         if st.session_state.get(prev_open_key):
-            preview_url = _to_drive_preview(url)
-            if preview_url:
-                _components.iframe(preview_url, height=520, scrolling=True)
-            else:
-                st.warning("No se puede generar vista previa para este enlace.")
+            embed_url = _to_onedrive_embed(url)
+            _components.iframe(embed_url, height=520, scrolling=True)
 
     # ── Nueva Versión (solo editores) ────────────────────────────────────────
     if puede_editar:
@@ -308,13 +236,13 @@ def _form_nueva_version(doc: dict, key_prefix: str = "") -> None:
             placeholder="ej. 1.1"
         )
         nueva_url = st.text_input(
-            "URL de Google Drive",
+            "URL de OneDrive",
             value=doc.get("url_documento") or "",
-            placeholder="https://drive.google.com/file/d/.../view",
+            placeholder="https://empresa.sharepoint.com/sites/.../documento.pdf",
         )
         st.caption(
-            "ℹ️ Asegúrate de que el enlace sea público: "
-            "Google Drive → Compartir → *Cualquier persona con el enlace puede ver*."
+            "ℹ️ Asegúrate de que el enlace tenga permisos de visualización: "
+            "OneDrive → Compartir → *Cualquier persona con el enlace puede ver*."
         )
         descripcion_cambio = st.text_area(
             "Descripción del cambio", placeholder="Breve descripción…", height=80
@@ -386,15 +314,15 @@ def _form_nuevo_documento(
                 estado  = st.selectbox("Estado", ["Vigente", "Pendiente", "Vencido"])
                 formato = st.selectbox("Formato", ["PDF", "DOCX", "XLSX", "PPTX", "OTRO"])
                 url_doc = st.text_input(
-                    "URL de Google Drive",
-                    placeholder="https://drive.google.com/file/d/.../view",
+                    "URL de OneDrive",
+                    placeholder="https://empresa.sharepoint.com/sites/.../documento.pdf",
                 )
                 fecha_emision     = st.date_input("Fecha emisión",    value=None)
                 fecha_vencimiento = st.date_input("Fecha vencimiento", value=None)
             descripcion = st.text_area("Descripción", height=70)
             st.caption(
-                "ℹ️ Para habilitar Previsualizar y Descargar, usa un enlace de Google Drive "
-                "(/file/d/) con permiso *Cualquier persona con el enlace puede ver*."
+                "ℹ️ Para habilitar la previsualización, usa un enlace compartido de OneDrive/SharePoint "
+                "con permiso *Cualquier persona con el enlace puede ver*."
             )
             guardar = st.form_submit_button("💾 Crear documento")
 
@@ -404,10 +332,10 @@ def _form_nuevo_documento(
                 return
             empresa_val = None if empresa == "(Compartido)" else empresa
             url_clean   = url_doc.strip() or None
-            if url_clean and not _is_drive_url(url_clean):
+            if url_clean and not _is_onedrive_url(url_clean):
                 st.warning(
-                    "⚠️ La URL no parece ser de Google Drive. "
-                    "Previsualizar y Descargar no estarán disponibles."
+                    "⚠️ La URL no parece ser de OneDrive o SharePoint. "
+                    "La previsualización iframe no estará disponible."
                 )
             try:
                 username = user.get("username") or user.get("usuario") or "sistema"
