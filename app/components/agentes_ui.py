@@ -1091,17 +1091,29 @@ def _tab_ia_insights(agente_db: Optional[dict], equipo_color: str) -> None:
         return
 
     # ── BOTÓN REFRESCAR — siempre visible (antes de toda validación) ──────────
+    import time as _time
+    _cooldown_key  = f"ia_refresh_ts_{agente_id}"
+    _cooldown_secs = 5
+    _last_click    = st.session_state.get(_cooldown_key, 0.0)
+    _en_espera     = (_time.time() - _last_click) < _cooldown_secs
+
     col_ref, col_lbl = st.columns([1, 5])
     with col_ref:
         refrescar = st.button(
             "🔄 Refrescar Análisis",
             key=f"ia_refresh_{agente_id}",
             use_container_width=True,
+            disabled=_en_espera,
         )
     with col_lbl:
-        st.caption(f"Analizando gestiones hasta el: **{_date_cls.today().strftime('%Y-%m-%d')}**")
+        if _en_espera:
+            _restante = int(_cooldown_secs - (_time.time() - _last_click)) + 1
+            st.caption(f"⏳ Espera {_restante}s antes de refrescar de nuevo.")
+        else:
+            st.caption(f"Analizando gestiones hasta el: **{_date_cls.today().strftime('%Y-%m-%d')}**")
 
     if refrescar:
+        st.session_state[_cooldown_key] = _time.time()
         # Limpiar toda la caché de IA de la sesión
         keys_to_del = [k for k in st.session_state if k.startswith("ai_cache_")]
         for k in keys_to_del:
@@ -1268,9 +1280,18 @@ def _tab_ia_insights(agente_db: Optional[dict], equipo_color: str) -> None:
         )
 
         # Mostrar error de API si falló (sin romper el loop)
-        if not result.get("ok") and result.get("error") != "no_key":
-            with st.expander("⚠️ Detalle del error", expanded=False):
-                st.code(result.get("error", "Desconocido"))
+        if not result.get("ok") and result.get("error") not in ("no_key", None):
+            err_val = result.get("error", "")
+            if err_val == "rate_limit":
+                st.warning(
+                    "🕐 **El Oficial de Cumplimiento Virtual está procesando muchas solicitudes.** "
+                    "La cuota gratuita de Gemini es de 15 solicitudes/minuto. "
+                    "Espera unos segundos y usa 🔄 Refrescar Análisis.",
+                    icon="⚠️",
+                )
+            else:
+                with st.expander("⚠️ Detalle del error", expanded=False):
+                    st.code(err_val)
 
 
 # ─────────────────────────────────────────────────────────────

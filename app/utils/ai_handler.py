@@ -30,16 +30,15 @@ logger = logging.getLogger(__name__)
 AI_PROVIDER:  str = os.getenv("AI_PROVIDER", "gemini").lower()
 GEMINI_KEY:   str = os.getenv("GEMINI_API_KEY", "")
 OPENAI_KEY:   str = os.getenv("OPENAI_API_KEY", "")
-# El nombre canónico para google-generativeai es sin prefijo "models/"
-# La librería lo resuelve automáticamente contra la API v1 estable.
-# gemini-2.0-flash es el modelo estable de la generación actual (abril 2026).
-GEMINI_MODEL:  str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+# gemini-1.5-flash: 15 RPM / 1 500 req/día en el tier gratuito de Google AI Studio.
+# Es el modelo recomendado para desarrollo — más cuota que 2.0-flash.
+GEMINI_MODEL:  str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 # Cadena de fallback — se prueba en orden si el modelo principal da 404/not found
 _GEMINI_FALLBACK_CHAIN: list[str] = [
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
     "gemini-1.5-flash-latest",
     "gemini-1.5-pro",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
 ]
 OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
@@ -306,13 +305,16 @@ def analyze_gestion(context_data: dict) -> dict:
     except Exception as exc:
         err_str = str(exc)
         logger.error("ai_handler: error llamando a %s: %s", AI_PROVIDER, err_str)
-        # Mensaje de ayuda contextual
-        if "404" in err_str or "not found" in err_str.lower():
+        # Mensaje de ayuda contextual según tipo de error
+        err_lower = err_str.lower()
+        if "429" in err_str or "quota" in err_lower or "rate" in err_lower or "resource_exhausted" in err_lower:
+            hint = "rate_limit"
+        elif "404" in err_str or "not found" in err_lower:
             hint = (
                 "Modelo no encontrado. Revisa GEMINI_MODEL en .env — "
                 "usa 'gemini-1.5-flash' (sin prefijo 'models/')."
             )
-        elif "api_key" in err_str.lower() or "authentication" in err_str.lower():
+        elif "api_key" in err_lower or "authentication" in err_lower or "permission" in err_lower:
             hint = "API key inválida. Verifica GEMINI_API_KEY en .env."
         else:
             hint = err_str
