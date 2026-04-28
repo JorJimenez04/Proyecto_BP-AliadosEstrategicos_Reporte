@@ -352,9 +352,12 @@ def _form_nuevo_documento(
     empresa_default: str | None = None,
 ) -> None:
     """Formulario para agregar un nuevo documento (admin/compliance)."""
-    with st.expander("➕ Agregar nuevo documento a esta sección", expanded=False):
-        # Clave única por carpeta + empresa para evitar DuplicateWidgetID entre tabs/empresas
-        form_key = f"form_nuevo_doc_{carpeta_default or 'X'}_{empresa_default or 'X'}"
+    with st.expander(
+        "➕ Cargar nuevo documento en esta carpeta" if carpeta_default else "➕ Cargar nuevo documento",
+        expanded=(carpeta_default is None),   # abierto por defecto cuando es el form global
+    ):
+        # Clave única por empresa para evitar DuplicateWidgetID
+        form_key = f"form_upload_{empresa_default or 'X'}"
         with st.form(form_key, clear_on_submit=True):
             fa, fb = st.columns(2)
             with fa:
@@ -572,11 +575,18 @@ def page_compliance(user: dict) -> None:
                     else "No hay documentos con los filtros seleccionados."
                 )
 
-            # ── Formulario agregar (SIEMPRE al final, sin depender de docs) ───
-            # Condiciones: carpeta específica + empresa seleccionada + rol editor
-            if carpeta_filtro and puede_editar and filtro_empresa is not None:
-                _form_nuevo_documento(
-                    user,
-                    carpeta_default=carpeta_filtro,
-                    empresa_default=filtro_empresa,
-                )
+    # ── Formulario de carga (fijo, fuera de los tabs) ─────────────────────────
+    # Visible siempre que: rol editor + empresa seleccionada (no "Todas")
+    if puede_editar and filtro_empresa is not None:
+        st.markdown("<div style='margin-top:24px;'></div>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='color:{_C_GRAY};font-size:0.78rem;border-top:1px solid {_C_BORDER};"
+            f"padding-top:12px;margin-bottom:4px;'>Carga de documentos para "
+            f"<strong style=\"color:{_C_TEXT};\">{filtro_empresa}</strong></div>",
+            unsafe_allow_html=True,
+        )
+        _form_nuevo_documento(
+            user,
+            carpeta_default=None,       # usuario elige la carpeta en el form
+            empresa_default=filtro_empresa,
+        )
