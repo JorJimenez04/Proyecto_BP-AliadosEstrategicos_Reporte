@@ -229,22 +229,15 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
     )
 
     st.markdown(
-        f"""<div style="background:{_C_CARD};border:1px solid {_C_BORDER};
-        border-radius:8px;padding:16px;margin-bottom:6px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;
-            flex-wrap:wrap;gap:6px;margin-bottom:8px;">
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                {badge_formato}{badge_estado}{badge_empresa}
-            </div>
-            <div style="color:{_C_GRAY};font-size:0.72rem;">{codigo}</div>
-        </div>
-        <div style="color:{_C_TEXT};font-weight:600;font-size:0.92rem;
-            margin-bottom:2px;">{nombre}</div>
-        {desc_html}
-        <div style="color:{_C_GRAY};font-size:0.75rem;margin-top:8px;">
-            v{ver} &nbsp;|&nbsp; {fecha} &nbsp;|&nbsp; {link_html}
-        </div>
-        </div>""",
+        f'<div style="background:{_C_CARD};border:1px solid {_C_BORDER};border-radius:8px;padding:16px;margin-bottom:6px;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'
+        f'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">{badge_formato}{badge_estado}{badge_empresa}</div>'
+        f'<div style="color:{_C_GRAY};font-size:0.72rem;">{codigo}</div>'
+        f'</div>'
+        f'<div style="color:{_C_TEXT};font-weight:600;font-size:0.92rem;margin-bottom:2px;">{nombre}</div>'
+        + (f'<div style="color:{_C_GRAY};font-size:0.78rem;margin-bottom:6px;">{desc}</div>' if desc else '')
+        + f'<div style="color:{_C_GRAY};font-size:0.75rem;margin-top:8px;">v{ver} &nbsp;|&nbsp; {fecha} &nbsp;|&nbsp; {link_html}</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
