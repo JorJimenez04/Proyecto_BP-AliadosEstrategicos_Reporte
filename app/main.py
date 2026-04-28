@@ -128,6 +128,8 @@ def sidebar(user: dict) -> tuple[str, str | None]:
             _nav_opts.append("📋 Log de Auditoría")
         if user.get("rol") in Roles.CAN_VIEW_AGENTES:
             _nav_opts.append("👥 Gestión de Agentes")
+        if user.get("rol") in {"admin", "compliance", "comercial", "consulta"}:
+            _nav_opts.append("📚 Centro Documental")
         nav_choice = st.radio(
             "Navegación",
             options=_nav_opts,
@@ -309,7 +311,10 @@ def main():
             st.stop()
         from app.components.agentes_ui import render_gestion_agentes
         render_gestion_agentes(user)
-    elif page == "👤 Perfil Agente" and agente_username:
+    elif page == "� Centro Documental":
+        from app.components.compliance_ui import page_compliance
+        page_compliance(user)
+    elif page == "�👤 Perfil Agente" and agente_username:
         from app.components.agentes_ui import render_perfil_agente
         render_perfil_agente(agente_username, user=user)
 
