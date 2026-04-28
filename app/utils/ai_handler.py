@@ -32,8 +32,15 @@ GEMINI_KEY:   str = os.getenv("GEMINI_API_KEY", "")
 OPENAI_KEY:   str = os.getenv("OPENAI_API_KEY", "")
 # El nombre canónico para google-generativeai es sin prefijo "models/"
 # La librería lo resuelve automáticamente contra la API v1 estable.
-GEMINI_MODEL:  str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-GEMINI_FALLBACK: str = "gemini-pro"  # Fallback si el modelo principal falla
+# gemini-2.0-flash es el modelo estable de la generación actual (abril 2026).
+GEMINI_MODEL:  str = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+# Cadena de fallback — se prueba en orden si el modelo principal da 404/not found
+_GEMINI_FALLBACK_CHAIN: list[str] = [
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-pro",
+]
 OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 _CACHE_TTL_SECONDS: int = 30 * 60  # 30 min
@@ -153,19 +160,32 @@ def _parse_ai_response(raw: str) -> dict:
 # ─────────────────────────────────────────────────────────────
 # Clientes LLM
 # ─────────────────────────────────────────────────────────────
-def _call_gemini(prompt: str, model_name: str | None = None) -> str:
+def _call_gemini(prompt: str, _tried: list[str] | None = None) -> str:
     """
     Llama a la API de Gemini usando la librería google-generativeai.
-    - Usa API v1 estable (client_options sin forzar v1beta).
-    - El nombre de modelo NO debe llevar prefijo 'models/' — la librería lo resuelve.
-    - En caso de fallo 404/400 por modelo inválido, hace fallback a GEMINI_FALLBACK.
+    - El nombre de modelo NO debe llevar prefijo 'models/'.
+    - En caso de 404/not found prueba la cadena _GEMINI_FALLBACK_CHAIN en orden.
     """
     import google.generativeai as genai  # type: ignore
 
-    target_model = model_name or GEMINI_MODEL
-    # Eliminar prefijos que Google AI Studio a veces muestra en la UI
-    # pero que google-generativeai NO necesita (los añade internamente).
+    if _tried is None:
+        _tried = []
+
+    # Determinar el modelo a intentar ahora
+    if not _tried:
+        target_model = GEMINI_MODEL
+    else:
+        remaining = [m for m in _GEMINI_FALLBACK_CHAIN if m not in _tried]
+        if not remaining:
+            raise RuntimeError(
+                f"Todos los modelos Gemini fallaron: {_tried}. "
+                "Verifica GEMINI_MODEL en .env o espera unos minutos."
+            )
+        target_model = remaining[0]
+
+    # Normalizar: sin prefijo 'models/'
     target_model = target_model.removeprefix("models/")
+    _tried.append(target_model)
 
     genai.configure(api_key=GEMINI_KEY)
     try:
@@ -174,19 +194,22 @@ def _call_gemini(prompt: str, model_name: str | None = None) -> str:
             system_instruction=_SYSTEM_PROMPT,
         )
         response = model.generate_content(prompt)
+        if target_model != GEMINI_MODEL.removeprefix("models/"):
+            logger.info(
+                "ai_handler: usando modelo de fallback '%s' (principal: '%s')",
+                target_model, GEMINI_MODEL,
+            )
         return response.text
     except Exception as exc:
         err_str = str(exc).lower()
-        # 404 / invalid argument → el modelo configurado no existe en esta API key
-        if ("404" in err_str or "not found" in err_str or "invalid" in err_str)\
-                and target_model != GEMINI_FALLBACK:
+        # 404 / not found / invalid → modelo no disponible en esta API key
+        if "404" in err_str or "not found" in err_str or "invalid argument" in err_str:
             logger.warning(
-                "ai_handler: modelo '%s' falló (%s). "
-                "Verifica GEMINI_MODEL en .env. "
-                "Reintentando con fallback '%s'…",
-                target_model, exc, GEMINI_FALLBACK,
+                "ai_handler: modelo '%s' no disponible (%s). "
+                "Probando siguiente en cadena de fallback…",
+                target_model, exc,
             )
-            return _call_gemini(prompt, model_name=GEMINI_FALLBACK)
+            return _call_gemini(prompt, _tried=_tried)
         raise
 
 
