@@ -522,35 +522,14 @@ def page_compliance(user: dict) -> None:
             else:
                 carpeta_filtro = _CARPETAS_ORDEN[tab_idx - 1]
 
-            docs_tab = (
+            # Documentos de esta carpeta (sin filtro de estado aún)
+            docs_carpeta = (
                 [d for d in todos if d["carpeta"] == carpeta_filtro]
                 if carpeta_filtro
                 else todos
             )
 
-            # Filtro de estado (inline, dentro del tab)
-            filtro_estado = st.selectbox(
-                "Estado",
-                ["Todos", "Vigente", "Pendiente", "Vencido"],
-                key=f"fe_{tab_idx}",
-                label_visibility="collapsed",
-            )
-            if filtro_estado != "Todos":
-                docs_tab = [d for d in docs_tab if d["estado"] == filtro_estado]
-
-            if not docs_tab:
-                if not todos:
-                    # Tabla vacía para este filtro de empresa — invitar a cargar
-                    st.info(
-                        "📂 El Centro Documental está listo. "
-                        "No hay documentos cargados para esta selección."
-                    )
-                else:
-                    # Hay documentos pero no coinciden con los filtros activos
-                    st.info("No hay documentos con los filtros seleccionados.")
-                continue
-
-            # Barra de progreso carpeta (solo en tabs de carpeta especifica)
+            # ── Barra de progreso (solo en tabs de carpeta específica) ────────
             if carpeta_filtro:
                 carpeta_stats = next(
                     (c for c in stats["por_carpeta"] if c["carpeta"] == carpeta_filtro),
@@ -566,18 +545,35 @@ def page_compliance(user: dict) -> None:
                     )
                     st.progress(pct)
 
-            # Grid de 2 columnas
-            # key_prefix incluye tab_idx para evitar DuplicateWidgetID entre tabs
-            col_a, col_b = st.columns(2)
-            for idx, doc in enumerate(docs_tab):
-                col = col_a if idx % 2 == 0 else col_b
-                with col:
-                    _doc_card(doc, puede_editar, key_prefix=f"t{tab_idx}_")
+            # ── Filtro de estado (inline) ─────────────────────────────────────
+            filtro_estado = st.selectbox(
+                "Estado",
+                ["Todos", "Vigente", "Pendiente", "Vencido"],
+                key=f"fe_{tab_idx}",
+                label_visibility="collapsed",
+            )
+            docs_tab = (
+                [d for d in docs_carpeta if d["estado"] == filtro_estado]
+                if filtro_estado != "Todos"
+                else docs_carpeta
+            )
 
-            # Formulario agregar documento:
-            # - Solo en tabs de carpeta específica (nunca en "Todos")
-            # - Solo cuando hay una empresa seleccionada (no "Todas")
-            # - Rol validado por puede_editar (admin/compliance)
+            # ── Tarjetas de documentos ────────────────────────────────────────
+            if docs_tab:
+                col_a, col_b = st.columns(2)
+                for idx, doc in enumerate(docs_tab):
+                    col = col_a if idx % 2 == 0 else col_b
+                    with col:
+                        _doc_card(doc, puede_editar, key_prefix=f"t{tab_idx}_")
+            else:
+                st.info(
+                    "No hay documentos en esta carpeta."
+                    if not docs_carpeta
+                    else "No hay documentos con los filtros seleccionados."
+                )
+
+            # ── Formulario agregar (SIEMPRE al final, sin depender de docs) ───
+            # Condiciones: carpeta específica + empresa seleccionada + rol editor
             if carpeta_filtro and puede_editar and filtro_empresa is not None:
                 _form_nuevo_documento(
                     user,
