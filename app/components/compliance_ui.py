@@ -521,32 +521,144 @@ def page_compliance(user: dict) -> None:
     for tab_idx, tab in enumerate(tabs):
         with tab:
             if tab_idx == 0:
-                carpeta_filtro: Optional[str] = None
-            else:
-                carpeta_filtro = _CARPETAS_ORDEN[tab_idx - 1]
+                # ════════════════════════════════════════════════════════════
+                # TAB "TODOS" — Panel ejecutivo de estado (solo visualización)
+                # ════════════════════════════════════════════════════════════
 
-            # Documentos de esta carpeta (sin filtro de estado aún)
-            docs_carpeta = (
-                [d for d in todos if d["carpeta"] == carpeta_filtro]
-                if carpeta_filtro
-                else todos
-            )
-
-            # ── Barra de progreso (solo en tabs de carpeta específica) ────────
-            if carpeta_filtro:
-                carpeta_stats = next(
-                    (c for c in stats["por_carpeta"] if c["carpeta"] == carpeta_filtro),
-                    None,
+                # ── Búsqueda de texto ─────────────────────────────────────
+                busqueda = st.text_input(
+                    "🔍 Buscar documento",
+                    placeholder="Nombre, código o descripción…",
+                    key="busqueda_todos",
+                    label_visibility="collapsed",
                 )
-                if carpeta_stats and carpeta_stats["total"] > 0:
-                    pct = carpeta_stats["vigentes"] / carpeta_stats["total"]
+                docs_busqueda = todos
+                if busqueda.strip():
+                    q = busqueda.strip().lower()
+                    docs_busqueda = [
+                        d for d in todos
+                        if q in (d.get("nombre") or "").lower()
+                        or q in (d.get("codigo") or "").lower()
+                        or q in (d.get("descripcion") or "").lower()
+                    ]
+
+                # ── Resumen por carpeta ───────────────────────────────────
+                if not busqueda.strip():
                     st.markdown(
-                        f"<div style='margin-bottom:6px;color:{_C_GRAY};"
-                        f"font-size:0.78rem;'>Vigentes: "
-                        f"{carpeta_stats['vigentes']}/{carpeta_stats['total']}</div>",
+                        f"<p style='color:{_C_GRAY};font-size:0.78rem;font-weight:700;"
+                        f"text-transform:uppercase;letter-spacing:1px;margin:8px 0 10px;'>"
+                        f"Resumen por carpeta</p>",
                         unsafe_allow_html=True,
                     )
-                    st.progress(pct)
+                    for carp in _CARPETAS_ORDEN:
+                        cs = next(
+                            (c for c in stats["por_carpeta"] if c["carpeta"] == carp), None
+                        )
+                        total_c  = cs["total"]    if cs else 0
+                        vigent_c = cs["vigentes"] if cs else 0
+                        vencid_c = cs["vencidos"] if cs else 0
+                        pend_c   = cs["pendientes"] if cs else 0
+                        pct_c    = vigent_c / total_c if total_c else 0
+                        icono    = _CARPETA_ICON.get(carp, "📁")
+
+                        alert_html = ""
+                        if vencid_c:
+                            alert_html += (
+                                f"&nbsp;<span style='background:#7f1d1d;color:#fca5a5;"
+                                f"font-size:0.68rem;padding:1px 7px;border-radius:10px;'>"
+                                f"⚠ {vencid_c} vencido{'s' if vencid_c>1 else ''}</span>"
+                            )
+                        if pend_c:
+                            alert_html += (
+                                f"&nbsp;<span style='background:#78350f;color:#fcd34d;"
+                                f"font-size:0.68rem;padding:1px 7px;border-radius:10px;'>"
+                                f"⏳ {pend_c} pendiente{'s' if pend_c>1 else ''}</span>"
+                            )
+
+                        bar_fill  = int(pct_c * 120)
+                        bar_color = _C_CYAN if pct_c >= 0.8 else (_C_AMBER if pct_c >= 0.5 else "#ef4444")
+                        st.markdown(
+                            f'<div style="background:{_C_CARD};border:1px solid {_C_BORDER};'
+                            f'border-radius:8px;padding:10px 14px;margin-bottom:6px;'
+                            f'display:flex;align-items:center;gap:12px;">'
+                            f'<span style="font-size:1.1rem;">{icono}</span>'
+                            f'<div style="flex:1;">'
+                            f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                            f'<span style="color:{_C_TEXT};font-size:0.85rem;font-weight:600;">{carp}</span>'
+                            f'<span style="color:{_C_GRAY};font-size:0.75rem;">{vigent_c}/{total_c} vigentes{alert_html}</span>'
+                            f'</div>'
+                            f'<div style="background:#1f2937;border-radius:4px;height:5px;margin-top:5px;">'
+                            f'<div style="background:{bar_color};width:{bar_fill}px;max-width:100%;height:5px;border-radius:4px;"></div>'
+                            f'</div>'
+                            f'</div>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+
+                    # ── Atención prioritaria ──────────────────────────────
+                    prioritarios = [
+                        d for d in todos if d.get("estado") in ("Vencido", "Pendiente")
+                    ]
+                    if prioritarios:
+                        st.markdown(
+                            f"<p style='color:{_C_GRAY};font-size:0.78rem;font-weight:700;"
+                            f"text-transform:uppercase;letter-spacing:1px;margin:18px 0 8px;'>"
+                            f"Requieren atención ({len(prioritarios)})</p>",
+                            unsafe_allow_html=True,
+                        )
+                        for d in sorted(prioritarios, key=lambda x: x.get("estado", "") == "Vencido", reverse=True):
+                            est = d.get("estado", "")
+                            est_color = _ESTADO_COLOR.get(est, (_C_GRAY, "#00000000"))
+                            emp = d.get("empresa") or "Compartido"
+                            st.markdown(
+                                f'<div style="background:{_C_CARD};border-left:3px solid {est_color[0]};"'
+                                f'border-radius:0 6px 6px 0;padding:8px 12px;margin-bottom:4px;">'
+                                f'<span style="color:{est_color[0]};font-size:0.72rem;font-weight:700;">{est.upper()}</span>'
+                                f'&nbsp;&nbsp;<span style="color:{_C_TEXT};font-size:0.83rem;">{_html.escape(d.get("nombre",""))}</span>'
+                                f'&nbsp;&nbsp;<span style="color:{_C_GRAY};font-size:0.72rem;">'
+                                f'{_CARPETA_ICON.get(d.get("carpeta",""),"📁")} {d.get("carpeta","")} · {emp}'
+                                f'</span></div>',
+                                unsafe_allow_html=True,
+                            )
+
+                else:
+                    # ── Resultados de búsqueda ────────────────────────────
+                    if docs_busqueda:
+                        st.markdown(
+                            f"<p style='color:{_C_GRAY};font-size:0.78rem;margin-bottom:10px;'>"
+                            f"{len(docs_busqueda)} resultado(s)</p>",
+                            unsafe_allow_html=True,
+                        )
+                        col_a, col_b = st.columns(2)
+                        for idx, doc in enumerate(docs_busqueda):
+                            col = col_a if idx % 2 == 0 else col_b
+                            with col:
+                                _doc_card(doc, puede_editar, key_prefix="busq_")
+                    else:
+                        st.info("No se encontraron documentos con ese término.")
+
+                continue   # el resto del bucle es solo para tabs de carpeta
+
+            # ── Tabs de carpeta específica (tab_idx > 0) ─────────────────
+            carpeta_filtro: Optional[str] = _CARPETAS_ORDEN[tab_idx - 1]
+
+            # Documentos de esta carpeta
+            docs_carpeta = [d for d in todos if d["carpeta"] == carpeta_filtro]
+
+            # ── Barra de progreso ─────────────────────────────────────────────
+            carpeta_stats = next(
+                (c for c in stats["por_carpeta"] if c["carpeta"] == carpeta_filtro),
+                None,
+            )
+            if carpeta_stats and carpeta_stats["total"] > 0:
+                pct = carpeta_stats["vigentes"] / carpeta_stats["total"]
+                st.markdown(
+                    f"<div style='margin-bottom:6px;color:{_C_GRAY};"
+                    f"font-size:0.78rem;'>Vigentes: "
+                    f"{carpeta_stats['vigentes']}/{carpeta_stats['total']}</div>",
+                    unsafe_allow_html=True,
+                )
+                st.progress(pct)
 
             # ── Filtro de estado (inline) ─────────────────────────────────────
             filtro_estado = st.selectbox(
