@@ -6,6 +6,7 @@ Etica, Riesgos, Empresariales y Capacitacion.
 """
 
 from __future__ import annotations
+import html as _html
 import logging
 from typing import Optional
 import streamlit as st
@@ -98,7 +99,7 @@ def _kpi_cards(stats: dict) -> None:
         )
 
 
-def _doc_card(doc: dict, puede_editar: bool) -> None:
+def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
     """Renderiza un documento como tarjeta oscura con badges."""
     estado = doc.get("estado", "Vigente")
     fmt    = doc.get("formato", "OTRO")
@@ -109,18 +110,25 @@ def _doc_card(doc: dict, puede_editar: bool) -> None:
     badge_formato = _badge(fmt,    f_fg, f_bg)
 
     url = doc.get("url_documento")
+    url_safe = _html.escape(str(url)) if url else ""
     link_html = (
-        f'<a href="{url}" target="_blank" style="color:{_C_CYAN};'
-        f'text-decoration:none;font-size:0.78rem;">🔗 Abrir documento</a>'
+        f'<a href="{url_safe}" target="_blank" rel="noopener noreferrer" '
+        f'style="color:{_C_CYAN};text-decoration:none;font-size:0.78rem;">&#128279; Abrir documento</a>'
         if url else
         '<span style="color:#4b5563;font-size:0.78rem;">Sin enlace</span>'
     )
 
-    fecha = doc.get("fecha_emision") or "-"
-    ver   = doc.get("version", "-")
-    codigo = doc.get("codigo", "")
-    nombre = doc.get("nombre", "Sin nombre")
-    desc   = doc.get("descripcion") or ""
+    fecha_raw = doc.get("fecha_emision")
+    fecha = str(fecha_raw) if fecha_raw else "-"
+    ver    = _html.escape(str(doc.get("version", "-")))
+    codigo = _html.escape(str(doc.get("codigo", "")))
+    nombre = _html.escape(str(doc.get("nombre", "Sin nombre")))
+    desc_raw = doc.get("descripcion") or ""
+    desc     = _html.escape(desc_raw)
+    desc_html = (
+        f'<div style="color:{_C_GRAY};font-size:0.78rem;margin-bottom:6px;">{desc}</div>'
+        if desc else ""
+    )
 
     st.markdown(
         f"""<div style="background:{_C_CARD};border:1px solid {_C_BORDER};
@@ -134,7 +142,7 @@ def _doc_card(doc: dict, puede_editar: bool) -> None:
         </div>
         <div style="color:{_C_TEXT};font-weight:600;font-size:0.92rem;
             margin-bottom:2px;">{nombre}</div>
-        {'<div style="color:'+_C_GRAY+';font-size:0.78rem;margin-bottom:6px;">'+desc+'</div>' if desc else ''}
+        {desc_html}
         <div style="display:flex;gap:16px;align-items:center;margin-top:8px;
             flex-wrap:wrap;">
             <span style="color:{_C_GRAY};font-size:0.75rem;">v{ver} &nbsp;|&nbsp; {fecha}</span>
@@ -145,16 +153,18 @@ def _doc_card(doc: dict, puede_editar: bool) -> None:
     )
 
     if puede_editar:
-        btn_key = f"nv_btn_{doc['id']}"
+        nv_open_key = f"_nv_open_{key_prefix}{doc['id']}"
+        btn_key     = f"{key_prefix}nv_btn_{doc['id']}"
         if st.button("✏️ Nueva Versión", key=btn_key, use_container_width=False):
-            st.session_state[f"_nv_open_{doc['id']}"] = True
+            st.session_state[nv_open_key] = True
 
-        if st.session_state.get(f"_nv_open_{doc['id']}"):
-            _form_nueva_version(doc)
+        if st.session_state.get(nv_open_key):
+            _form_nueva_version(doc, key_prefix=key_prefix)
 
 
-def _form_nueva_version(doc: dict) -> None:
-    form_key = f"form_nv_{doc['id']}"
+def _form_nueva_version(doc: dict, key_prefix: str = "") -> None:
+    form_key    = f"{key_prefix}form_nv_{doc['id']}"
+    nv_open_key = f"_nv_open_{key_prefix}{doc['id']}"
     with st.form(form_key, clear_on_submit=True):
         st.markdown(
             f"**Nueva versión para:** `{doc['nombre']}`",
@@ -192,7 +202,7 @@ def _form_nueva_version(doc: dict) -> None:
                     actualizado_por=username,
                 )
             st.success(f"Versión {nueva_version} guardada correctamente.")
-            st.session_state[f"_nv_open_{doc['id']}"] = False
+            st.session_state[nv_open_key] = False
             st.rerun()
         except Exception as exc:
             logger.exception("[Compliance] Error actualizando version")
@@ -278,7 +288,23 @@ def page_compliance(user: dict) -> None:
         logger.exception("[Compliance] Error cargando documentos")
         st.error(f"Error al conectar con la base de datos: {exc}")
         return
+    logger.info("[Compliance] Documentos cargados: %d", len(todos))
 
+    # ── Estado vacío: disparar seed manual ────────────────────────────────
+    if len(todos) == 0 and stats["total"] == 0:
+        st.warning(
+            "⚠️ La tabla de documentos está vacía. "
+            "La migración 011 pudo no haberse aplicado en este entorno."
+        )
+        if st.button("📥 Cargar Documentación Inicial (Seed)", type="primary"):
+            try:
+                with next(get_session()) as session:
+                    ComplianceRepository(session).ensure_seed()
+                st.success("✅ Documentos base cargados. Recarga la página.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Error al cargar seed: {exc}")
+        return
     # ── KPI cards ────────────────────────────────────────────────────────────
     _kpi_cards(stats)
     st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
@@ -351,8 +377,9 @@ def page_compliance(user: dict) -> None:
                     st.progress(pct)
 
             # Grid de 2 columnas
+            # key_prefix incluye tab_idx para evitar DuplicateWidgetID entre tabs
             col_a, col_b = st.columns(2)
             for idx, doc in enumerate(docs_tab):
                 col = col_a if idx % 2 == 0 else col_b
                 with col:
-                    _doc_card(doc, puede_editar)
+                    _doc_card(doc, puede_editar, key_prefix=f"t{tab_idx}_")

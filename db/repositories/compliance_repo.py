@@ -94,6 +94,80 @@ class ComplianceRepository:
         """), {"id": doc_id}).mappings().fetchone()
         return dict(row) if row else None
 
+    def ensure_seed(self) -> int:
+        """
+        Inserta los 39 documentos base si la tabla está vacía.
+        Idempotente: no falla si ya existen datos.
+        Retorna la cantidad de filas insertadas.
+        """
+        count = self.session.execute(
+            text("SELECT COUNT(*) FROM compliance_documentos")
+        ).scalar()
+        if count and count > 0:
+            logger.info("[Compliance] ensure_seed: tabla ya tiene %d filas, skip.", count)
+            return 0
+
+        _SEED = [
+            ("Politicas",    "POL-001", "Politica AML-SARO v1.0",                       "DOCX", "1.0", "Vigente",  "2024-06-01", "Version editable vigente"),
+            ("Politicas",    "POL-001", "Politica AML-SARO Firmada",                     "PDF",  "1.0", "Vigente",  "2024-06-01", "Documento firmado"),
+            ("Politicas",    "POL-002", "Politica Manejo de Informacion v1.0",            "DOCX", "1.0", "Vigente",  "2024-06-01", "Version editable"),
+            ("Politicas",    "POL-002", "Politica Manejo Informacion Firmada",            "PDF",  "1.0", "Vigente",  "2024-06-01", "Firmada"),
+            ("Politicas",    "POL-003", "Politica PEPs v1.0",                             "DOCX", "1.0", "Vigente",  "2024-06-01", "Version editable"),
+            ("Politicas",    "POL-003", "Politica PEPs Firmada",                          "PDF",  "1.0", "Vigente",  "2024-06-01", "Firmada"),
+            ("Manuales",     "MAN-001", "Manual SAGRILAFT Borrador",                      "DOCX", "1.0", "Vigente",  "2024-06-01", "Borrador editable"),
+            ("Manuales",     "MAN-001", "Manual SAGRILAFT Firmado",                       "PDF",  "1.0", "Vigente",  "2024-06-01", "Version firmada"),
+            ("Manuales",     "MAN-002", "Manual PTEE Cumplimiento Borrador",              "DOCX", "1.0", "Vigente",  "2024-06-01", "Borrador editable"),
+            ("Manuales",     "MAN-002", "Manual PTEE Firmado",                            "PDF",  "1.0", "Vigente",  "2024-06-01", "Firmado"),
+            ("Manuales",     "MAN-003", "Manual Procedimientos de Pagos",                 "DOCX", "1.0", "Pendiente","2024-03-01", "Requiere revision"),
+            ("Manuales",     "MAN-004", "Proceso Compliance v1.0",                        "DOCX", "1.0", "Vigente",  "2024-06-01", None),
+            ("Manuales",     "MAN-005", "ROS Interno",                                    "DOCX", "1.0", "Vigente",  "2024-06-01", None),
+            ("Manuales",     "MAN-006", "Flujo Compliance Firmado",                       "PDF",  "1.0", "Vigente",  "2024-06-01", None),
+            ("Onboarding",   "ONB-001", "Onboarding Procedure EN",                        "PDF",  "1.07","Vigente",  "2024-06-01", "Version en ingles"),
+            ("Onboarding",   "ONB-002", "Proceso Vinculacion ES",                         "PDF",  "1.07","Vigente",  "2024-06-01", "Version en espanol"),
+            ("Onboarding",   "ONB-003", "Flujo Nuevos Clientes Firmado",                  "PDF",  "1.0", "Vigente",  "2024-06-01", None),
+            ("Onboarding",   "ONB-004", "Alertas Monitoreo Transacciones",                "DOCX", "1.0", "Vigente",  "2024-06-01", None),
+            ("Onboarding",   "ONB-005", "Documentos Soporte Compliance Request",          "DOCX", "1.0", "Vigente",  "2024-06-01", "Checklist"),
+            ("Etica",        "ETI-001", "Codigo de Etica y Conducta Borrador",            "DOCX", "1.0", "Vigente",  "2024-06-01", None),
+            ("Etica",        "ETI-001", "Codigo de Etica y Conducta Firmado",             "PDF",  "1.0", "Vigente",  "2024-06-01", "Firmado"),
+            ("Etica",        "ETI-002", "Programa Transparencia Etica Publica 2024",      "DOCX", "2024","Vigente",  "2024-01-01", "PTEE anual"),
+            ("Etica",        "ETI-003", "PTEE Firmado",                                   "PDF",  "2024","Vigente",  "2024-01-01", "Firmado"),
+            ("Riesgos",      "RIE-001", "Matriz de Riesgos 2022",                         "XLSX", "2022","Vencido",  "2022-06-01", "Actualizar a version 2025"),
+            ("Riesgos",      "RIE-002", "ADAMO RISK Documento",                           "DOCX", "1.0", "Vigente",  "2025-01-01", None),
+            ("Riesgos",      "RIE-003", "Politica AML-SARO v1.6 (Adamo Risk)",            "DOCX", "1.6", "Pendiente","2024-06-01", "Version anotada"),
+            ("Riesgos",      "RIE-004", "Preguntas Kick Off Adamo Risk",                  "DOCX", "1.0", "Vigente",  "2025-01-01", None),
+            ("Riesgos",      "RIE-005", "CERL ADAMO Enero 2025",                          "PDF",  "2025","Vigente",  "2025-01-01", None),
+            ("Empresariales","EMP-001", "Certificado Existencia y Rep. Legal Ene 2026",   "PDF",  "2026","Vigente",  "2026-01-01", "Vigente"),
+            ("Empresariales","EMP-002", "Certificacion Composicion Accionaria Ene 2026",  "PDF",  "2026","Vigente",  "2026-01-01", "Vigente"),
+            ("Empresariales","EMP-003", "Estados Financieros 2024-2023",                  "PDF",  "2024","Vigente",  "2024-12-01", None),
+            ("Empresariales","EMP-004", "Certificacion EEFF 2024",                        "PDF",  "2024","Vigente",  "2024-12-01", None),
+            ("Empresariales","EMP-005", "RUT ADAMO",                                      "PDF",  "2024","Vigente",  "2024-06-01", None),
+            ("Empresariales","EMP-006", "Contrato Confidencialidad Paxum",                "DOCX", "1.0", "Pendiente","2023-06-01", "Revisar vencimiento"),
+            ("Capacitacion", "CAP-001", "Training Schedule",                              "DOCX", "2024","Vigente",  "2024-01-01", None),
+            ("Capacitacion", "CAP-002", "Ejemplo Certificado Entrenamiento",              "PDF",  "1.0", "Vigente",  "2024-06-01", "Plantilla"),
+            ("Capacitacion", "CAP-003", "Estructura Depto Cumplimiento",                  "DOCX", "1.0", "Vigente",  "2024-06-01", None),
+            ("Capacitacion", "CAP-003", "Estructura Depto Cumplimiento Publicada",        "PDF",  "1.0", "Vigente",  "2024-06-01", "Publicada"),
+            ("Capacitacion", "CAP-004", "Template Corporativo ADAMO",                     "DOCX", "1.0", "Vigente",  "2024-06-01", "Plantilla base"),
+        ]
+
+        inserted = 0
+        for carpeta, codigo, nombre, fmt, ver, estado, fecha, desc in _SEED:
+            self.session.execute(text("""
+                INSERT INTO compliance_documentos
+                    (carpeta, codigo, nombre, formato, version, estado,
+                     fecha_emision, descripcion, creado_por)
+                VALUES
+                    (:carpeta, :codigo, :nombre, :formato, :version, :estado,
+                     :fecha_emision, :descripcion, 'sistema')
+            """), {
+                "carpeta": carpeta, "codigo": codigo, "nombre": nombre,
+                "formato": fmt, "version": ver, "estado": estado,
+                "fecha_emision": fecha, "descripcion": desc,
+            })
+            inserted += 1
+        self.session.commit()
+        logger.info("[Compliance] ensure_seed: %d documentos insertados.", inserted)
+        return inserted
+
     # ------------------------------------------------------------------
     # Escritura
     # ------------------------------------------------------------------

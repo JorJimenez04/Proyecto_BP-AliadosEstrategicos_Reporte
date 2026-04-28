@@ -311,7 +311,7 @@ def main():
             st.stop()
         from app.components.agentes_ui import render_gestion_agentes
         render_gestion_agentes(user)
-    elif page == "� Centro Documental":
+    elif page == "\U0001f4da Centro Documental":
         from app.components.compliance_ui import page_compliance
         page_compliance(user)
     elif page == "�👤 Perfil Agente" and agente_username:
