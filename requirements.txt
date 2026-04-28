@@ -29,6 +29,9 @@ python-dateutil>=2.9.0
 # Visualización (gráficas del dashboard)
 plotly>=5.20.0
 
+# Descargas HTTP (Centro Documental — Google Drive)
+requests>=2.31.0
+
 # Inteligencia Artificial (opcionales — activa el proveedor en .env)
 google-generativeai>=0.7.0   # AI_PROVIDER=gemini
 openai>=1.30.0               # AI_PROVIDER=openai

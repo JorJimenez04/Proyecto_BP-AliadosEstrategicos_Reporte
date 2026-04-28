@@ -44,6 +44,7 @@ ALL_MIGRATIONS: list[str] = [
     "009_rbac_roles.sql",
     "010_kpi_diario_observaciones.sql",
     "011_compliance_documentos.sql",
+    "012_compliance_empresa.sql",
 ]
 
 # Tablas / columnas a validar tras las migraciones

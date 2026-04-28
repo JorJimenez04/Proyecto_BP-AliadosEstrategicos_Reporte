@@ -23,30 +23,40 @@ class ComplianceRepository:
     # Lectura
     # ------------------------------------------------------------------
 
-    def get_stats(self) -> dict:
+    def get_stats(self, empresa: Optional[str] = None) -> dict:
         """
         Devuelve metricas agregadas para los KPI cards.
         Retorna: {total, vigentes, pendientes, vencidos, archivados, por_carpeta}
+        Filtra por empresa cuando se indica; NULL empresa = compartido.
         """
-        row = self.session.execute(text("""
-            SELECT
-                COUNT(*) FILTER (WHERE estado != 'Archivado')                    AS total,
-                COUNT(*) FILTER (WHERE estado = 'Vigente')                       AS vigentes,
-                COUNT(*) FILTER (WHERE estado = 'Pendiente')                     AS pendientes,
-                COUNT(*) FILTER (WHERE estado = 'Vencido')                       AS vencidos,
-                COUNT(*) FILTER (WHERE estado = 'Archivado')                     AS archivados
-            FROM compliance_documentos
-        """)).mappings().fetchone()
+        where_parts: list[str] = []
+        params: dict = {}
+        if empresa:
+            where_parts.append("empresa = :empresa")
+            params["empresa"] = empresa
+        where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
-        por_carpeta = self.session.execute(text("""
+        row = self.session.execute(text(f"""
+            SELECT
+                COUNT(*) FILTER (WHERE estado != 'Archivado')  AS total,
+                COUNT(*) FILTER (WHERE estado = 'Vigente')     AS vigentes,
+                COUNT(*) FILTER (WHERE estado = 'Pendiente')   AS pendientes,
+                COUNT(*) FILTER (WHERE estado = 'Vencido')     AS vencidos,
+                COUNT(*) FILTER (WHERE estado = 'Archivado')   AS archivados
+            FROM compliance_documentos
+            {where_clause}
+        """), params).mappings().fetchone()
+
+        por_carpeta = self.session.execute(text(f"""
             SELECT
                 carpeta,
                 COUNT(*) FILTER (WHERE estado != 'Archivado') AS total,
                 COUNT(*) FILTER (WHERE estado = 'Vigente')    AS vigentes
             FROM compliance_documentos
+            {where_clause}
             GROUP BY carpeta
             ORDER BY carpeta
-        """)).mappings().fetchall()
+        """), params).mappings().fetchall()
 
         return {
             "total":      int(row["total"])     if row["total"]      else 0,
@@ -61,6 +71,7 @@ class ComplianceRepository:
         self,
         carpeta: Optional[str] = None,
         estado: Optional[str] = None,
+        empresa: Optional[str] = None,
     ) -> list:
         """
         Devuelve documentos activos (no archivados) con filtros opcionales.
@@ -74,12 +85,15 @@ class ComplianceRepository:
         if estado and estado != "Todos":
             conditions.append("estado = :estado")
             params["estado"] = estado
+        if empresa:
+            conditions.append("empresa = :empresa")
+            params["empresa"] = empresa
 
         where = " AND ".join(conditions)
         rows = self.session.execute(text(f"""
             SELECT id, carpeta, codigo, nombre, descripcion,
                    version, estado, formato, url_documento,
-                   fecha_emision, fecha_vencimiento,
+                   fecha_emision, fecha_vencimiento, empresa,
                    creado_por, actualizado_por,
                    created_at, updated_at
             FROM compliance_documentos
@@ -181,11 +195,11 @@ class ComplianceRepository:
             INSERT INTO compliance_documentos
                 (carpeta, codigo, nombre, descripcion, version, estado,
                  formato, url_documento, fecha_emision, fecha_vencimiento,
-                 creado_por)
+                 empresa, creado_por)
             VALUES
                 (:carpeta, :codigo, :nombre, :descripcion, :version, :estado,
                  :formato, :url_documento, :fecha_emision, :fecha_vencimiento,
-                 :creado_por)
+                 :empresa, :creado_por)
             RETURNING id
         """), {
             "carpeta":          data.get("carpeta"),
@@ -198,6 +212,7 @@ class ComplianceRepository:
             "url_documento":    data.get("url_documento"),
             "fecha_emision":    data.get("fecha_emision"),
             "fecha_vencimiento":data.get("fecha_vencimiento"),
+            "empresa":          data.get("empresa"),
             "creado_por":       creado_por,
         })
         self.session.commit()
@@ -219,6 +234,7 @@ class ComplianceRepository:
                 url_documento    = :url_documento,
                 fecha_emision    = :fecha_emision,
                 fecha_vencimiento= :fecha_vencimiento,
+                empresa          = :empresa,
                 actualizado_por  = :actualizado_por
             WHERE id = :id
         """), {**data, "id": doc_id, "actualizado_por": actualizado_por})
