@@ -479,9 +479,6 @@ def page_compliance(user: dict) -> None:
             </div>""",
             unsafe_allow_html=True,
         )
-        st.markdown("<div style='margin-top:16px;'></div>", unsafe_allow_html=True)
-        if puede_editar:
-            _form_nuevo_documento(user)
         return
     # ── KPI cards ────────────────────────────────────────────────────────────
     _kpi_cards(stats)
@@ -498,12 +495,6 @@ def page_compliance(user: dict) -> None:
             f"⏳ **{stats['pendientes']} documento(s) pendiente(s)** de revision.",
             icon=None,
         )
-
-    # ── Formulario nuevo documento (admin/compliance) ─────────────────────────
-    if puede_editar:
-        _form_nuevo_documento(user)
-
-    st.markdown("<div style='margin-top:8px;'></div>", unsafe_allow_html=True)
 
     # ── Tabs por carpeta ──────────────────────────────────────────────────────
     tab_labels = ["📄 Todos"] + [
