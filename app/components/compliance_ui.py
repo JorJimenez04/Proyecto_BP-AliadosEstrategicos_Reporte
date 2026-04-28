@@ -482,10 +482,10 @@ def page_compliance(user: dict) -> None:
                         cs = next(
                             (c for c in stats["por_carpeta"] if c["carpeta"] == carp), None
                         )
-                        total_c  = cs["total"]    if cs else 0
-                        vigent_c = cs["vigentes"] if cs else 0
-                        vencid_c = cs["vencidos"] if cs else 0
-                        pend_c   = cs["pendientes"] if cs else 0
+                        total_c  = cs.get("total",      0) if cs else 0
+                        vigent_c = cs.get("vigentes",   0) if cs else 0
+                        vencid_c = cs.get("vencidos",   0) if cs else 0
+                        pend_c   = cs.get("pendientes", 0) if cs else 0
                         pct_c    = vigent_c / total_c if total_c else 0
                         icono    = _CARPETA_ICON.get(carp, "📁")
 

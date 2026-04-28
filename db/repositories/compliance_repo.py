@@ -50,8 +50,10 @@ class ComplianceRepository:
         por_carpeta = self.session.execute(text(f"""
             SELECT
                 carpeta,
-                COUNT(*) FILTER (WHERE estado != 'Archivado') AS total,
-                COUNT(*) FILTER (WHERE estado = 'Vigente')    AS vigentes
+                COUNT(*) FILTER (WHERE estado != 'Archivado')  AS total,
+                COUNT(*) FILTER (WHERE estado = 'Vigente')     AS vigentes,
+                COUNT(*) FILTER (WHERE estado = 'Pendiente')   AS pendientes,
+                COUNT(*) FILTER (WHERE estado = 'Vencido')     AS vencidos
             FROM compliance_documentos
             {where_clause}
             GROUP BY carpeta
