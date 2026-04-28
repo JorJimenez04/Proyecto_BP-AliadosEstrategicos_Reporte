@@ -110,11 +110,16 @@ class ComplianceRepository:
 
     def ensure_seed(self) -> int:
         """
-        Inserta los 39 documentos base si la tabla está vacía.
-        Idempotente: no falla si ya existen datos.
-        Retorna la cantidad de filas insertadas.
+        Seed de documentos base DESACTIVADO intencionalmente.
+        La carga de documentos reales se realiza de forma manual desde la UI.
+        Retorna 0 siempre sin modificar la tabla.
         """
-        count = self.session.execute(
+        logger.info("[Compliance] ensure_seed: seed desactivado — carga manual requerida.")
+        return 0
+
+        # ── SEED DESACTIVADO ── no borrar este bloque, sirve como referencia ──
+        # Si necesitas restaurar el seed de prueba, elimina el `return 0` de arriba.
+        count = self.session.execute(  # type: ignore[unreachable]
             text("SELECT COUNT(*) FROM compliance_documentos")
         ).scalar()
         if count and count > 0:
