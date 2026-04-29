@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-04-27 (rev. 6)
+> Última actualización: 2026-04-29 (rev. 8)
 
 ---
 
@@ -32,13 +32,15 @@ Proyecto_PartnersStatus/
 │   │                                  # _on_nav_radio_change() — callback on_change del radio
 │   │                                  # sidebar() → tuple(page, agente_username | None)
 │   │                                  #   _nav_opts construido condicionalmente por rol (RBAC):
-│   │                                  #     CAN_CREATE_PARTNERS → ➕ Nuevo Partner
-│   │                                  #     admin/compliance    → 📋 Log de Auditoría
-│   │                                  #     CAN_VIEW_AGENTES    → 👥 Gestión de Agentes
+│   │                                  #     CAN_CREATE_PARTNERS           → ➕ Nuevo Partner
+│   │                                  #     admin/compliance               → 📋 Log de Auditoría
+│   │                                  #     CAN_VIEW_AGENTES               → 👥 Gestión de Agentes
+│   │                                  #     admin/compliance/comercial/consulta → 📚 Centro Documental
 │   │                                  #   Expander "🏢 Equipos Operativos": carga agentes desde BD
 │   │                                  #   nav_agente en session_state — nunca toca la clave del widget
 │   │                                  # main() router — gatekeepers server-side antes de cada page_*()
 │   │                                  #   bloquea Auditoría y Gestión de Agentes si rol insuficiente
+│   │                                  #   📚 Centro Documental → page_compliance(user) (lazy import)
 │   │                                  # page_nuevo_partner() · main()
 │   │
 │   ├── 📂 auth/                       # Sistema de autenticación y control de acceso
@@ -84,6 +86,36 @@ Proyecto_PartnersStatus/
 │   │   │                              # render_centro_notificaciones() — SARLAFT vencidas
 │   │   │                              # Cards con botón ⚡ Acción Rápida (re-calificación)
 │   │   │                              # Cards próximas revisiones 30 días · DDI (GAFI R.1/R.12)
+│   │   ├── 📄 compliance_ui.py        # Centro Documental de Cumplimiento — page_compliance(user)
+│   │   │                              # Accesible para roles: admin · compliance · comercial · consulta
+│   │   │                              # Filtro empresa: Todas · Holdings BPO · PayCOP · Adamo Services
+│   │   │                              # _kpi_cards(stats): 4 tarjetas (Total / Vigentes / Pendientes / Vencidos)
+│   │   │                              # _doc_card(doc, puede_editar, key_prefix): tarjeta oscura con badges
+│   │   │                              #   badge formato (PDF/DOCX/XLSX/PPTX/OTRO) · badge estado · badge empresa
+│   │   │                              #   URL link · versión · fecha
+│   │   │                              #   botón 👁️ Previsualizar: iframe OneDrive/SharePoint
+│   │   │                              #     OneDrive: /redir → /embed + &em=2
+│   │   │                              #     SharePoint: + ?action=embedview
+│   │   │                              #     fallback: link "abrir en pestaña nueva"
+│   │   │                              #   botón ✏️ Nueva Versión (solo editores)
+│   │   │                              # _form_nueva_version(doc): st.form — versión + URL + descripción
+│   │   │                              #   llama compliance_repo.nueva_version() + auditoría automática
+│   │   │                              # _form_nuevo_documento(user): expander + form — solo admin/compliance
+│   │   │                              #   empresa pre-seleccionada y bloqueada cuando viene del filtro
+│   │   │                              #   carpeta pre-seleccionada cuando viene de tab específica
+│   │   │                              #   llama compliance_repo.crear()
+│   │   │                              # page_compliance(user): carga stats + docs, KPI cards,
+│   │   │                              #   tabs por carpeta (Todos + 7),
+│   │   │                              #   tab Todos: panel ejecutivo con búsqueda, resumen por carpeta
+│   │   │                              #     (barras de progreso + badges vencidos/pendientes),
+│   │   │                              #     lista "Atención prioritaria" (Vencido/Pendiente)
+│   │   │                              #   tabs carpeta: barra progreso · filtro estado · grid 2 cols
+│   │   │                              #   formulario carga fijo debajo de tabs (solo empresa seleccionada)
+│   │   │                              # Utilidades OneDrive: _is_onedrive_url() · _to_onedrive_embed()
+│   │   │                              # Constantes: _CARPETA_ICON · _ESTADO_COLOR · _FORMATO_COLOR
+│   │   │                              #             _EMPRESA_COLOR · _ALLOWED_ONEDRIVE · _SHAREPOINT_RE
+│   │   │                              # _CARPETAS_ORDEN = [Politicas, Manuales, Onboarding, Etica,
+│   │   │                              #                    Riesgos, Empresariales, Capacitacion]
 │   │   └── 📄 agentes_ui.py           # Módulo INFORMATIVO de Equipos Operativos
 │   │                                  #   (gerencia / líderes de equipo — los agentes NO acceden al sistema)
 │   │                                  # EQUIPOS dict: 🛡️ Cumplimiento · 💸 Pagos · 🎧 Soporte (fallback estático)
@@ -181,8 +213,19 @@ Proyecto_PartnersStatus/
 │   ├── 📄 007_kpi_history.sql                # Tabla historial diario de KPIs por agente
 │   ├── 📄 008_cuentas_segmentadas.sql        # Segmentación cuentas: aprobadas/rechazadas/investigación
 │   │                                         #   separadas entre tipo personal y comercial
-│   └── 📄 009_rbac_roles.sql                 # Jerarquía RBAC extendida — expande CHECK constraint
-│                                             #   usuarios.rol: admin·compliance·comercial·consulta
+│   ├── 📄 009_rbac_roles.sql                 # Jerarquía RBAC extendida — expande CHECK constraint
+│   │                                         #   usuarios.rol: admin·compliance·comercial·consulta
+│   ├── 📄 010_kpi_diario_observaciones.sql   # Añade columna observaciones TEXT a agente_kpi_diario
+│   │                                         #   permite notas de campo en la bitácora diaria del agente
+│   │   ├── 📄 011_compliance_documentos.sql      # Tabla compliance_documentos (solo DDL — sin seed)
+│   │   │                                        #   carpetas: Politicas/Manuales/Onboarding/Etica/
+│   │   │                                        #             Riesgos/Empresariales/Capacitacion
+│   │   │                                        #   estados: Vigente/Pendiente/Vencido/Archivado
+│   │   │                                        #   trigger updated_at · índices carpeta/estado/codigo
+│   │   ├── 📄 012_compliance_empresa.sql         # Columna empresa en compliance_documentos
+│   │   │                                        #   entidades: Holdings BPO · PayCOP · Adamo Services · NULL (Compartido)
+│   │   └── 📄 013_cleanup_seed_documentos.sql   # Limpieza idempotente de docs seed (creado_por='sistema')
+│                                                #   DELETE + RESTART SEQUENCE si tabla queda vacía
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
@@ -206,6 +249,15 @@ Proyecto_PartnersStatus/
 │       │                              #   acepta valores_anteriores/nuevos como dict (no str)
 │       │                              #   usuario_id=0 → NULL (FK safe)
 │       │                              # list_log() · get_actividad_usuario()
+│       ├── 📄 compliance_repo.py      # CRUD de compliance_documentos
+│       │                              # get_stats(empresa=None) — totales por estado + por_carpeta
+│       │                              #   por_carpeta incluye: total · vigentes · pendientes · vencidos
+│       │                              # get_documentos(carpeta, estado, empresa) — filtros opcionales
+│       │                              # get_by_id() · crear(data, creado_por) → int
+│       │                              # actualizar(doc_id, data, actualizado_por)
+│       │                              # nueva_version(doc_id, version, url, descripcion, user)
+│       │                              #   UPDATE + audit_repo.registrar() automático
+│       │                              # archivar(doc_id, actualizado_por) — soft delete (→ Archivado)
 │       ├── 📄 agente_repo.py          # Catálogo de colaboradores operativos (sin credenciales)
 │       │                              # get_all_active() · get_all() · get_by_username() · get_by_id()
 │       │                              # username_exists() · create() · update() (whitelist _CAMPOS_EDITABLES)
@@ -277,6 +329,45 @@ Proyecto_PartnersStatus/
 ### Log de Auditoría (`app/components/audit_ui.py`)
 - Tabla paginada de `log_auditoria` — acciones CREATE · UPDATE · DELETE · LOGIN · EXPORT
 
+### 📚 Centro Documental de Cumplimiento (`app/components/compliance_ui.py`)
+Repositorio centralizado de documentos regulatorios de ADAMO Services.
+
+- Accesible para todos los roles (admin · compliance · comercial · consulta)
+- **Edición** (nueva versión, nuevo documento) restringida a `admin` y `compliance`
+- **Filtro por empresa**: Todas · Holdings BPO · PayCOP · Adamo Services
+
+**7 carpetas:**
+
+| Icono | Carpeta |
+|---|---|
+| 📋 | Políticas |
+| 📖 | Manuales |
+| 🔗 | Onboarding |
+| ⚖️ | Ética |
+| 🔍 | Riesgos |
+| 🏢 | Empresariales |
+| 🎓 | Capacitación |
+
+**Estados de documento:** `Vigente` · `Pendiente` · `Vencido` · `Archivado` (soft delete)  
+**Formatos:** `PDF` · `DOCX` · `XLSX` · `PPTX` · `OTRO`
+
+**Tab "Todos" — Panel ejecutivo:**
+- Búsqueda en tiempo real por nombre/código/descripción
+- Resumen por carpeta con barra de progreso y badges de alertas (vencidos/pendientes)
+- Lista "Requieren atención" — documentos `Vencido` o `Pendiente` ordenados por urgencia
+
+**Previsualización (OneDrive/SharePoint):**
+- OneDrive personal: `/redir?` → `/embed?` + `em=2`
+- SharePoint corporativo: añade `?action=embedview`
+- Fallback: link directo si el iframe es bloqueado
+
+**Flujo de actualización de versión:**
+1. Clic "✏️ Nueva Versión" en la tarjeta del documento
+2. `compliance_repo.nueva_version()` → UPDATE estado=Vigente + URL nueva
+3. `audit_repo.registrar()` automático con `valores_anteriores/nuevos`
+
+---
+
 ### 🏢 Equipos Operativos (`app/components/agentes_ui.py`)
 Módulo **informativo** para gerencia y líderes de equipo. Los agentes son entradas del catálogo — **no tienen acceso al sistema**.
 
@@ -317,12 +408,12 @@ git push origin main   # Railway reconstruye la imagen con la foto incluida
 
 ## 👥 Roles de Acceso (RBAC)
 
-| Rol           | Dashboard | Ver Partners | Crear/Editar | Cambiar Estado | Auditoría | Eliminar | Equipos | Gestión Agentes |
-|---------------|:---------:|:------------:|:------------:|:--------------:|:---------:|:--------:|:-------:|:---------------:|
-| `admin`       | ✅        | ✅           | ✅           | ✅             | ✅        | ✅       | ✅      | ✅              |
-| `compliance`  | ✅        | ✅           | ✅           | ✅             | ✅        | ❌       | ✅      | ✅              |
-| `comercial`   | ✅        | ✅           | Parcial      | Parcial        | ❌        | ❌       | ✅      | ❌              |
-| `consulta`    | ✅        | ✅           | ❌           | ❌             | ❌        | ❌       | ✅      | ❌              |
+| Rol           | Dashboard | Ver Partners | Crear/Editar | Cambiar Estado | Auditoría | Eliminar | Equipos | Gestión Agentes | Centro Documental |
+|---------------|:---------:|:------------:|:------------:|:--------------:|:---------:|:--------:|:-------:|:---------------:|:-----------------:|
+| `admin`       | ✅        | ✅           | ✅           | ✅             | ✅        | ✅       | ✅      | ✅              | ✅ (editar)       |
+| `compliance`  | ✅        | ✅           | ✅           | ✅             | ✅        | ❌       | ✅      | ✅              | ✅ (editar)       |
+| `comercial`   | ✅        | ✅           | Parcial      | Parcial        | ❌        | ❌       | ✅      | ❌              | ✅ (solo lectura) |
+| `consulta`    | ✅        | ✅           | ❌           | ❌             | ❌        | ❌       | ✅      | ❌              | ✅ (solo lectura) |
 
 ---
 
