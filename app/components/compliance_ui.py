@@ -237,7 +237,8 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Previsualizar / Abrir (OneDrive o SharePoint) ──────────────────────────
+    # ── Previsualizar (OneDrive personal — iframe con toggle) ────────────────
+    # SharePoint: el link "Abrir" ya está integrado en la tarjeta de arriba.
     is_onedrive   = bool(url and _is_onedrive_url(url))
     prev_open_key = f"_prev_{key_prefix}{doc_id}"
 
@@ -248,18 +249,7 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         except Exception:
             is_sharepoint = False
 
-        if is_sharepoint:
-            # SharePoint bloquea iframes (X-Frame-Options) — botón directo
-            url_escape = _html.escape(url)
-            st.markdown(
-                f'<a href="{url_escape}" target="_blank" rel="noopener noreferrer" '
-                f'style="display:inline-block;background:#1e3a5f;color:{_C_CYAN};'
-                f'border:1px solid {_C_CYAN}44;border-radius:6px;padding:6px 14px;'
-                f'font-size:0.82rem;font-weight:600;text-decoration:none;margin-top:4px;">'
-                f'📄 Abrir en SharePoint</a>',
-                unsafe_allow_html=True,
-            )
-        else:
+        if not is_sharepoint:
             # OneDrive personal — intentar iframe
             prev_lbl = "⬆️ Ocultar" if st.session_state.get(prev_open_key) else "👁️ Previsualizar"
             if st.button(prev_lbl, key=f"{key_prefix}prev_{doc_id}",
@@ -280,7 +270,7 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
                     unsafe_allow_html=True,
                 )
 
-    # ── Editar / Nueva Versión (solo editores) ────────────────────────────────
+    # ── Editar (solo editores) ────────────────────────────────────────────────
     if puede_editar:
         nv_open_key = f"_nv_open_{key_prefix}{doc_id}"
         btn_lbl = "🔼 Cerrar edición" if st.session_state.get(nv_open_key) else "✏️ Editar"
@@ -288,64 +278,104 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
                      use_container_width=False):
             st.session_state[nv_open_key] = not st.session_state.get(nv_open_key, False)
         if st.session_state.get(nv_open_key):
-            _form_nueva_version(doc, key_prefix=key_prefix)
+            _form_editar(doc, key_prefix=key_prefix)
 
     st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
 
 
-def _form_nueva_version(doc: dict, key_prefix: str = "") -> None:
-    form_key    = f"{key_prefix}form_nv_{doc['id']}"
+def _form_editar(doc: dict, key_prefix: str = "") -> None:
+    """Editor integral de metadatos: título, carpeta, empresa, estado, url, versión."""
+    form_key    = f"{key_prefix}form_edit_{doc['id']}"
     nv_open_key = f"_nv_open_{key_prefix}{doc['id']}"
-    with st.form(form_key, clear_on_submit=True):
-        st.markdown(
-            f"**Nueva versión para:** `{doc['nombre']}`",
-            unsafe_allow_html=False,
-        )
-        nueva_version = st.text_input(
-            "Nueva versión", value=doc.get("version", "1.0"),
-            placeholder="ej. 1.1"
-        )
+
+    _emp_opts    = ["", "Holdings BPO", "PayCOP", "Adamo Services"]
+    _estado_opts = ["Vigente", "Pendiente", "Vencido"]
+
+    emp_actual  = doc.get("empresa") or ""
+    emp_idx     = _emp_opts.index(emp_actual) if emp_actual in _emp_opts else 0
+    est_actual  = doc.get("estado", "Vigente")
+    est_idx     = _estado_opts.index(est_actual) if est_actual in _estado_opts else 0
+    carp_actual = doc.get("carpeta", _CARPETAS_ORDEN[0])
+    carp_idx    = _CARPETAS_ORDEN.index(carp_actual) if carp_actual in _CARPETAS_ORDEN else 0
+
+    with st.form(form_key, clear_on_submit=False):
+        st.markdown(f"**Editar:** `{doc.get('nombre', '')}`", unsafe_allow_html=False)
+        c1, c2 = st.columns(2)
+        with c1:
+            nuevo_nombre  = st.text_input("Título *",  value=doc.get("nombre", ""))
+            nueva_carpeta = st.selectbox("Carpeta",    options=_CARPETAS_ORDEN, index=carp_idx)
+            nuevo_estado  = st.selectbox("Estado",     options=_estado_opts,    index=est_idx)
+        with c2:
+            nueva_empresa = st.selectbox(
+                "Empresa",
+                options=_emp_opts,
+                index=emp_idx,
+                format_func=lambda x: x if x else "Compartido",
+            )
+            nueva_version = st.text_input("Versión", value=doc.get("version", "1.0"))
         nueva_url = st.text_input(
-            "URL de OneDrive",
+            "URL del documento",
             value=doc.get("url_documento") or "",
-            placeholder="https://empresa.sharepoint.com/sites/.../documento.pdf",
-        )
-        st.caption(
-            "ℹ️ Asegúrate de que el enlace tenga permisos de visualización: "
-            "OneDrive → Compartir → *Cualquier persona con el enlace puede ver*."
+            placeholder="https://empresa.sharepoint.com/…",
         )
         descripcion_cambio = st.text_area(
-            "Descripción del cambio", placeholder="Breve descripción…", height=80
+            "Descripción del cambio (auditoría)", placeholder="Breve descripción…", height=68
         )
-        guardar = st.form_submit_button("💾 Guardar versión")
+        guardar = st.form_submit_button("💾 Guardar cambios")
 
     if guardar:
-        if not nueva_version.strip():
-            st.error("La versión es obligatoria.")
+        if not nuevo_nombre.strip():
+            st.error("El título es obligatorio.")
             return
         try:
             from streamlit import session_state as ss
-            user = ss.get("user", {})
+            user     = ss.get("user", {})
             username = user.get("username") or user.get("usuario") or "sistema"
+            data = {
+                "carpeta":           nueva_carpeta,
+                "codigo":            doc.get("codigo", ""),
+                "nombre":            nuevo_nombre.strip(),
+                "descripcion":       descripcion_cambio.strip() or doc.get("descripcion"),
+                "version":           nueva_version.strip() or doc.get("version", "1.0"),
+                "estado":            nuevo_estado,
+                "formato":           doc.get("formato", "PDF"),
+                "url_documento":     nueva_url.strip() or None,
+                "fecha_emision":     doc.get("fecha_emision"),
+                "fecha_vencimiento": doc.get("fecha_vencimiento"),
+                "empresa":           nueva_empresa or None,
+            }
             with next(get_session()) as session:
-                repo = ComplianceRepository(session)
-                repo.nueva_version(
-                    doc_id=doc["id"],
-                    nueva_version=nueva_version.strip(),
-                    nueva_url=nueva_url.strip() or None,
-                    descripcion_cambio=descripcion_cambio.strip() or None,
-                    actualizado_por=username,
+                from db.repositories.audit_repo import AuditRepository
+                repo  = ComplianceRepository(session)
+                audit = AuditRepository(session)
+                repo.actualizar(doc["id"], data, actualizado_por=username)
+                audit.registrar(
+                    username=username,
+                    accion="UPDATE",
+                    entidad="compliance_documentos",
+                    descripcion=descripcion_cambio.strip() or f"Edición metadatos doc id={doc['id']}",
+                    entidad_id=doc["id"],
+                    valores_anteriores={
+                        "nombre":        doc.get("nombre"),
+                        "carpeta":       doc.get("carpeta"),
+                        "empresa":       doc.get("empresa"),
+                        "estado":        doc.get("estado"),
+                        "version":       doc.get("version"),
+                        "url_documento": doc.get("url_documento"),
+                    },
+                    valores_nuevos=data,
+                    resultado="exitoso",
                 )
-            st.success(f"Versión {nueva_version} guardada correctamente.")
-            # Limpiar caché de previsualización para forzar recarga con la nueva URL
-            doc_id_str = str(doc['id'])
+            st.success("Documento actualizado correctamente.")
+            doc_id_str = str(doc["id"])
             for k in list(st.session_state.keys()):
-                if doc_id_str in k and (k.startswith("_prev_") or k.startswith("_dldata_")):
+                if doc_id_str in k and (
+                    k.startswith("_prev_") or k.startswith("_dldata_") or k.startswith("_nv_open_")
+                ):
                     del st.session_state[k]
-            st.session_state[nv_open_key] = False
             st.rerun()
         except Exception as exc:
-            logger.exception("[Compliance] Error actualizando version")
+            logger.exception("[Compliance] Error actualizando documento")
             st.error(f"Error al guardar: {exc}")
 
 
