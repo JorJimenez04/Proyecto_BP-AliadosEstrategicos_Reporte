@@ -237,28 +237,48 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Previsualizar — visor universal (cualquier URL) ─────────────────────
+    # ── Previsualizar / Abrir (detección SharePoint vs OneDrive/otro) ────────
     prev_open_key = f"_prev_{key_prefix}{doc_id}"
 
     if url:
-        prev_lbl = "⬆️ Ocultar" if st.session_state.get(prev_open_key) else "👁️ Previsualizar"
-        if st.button(prev_lbl, key=f"{key_prefix}prev_{doc_id}",
-                     use_container_width=True):
-            st.session_state[prev_open_key] = not st.session_state.get(
-                prev_open_key, False
-            )
-        if st.session_state.get(prev_open_key):
-            embed_url  = _to_onedrive_embed(url)
+        try:
+            _netloc = _urlparse(url).netloc
+            _is_sp  = bool(_SHAREPOINT_RE.match(_netloc))
+        except Exception:
+            _is_sp = False
+
+        if _is_sp:
+            # SharePoint bloquea iframes (X-Frame-Options: DENY a nivel de tenant).
+            # Única solución viable: botón que abre en pestaña nueva.
             url_escape = _html.escape(url)
-            _components.iframe(embed_url, height=800, scrolling=True)
             st.markdown(
-                f"<p style='color:{_C_GRAY};font-size:0.74rem;margin-top:4px;'>"
-                f"⚠️ Si el visor no carga, "
-                f"<a href='{url_escape}' target='_blank' rel='noopener noreferrer' "
-                f"style='color:{_C_CYAN};'>ábrelo en una pestaña nueva</a>."
-                f"</p>",
+                f'<a href="{url_escape}" target="_blank" rel="noopener noreferrer" '
+                f'style="display:inline-block;background:#1e3a5f;color:{_C_CYAN};'
+                f'border:1px solid {_C_CYAN}44;border-radius:6px;padding:7px 16px;'
+                f'font-size:0.83rem;font-weight:600;text-decoration:none;margin-top:4px;">'
+                f'📄 Abrir en SharePoint</a>',
                 unsafe_allow_html=True,
             )
+        else:
+            # OneDrive personal u otra URL — intentar iframe con toggle
+            prev_lbl = "⬆️ Ocultar" if st.session_state.get(prev_open_key) else "👁️ Previsualizar"
+            if st.button(prev_lbl, key=f"{key_prefix}prev_{doc_id}",
+                         use_container_width=True):
+                st.session_state[prev_open_key] = not st.session_state.get(
+                    prev_open_key, False
+                )
+            if st.session_state.get(prev_open_key):
+                embed_url  = _to_onedrive_embed(url)
+                url_escape = _html.escape(url)
+                _components.iframe(embed_url, height=800, scrolling=True)
+                st.markdown(
+                    f"<p style='color:{_C_GRAY};font-size:0.74rem;margin-top:4px;'>"
+                    f"⚠️ Si el visor no carga, "
+                    f"<a href='{url_escape}' target='_blank' rel='noopener noreferrer' "
+                    f"style='color:{_C_CYAN};'>ábrelo en una pestaña nueva</a>."
+                    f"</p>",
+                    unsafe_allow_html=True,
+                )
 
     # ── Editar (solo editores) ────────────────────────────────────────────────
     if puede_editar:
