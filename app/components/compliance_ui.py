@@ -96,15 +96,40 @@ def _is_onedrive_url(url: str) -> bool:
 
 def _to_onedrive_embed(url: str) -> str:
     """
-    Devuelve la URL de incrustación iframe.
-    SharePoint: añade action=embedview.
-    OneDrive personal: devuelve la URL tal cual.
+    Transforma una URL de OneDrive/SharePoint al formato de incrustación iframe.
+
+    OneDrive personal (onedrive.live.com):
+      /redir?... → /embed?...&em=2
+      Si ya es /embed, solo asegura em=2.
+
+    SharePoint corporativo (*.sharepoint.com):
+      Añade action=embedview si no está presente.
+
+    1drv.ms (enlace corto): se devuelve tal cual; el navegador
+      seguirá la redirección pero el iframe puede no funcionar.
     """
+    if not url:
+        return url
     try:
         netloc = _urlparse(url).netloc
+
+        # ── OneDrive personal ─────────────────────────────────
+        if netloc == "onedrive.live.com":
+            # redir → embed
+            embed = url.replace("/redir?", "/embed?", 1)
+            # asegurar em=2
+            if "em=" not in embed:
+                sep = "&" if "?" in embed else "?"
+                embed = embed + sep + "em=2"
+            return embed
+
+        # ── SharePoint corporativo ─────────────────────────────
         if _SHAREPOINT_RE.match(netloc):
-            sep = "&" if "?" in url else "?"
-            return url + sep + "action=embedview"
+            if "action=embedview" not in url:
+                sep = "&" if "?" in url else "?"
+                return url + sep + "action=embedview"
+            return url
+
     except Exception:
         pass
     return url
@@ -208,8 +233,17 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
                 prev_open_key, False
             )
         if st.session_state.get(prev_open_key):
-            embed_url = _to_onedrive_embed(url)
+            embed_url  = _to_onedrive_embed(url)
+            url_escape = _html.escape(url)
             _components.iframe(embed_url, height=520, scrolling=True)
+            st.markdown(
+                f"<p style='color:{_C_GRAY};font-size:0.74rem;margin-top:4px;'>"
+                f"⚠️ Si el visor no carga, "
+                f"<a href='{url_escape}' target='_blank' rel='noopener noreferrer' "
+                f"style='color:{_C_CYAN};'>ábrelo en una pestaña nueva</a>."
+                f"</p>",
+                unsafe_allow_html=True,
+            )
 
     # ── Nueva Versión (solo editores) ────────────────────────────────────────
     if puede_editar:
