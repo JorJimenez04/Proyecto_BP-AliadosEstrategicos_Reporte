@@ -125,10 +125,26 @@ def _to_onedrive_embed(url: str) -> str:
 
         # ── SharePoint corporativo ─────────────────────────────
         if _SHAREPOINT_RE.match(netloc):
-            if "action=embedview" not in url:
-                sep = "&" if "?" in url else "?"
-                return url + sep + "action=embedview"
-            return url
+            # Si ya es layouts/Doc.aspx con embedview, no tocar
+            if "_layouts/15/" in url and "action=embedview" in url:
+                return url
+
+            # Eliminar cualquier action= preexistente para evitar conflictos
+            url_clean = _re.sub(r'[?&]action=[^&]*', '', url)
+            url_clean = _re.sub(r'\?&', '?', url_clean)
+
+            sep = "&" if "?" in url_clean else "?"
+
+            # PDF / binario  (:b:/g/  :b:/r/)
+            if _re.search(r'/:b:/[gr]/', url_clean):
+                return url_clean + sep + "action=embedview"
+
+            # Office files (:w: DOCX · :x: XLSX · :p: PPTX · :u: PPTX)
+            if _re.search(r'/:[wxpu]:/[gr]/', url_clean):
+                return url_clean + sep + "action=embedview&wdEmbedApps=0"
+
+            # layouts/Doc.aspx sin action o URL genérica
+            return url_clean + sep + "action=embedview"
 
     except Exception:
         pass
@@ -301,6 +317,11 @@ def _form_nueva_version(doc: dict, key_prefix: str = "") -> None:
                     actualizado_por=username,
                 )
             st.success(f"Versión {nueva_version} guardada correctamente.")
+            # Limpiar caché de previsualización para forzar recarga con la nueva URL
+            doc_id_str = str(doc['id'])
+            for k in list(st.session_state.keys()):
+                if doc_id_str in k and (k.startswith("_prev_") or k.startswith("_dldata_")):
+                    del st.session_state[k]
             st.session_state[nv_open_key] = False
             st.rerun()
         except Exception as exc:
