@@ -2,7 +2,7 @@
 app/components/compliance_ui.py
 Centro Documental de Cumplimiento -- AdamoServices Partner Manager.
 Gestor de documentos regulatorios: Politicas, Manuales, Onboarding,
-Procesos y Procedimientos, Riesgos, Empresariales y Capacitacion.
+Procesos y Procedimientos, Governanza, Empresariales y Capacitacion.
 """
 
 from __future__ import annotations
@@ -54,14 +54,14 @@ _CARPETA_ICON: dict[str, str] = {
     "Manuales":    "📖",
     "Onboarding":  "🔗",
     "Procesos y Procedimientos": "⚙️",
-    "Riesgos":     "🔍",
+    "Governanza":  "🛡️",
     "Empresariales":"🏢",
     "Capacitacion":"🎓",
 }
 
 _CARPETAS_ORDEN = [
     "Politicas", "Manuales", "Onboarding",
-    "Procesos y Procedimientos", "Riesgos", "Empresariales", "Capacitacion",
+    "Procesos y Procedimientos", "Governanza", "Empresariales", "Capacitacion",
 ]
 
 _ROLES_EDITOR = {Roles.ADMIN, Roles.COMPLIANCE}

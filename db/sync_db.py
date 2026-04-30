@@ -48,6 +48,7 @@ ALL_MIGRATIONS: list[str] = [
     "012_compliance_empresa.sql",
     "013_cleanup_seed_documentos.sql",
     "014_rename_carpeta_etica.sql",
+    "015_rename_carpeta_riesgos.sql",
 ]
 
 # Tablas / columnas a validar tras las migraciones
