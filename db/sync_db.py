@@ -16,6 +16,7 @@ import sys
 import argparse
 import pathlib
 import logging
+import time
 
 # ── Ajustar path para imports relativos al proyecto ───────────
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -46,6 +47,7 @@ ALL_MIGRATIONS: list[str] = [
     "011_compliance_documentos.sql",
     "012_compliance_empresa.sql",
     "013_cleanup_seed_documentos.sql",
+    "014_rename_carpeta_etica.sql",
 ]
 
 # Tablas / columnas a validar tras las migraciones
@@ -65,21 +67,26 @@ def _print(emoji: str, msg: str) -> None:
     print(f"  {emoji}  {msg}")
 
 
-def _run_migration(filepath: pathlib.Path) -> bool:
+def _run_migration(filepath: pathlib.Path, retries: int = 3, delay: float = 3.0) -> bool:
     """
     Ejecuta un archivo SQL completo dentro de una transacción.
-    Retorna True si fue exitoso, False si hubo error.
+    Reintenta hasta `retries` veces ante errores de conexión (útil en Railway).
+    Retorna True si fue exitoso, False si todos los intentos fallaron.
     """
     sql = filepath.read_text(encoding="utf-8")
-    try:
-        with engine.begin() as conn:
-            # Ejecutar el bloque completo; psycopg2 soporta multi-statement
-            conn.execute(text(sql))
-        return True
-    except Exception as exc:
-        short = str(exc).splitlines()[0][:120]
-        _print("⚠️ ", f"Advertencia en {filepath.name}: {short}")
-        return False
+    for attempt in range(1, retries + 1):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(sql))
+            return True
+        except Exception as exc:
+            short = str(exc).splitlines()[0][:120]
+            if attempt < retries:
+                _print("⏳", f"Reintento {attempt}/{retries - 1} para {filepath.name}: {short}")
+                time.sleep(delay)
+            else:
+                _print("⚠️ ", f"Advertencia en {filepath.name}: {short}")
+    return False
 
 
 def run_migrations(only: list[str] | None = None) -> dict[str, bool]:

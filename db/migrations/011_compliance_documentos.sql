@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS compliance_documentos (
     carpeta         TEXT        NOT NULL
                     CHECK (carpeta IN (
                         'Politicas','Manuales','Onboarding',
-                        'Etica','Riesgos','Empresariales','Capacitacion'
+                        'Procesos y Procedimientos','Riesgos','Empresariales','Capacitacion'
                     )),
     codigo          TEXT        NOT NULL,
     nombre          TEXT        NOT NULL,

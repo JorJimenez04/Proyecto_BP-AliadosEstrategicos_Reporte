@@ -2,7 +2,7 @@
 app/components/compliance_ui.py
 Centro Documental de Cumplimiento -- AdamoServices Partner Manager.
 Gestor de documentos regulatorios: Politicas, Manuales, Onboarding,
-Etica, Riesgos, Empresariales y Capacitacion.
+Procesos y Procedimientos, Riesgos, Empresariales y Capacitacion.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ _CARPETA_ICON: dict[str, str] = {
     "Politicas":   "📋",
     "Manuales":    "📖",
     "Onboarding":  "🔗",
-    "Etica":       "⚖️",
+    "Procesos y Procedimientos": "⚙️",
     "Riesgos":     "🔍",
     "Empresariales":"🏢",
     "Capacitacion":"🎓",
@@ -61,7 +61,7 @@ _CARPETA_ICON: dict[str, str] = {
 
 _CARPETAS_ORDEN = [
     "Politicas", "Manuales", "Onboarding",
-    "Etica", "Riesgos", "Empresariales", "Capacitacion",
+    "Procesos y Procedimientos", "Riesgos", "Empresariales", "Capacitacion",
 ]
 
 _ROLES_EDITOR = {Roles.ADMIN, Roles.COMPLIANCE}
@@ -94,7 +94,7 @@ def _is_onedrive_url(url: str) -> bool:
         return False
 
 
-def _to_onedrive_embed(url: str) -> str:
+def _to_drive_preview(url: str) -> str:
     """
     Transforma una URL de OneDrive/SharePoint al formato de incrustación iframe.
 
@@ -102,7 +102,8 @@ def _to_onedrive_embed(url: str) -> str:
       /redir?... → /embed?...&em=2
       Si ya es /embed, solo asegura em=2.
 
-    SharePoint corporativo (*.sharepoint.com):
+    SharePoint corporativo (*.sharepoint.com), incluyendo
+    holdingsbposas-my.sharepoint.com:
       Añade action=embedview si no está presente.
 
     1drv.ms (enlace corto): se devuelve tal cual; el navegador
@@ -203,26 +204,15 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         emp_c = _EMPRESA_COLOR.get(empresa, _C_GRAY)
         badge_empresa = " &nbsp;" + _badge(empresa, emp_c, emp_c + "22")
 
-    url      = doc.get("url_documento")
-    url_safe = _html.escape(str(url)) if url else ""
-    link_html = (
-        f'<a href="{url_safe}" target="_blank" rel="noopener noreferrer" '
-        f'style="color:{_C_CYAN};text-decoration:none;font-size:0.78rem;">&#128279; Abrir</a>'
-        if url else
-        '<span style="color:#4b5563;font-size:0.78rem;">Sin enlace</span>'
-    )
+    url = doc.get("url_documento")
 
     fecha_raw = doc.get("fecha_emision")
     fecha  = str(fecha_raw) if fecha_raw else "-"
     ver    = _html.escape(str(doc.get("version",  "-")))
     codigo = _html.escape(str(doc.get("codigo",   "")))
     nombre = _html.escape(str(doc.get("nombre",   "Sin nombre")))
-    desc_raw  = doc.get("descripcion") or ""
-    desc      = _html.escape(desc_raw)
-    desc_html = (
-        f'<div style="color:{_C_GRAY};font-size:0.78rem;margin-bottom:6px;">{desc}</div>'
-        if desc else ""
-    )
+    desc_raw = doc.get("descripcion") or ""
+    desc     = _html.escape(desc_raw)
 
     st.markdown(
         f'<div style="background:{_C_CARD};border:1px solid {_C_BORDER};border-radius:8px;padding:16px;margin-bottom:6px;">'
@@ -232,63 +222,73 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         f'</div>'
         f'<div style="color:{_C_TEXT};font-weight:600;font-size:0.92rem;margin-bottom:2px;">{nombre}</div>'
         + (f'<div style="color:{_C_GRAY};font-size:0.78rem;margin-bottom:6px;">{desc}</div>' if desc else '')
-        + f'<div style="color:{_C_GRAY};font-size:0.75rem;margin-top:8px;">v{ver} &nbsp;|&nbsp; {fecha} &nbsp;|&nbsp; {link_html}</div>'
+        + f'<div style="color:{_C_GRAY};font-size:0.75rem;margin-top:8px;">v{ver} &nbsp;|&nbsp; {fecha}</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
 
-    # ── Previsualizar / Abrir (detección SharePoint vs OneDrive/otro) ────────
+    # ── Acciones: 👁️ Previsualizar | ✏️ Editar | 🔗 Abrir ──────────────────────
     prev_open_key = f"_prev_{key_prefix}{doc_id}"
+    nv_open_key   = f"_nv_open_{key_prefix}{doc_id}"
 
     if url:
-        try:
-            _netloc = _urlparse(url).netloc
-            _is_sp  = bool(_SHAREPOINT_RE.match(_netloc))
-        except Exception:
-            _is_sp = False
-
-        if _is_sp:
-            # SharePoint bloquea iframes (X-Frame-Options: DENY a nivel de tenant).
-            # Única solución viable: botón que abre en pestaña nueva.
-            url_escape = _html.escape(url)
-            st.markdown(
-                f'<a href="{url_escape}" target="_blank" rel="noopener noreferrer" '
-                f'style="display:inline-block;background:#1e3a5f;color:{_C_CYAN};'
-                f'border:1px solid {_C_CYAN}44;border-radius:6px;padding:7px 16px;'
-                f'font-size:0.83rem;font-weight:600;text-decoration:none;margin-top:4px;">'
-                f'📄 Abrir en SharePoint</a>',
-                unsafe_allow_html=True,
-            )
+        # Columnas según rol del usuario
+        if puede_editar:
+            c_prev, c_edit, c_open = st.columns(3)
         else:
-            # OneDrive personal u otra URL — intentar iframe con toggle
-            prev_lbl = "⬆️ Ocultar" if st.session_state.get(prev_open_key) else "👁️ Previsualizar"
+            c_prev, c_open = st.columns(2)
+
+        # 👁️ Previsualizar (disponible para cualquier URL)
+        prev_lbl = "⬆️ Ocultar" if st.session_state.get(prev_open_key) else "👁️ Previsualizar"
+        with c_prev:
             if st.button(prev_lbl, key=f"{key_prefix}prev_{doc_id}",
                          use_container_width=True):
                 st.session_state[prev_open_key] = not st.session_state.get(
                     prev_open_key, False
                 )
-            if st.session_state.get(prev_open_key):
-                embed_url  = _to_onedrive_embed(url)
-                url_escape = _html.escape(url)
-                _components.iframe(embed_url, height=800, scrolling=True)
-                st.markdown(
-                    f"<p style='color:{_C_GRAY};font-size:0.74rem;margin-top:4px;'>"
-                    f"⚠️ Si el visor no carga, "
-                    f"<a href='{url_escape}' target='_blank' rel='noopener noreferrer' "
-                    f"style='color:{_C_CYAN};'>ábrelo en una pestaña nueva</a>."
-                    f"</p>",
-                    unsafe_allow_html=True,
+
+        # ✏️ Editar (solo editores)
+        if puede_editar:
+            btn_lbl = "🔼 Cerrar edición" if st.session_state.get(nv_open_key) else "✏️ Editar"
+            with c_edit:
+                if st.button(btn_lbl, key=f"{key_prefix}nv_btn_{doc_id}",
+                             use_container_width=True):
+                    st.session_state[nv_open_key] = not st.session_state.get(
+                        nv_open_key, False
+                    )
+
+        # 🔗 Abrir (enlace de respaldo en pestaña nueva)
+        open_col = c_open
+        with open_col:
+            st.link_button("🔗 Abrir", url=url, use_container_width=True)
+
+        # Visor iframe — se activa con el toggle 👁️
+        if st.session_state.get(prev_open_key):
+            embed_url  = _to_drive_preview(url)
+            url_escape = _html.escape(url)
+            _components.iframe(embed_url, height=800, scrolling=True)
+            st.markdown(
+                f"<p style='color:{_C_GRAY};font-size:0.74rem;margin-top:4px;'>"
+                f"⚠️ Si el visor no carga, "
+                f"<a href='{url_escape}' target='_blank' rel='noopener noreferrer' "
+                f"style='color:{_C_CYAN};'>ábrelo en una pestaña nueva</a>."
+                f"</p>",
+                unsafe_allow_html=True,
+            )
+
+    else:
+        # Sin URL: solo botón editar si procede
+        if puede_editar:
+            btn_lbl = "🔼 Cerrar edición" if st.session_state.get(nv_open_key) else "✏️ Editar"
+            if st.button(btn_lbl, key=f"{key_prefix}nv_btn_{doc_id}",
+                         use_container_width=False):
+                st.session_state[nv_open_key] = not st.session_state.get(
+                    nv_open_key, False
                 )
 
-    # ── Editar (solo editores) ────────────────────────────────────────────────
-    if puede_editar:
-        nv_open_key = f"_nv_open_{key_prefix}{doc_id}"
-        btn_lbl = "🔼 Cerrar edición" if st.session_state.get(nv_open_key) else "✏️ Editar"
-        if st.button(btn_lbl, key=f"{key_prefix}nv_btn_{doc_id}",
-                     use_container_width=False):
-            st.session_state[nv_open_key] = not st.session_state.get(nv_open_key, False)
-        if st.session_state.get(nv_open_key):
-            _form_editar(doc, key_prefix=key_prefix)
+    # Formulario de edición (fuera del bloque url/no-url)
+    if puede_editar and st.session_state.get(nv_open_key):
+        _form_editar(doc, key_prefix=key_prefix)
 
     st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
 
@@ -344,7 +344,7 @@ def _form_editar(doc: dict, key_prefix: str = "") -> None:
             data = {
                 "carpeta":           nueva_carpeta,
                 "codigo":            doc.get("codigo", ""),
-                "nombre":            nuevo_nombre.strip(),
+                "nombre":            nuevo_nombre.replace("}", "").strip(),
                 "descripcion":       descripcion_cambio.strip() or doc.get("descripcion"),
                 "version":           nueva_version.strip() or doc.get("version", "1.0"),
                 "estado":            nuevo_estado,
