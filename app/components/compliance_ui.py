@@ -57,11 +57,16 @@ _CARPETA_ICON: dict[str, str] = {
     "Governanza":  "🛡️",
     "Empresariales":"🏢",
     "Capacitacion":"🎓",
+    "Contratos":   "📝",
+    "Actas y Formatos": "📑",
+    "Matrices":    "📊",
+    "Tecnologia":  "💻",
 }
 
 _CARPETAS_ORDEN = [
     "Politicas", "Manuales", "Onboarding",
     "Procesos y Procedimientos", "Governanza", "Empresariales", "Capacitacion",
+    "Contratos", "Actas y Formatos", "Matrices", "Tecnologia",
 ]
 
 _ROLES_EDITOR = {Roles.ADMIN, Roles.COMPLIANCE}
