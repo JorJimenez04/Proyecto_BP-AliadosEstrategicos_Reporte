@@ -232,25 +232,14 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Acciones: 👁️ Previsualizar | ✏️ Editar | 🔗 Abrir ──────────────────────
-    prev_open_key = f"_prev_{key_prefix}{doc_id}"
-    nv_open_key   = f"_nv_open_{key_prefix}{doc_id}"
+    # ── Acciones: ✏️ Editar | 🔗 Abrir ─────────────────────────────────────────
+    nv_open_key = f"_nv_open_{key_prefix}{doc_id}"
 
     if url:
-        # Columnas según rol del usuario
         if puede_editar:
-            c_prev, c_edit, c_open = st.columns(3)
+            c_edit, c_open = st.columns(2)
         else:
-            c_prev, c_open = st.columns(2)
-
-        # 👁️ Previsualizar (disponible para cualquier URL)
-        prev_lbl = "⬆️ Ocultar" if st.session_state.get(prev_open_key) else "👁️ Previsualizar"
-        with c_prev:
-            if st.button(prev_lbl, key=f"{key_prefix}prev_{doc_id}",
-                         use_container_width=True):
-                st.session_state[prev_open_key] = not st.session_state.get(
-                    prev_open_key, False
-                )
+            c_open = st.columns(1)[0]
 
         # ✏️ Editar (solo editores)
         if puede_editar:
@@ -262,24 +251,9 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
                         nv_open_key, False
                     )
 
-        # 🔗 Abrir (enlace de respaldo en pestaña nueva)
-        open_col = c_open
-        with open_col:
+        # 🔗 Abrir (pestaña nueva)
+        with c_open:
             st.link_button("🔗 Abrir", url=url, use_container_width=True)
-
-        # Visor iframe — se activa con el toggle 👁️
-        if st.session_state.get(prev_open_key):
-            embed_url  = _to_drive_preview(url)
-            url_escape = _html.escape(url)
-            _components.iframe(embed_url, height=800, scrolling=True)
-            st.markdown(
-                f"<p style='color:{_C_GRAY};font-size:0.74rem;margin-top:4px;'>"
-                f"⚠️ Si el visor no carga, "
-                f"<a href='{url_escape}' target='_blank' rel='noopener noreferrer' "
-                f"style='color:{_C_CYAN};'>ábrelo en una pestaña nueva</a>."
-                f"</p>",
-                unsafe_allow_html=True,
-            )
 
     else:
         # Sin URL: solo botón editar si procede
@@ -677,10 +651,10 @@ def page_compliance(user: dict) -> None:
                             f"{len(docs_busqueda)} resultado(s)</p>",
                             unsafe_allow_html=True,
                         )
-                        col_a, col_b = st.columns(2)
+                        col_a, col_b, col_c = st.columns(3)
+                        _cols = [col_a, col_b, col_c]
                         for idx, doc in enumerate(docs_busqueda):
-                            col = col_a if idx % 2 == 0 else col_b
-                            with col:
+                            with _cols[idx % 3]:
                                 _doc_card(doc, puede_editar, key_prefix="busq_")
                     else:
                         st.info("No se encontraron documentos con ese término.")
@@ -723,10 +697,10 @@ def page_compliance(user: dict) -> None:
 
             # ── Tarjetas de documentos ────────────────────────────────────────
             if docs_tab:
-                col_a, col_b = st.columns(2)
+                col_a, col_b, col_c = st.columns(3)
+                _cols = [col_a, col_b, col_c]
                 for idx, doc in enumerate(docs_tab):
-                    col = col_a if idx % 2 == 0 else col_b
-                    with col:
+                    with _cols[idx % 3]:
                         _doc_card(doc, puede_editar, key_prefix=f"t{tab_idx}_")
             else:
                 st.info(
