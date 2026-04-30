@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-04-29 (rev. 8)
+> Última actualización: 2026-04-30 (rev. 9)
 
 ---
 
@@ -92,30 +92,32 @@ Proyecto_PartnersStatus/
 │   │   │                              # _kpi_cards(stats): 4 tarjetas (Total / Vigentes / Pendientes / Vencidos)
 │   │   │                              # _doc_card(doc, puede_editar, key_prefix): tarjeta oscura con badges
 │   │   │                              #   badge formato (PDF/DOCX/XLSX/PPTX/OTRO) · badge estado · badge empresa
-│   │   │                              #   URL link · versión · fecha
-│   │   │                              #   botón 👁️ Previsualizar: iframe OneDrive/SharePoint
-│   │   │                              #     OneDrive: /redir → /embed + &em=2
-│   │   │                              #     SharePoint: + ?action=embedview
-│   │   │                              #     fallback: link "abrir en pestaña nueva"
-│   │   │                              #   botón ✏️ Nueva Versión (solo editores)
-│   │   │                              # _form_nueva_version(doc): st.form — versión + URL + descripción
-│   │   │                              #   llama compliance_repo.nueva_version() + auditoría automática
+│   │   │                              #   versión · fecha de emisión
+│   │   │                              #   botón ✏️ Editar (solo admin/compliance): toggle formulario inline
+│   │   │                              #   botón 🔗 Abrir: link directo en pestaña nueva
+│   │   │                              #   limpieza automática de título: .replace('}','').strip() al guardar
+│   │   │                              # _form_editar(doc): st.form — título · carpeta · empresa · estado
+│   │   │                              #   versión · URL · descripción cambio (auditoría)
+│   │   │                              #   st.rerun() tras guardar para reflejar cambios al instante
 │   │   │                              # _form_nuevo_documento(user): expander + form — solo admin/compliance
 │   │   │                              #   empresa pre-seleccionada y bloqueada cuando viene del filtro
 │   │   │                              #   carpeta pre-seleccionada cuando viene de tab específica
 │   │   │                              #   llama compliance_repo.crear()
 │   │   │                              # page_compliance(user): carga stats + docs, KPI cards,
-│   │   │                              #   tabs por carpeta (Todos + 7),
+│   │   │                              #   tabs por carpeta (Todos + 11),
 │   │   │                              #   tab Todos: panel ejecutivo con búsqueda, resumen por carpeta
 │   │   │                              #     (barras de progreso + badges vencidos/pendientes),
 │   │   │                              #     lista "Atención prioritaria" (Vencido/Pendiente)
-│   │   │                              #   tabs carpeta: barra progreso · filtro estado · grid 2 cols
+│   │   │                              #   tabs carpeta: barra progreso · filtro estado · grid 3 cols
 │   │   │                              #   formulario carga fijo debajo de tabs (solo empresa seleccionada)
-│   │   │                              # Utilidades OneDrive: _is_onedrive_url() · _to_onedrive_embed()
+│   │   │                              # Utilidades SharePoint/OneDrive: _is_onedrive_url() · _to_drive_preview()
+│   │   │                              #   _to_drive_preview(): OneDrive /redir→/embed+em=2
+│   │   │                              #     SharePoint (incl. holdingsbposas-my.sharepoint.com): +?action=embedview
 │   │   │                              # Constantes: _CARPETA_ICON · _ESTADO_COLOR · _FORMATO_COLOR
 │   │   │                              #             _EMPRESA_COLOR · _ALLOWED_ONEDRIVE · _SHAREPOINT_RE
-│   │   │                              # _CARPETAS_ORDEN = [Politicas, Manuales, Onboarding, Etica,
-│   │   │                              #                    Riesgos, Empresariales, Capacitacion]
+│   │   │                              # _CARPETAS_ORDEN = [Politicas, Manuales, Onboarding,
+│   │   │                              #   Procesos y Procedimientos, Governanza, Empresariales,
+│   │   │                              #   Capacitacion, Contratos, Actas y Formatos, Matrices, Tecnologia]
 │   │   └── 📄 agentes_ui.py           # Módulo INFORMATIVO de Equipos Operativos
 │   │                                  #   (gerencia / líderes de equipo — los agentes NO acceden al sistema)
 │   │                                  # EQUIPOS dict: 🛡️ Cumplimiento · 💸 Pagos · 🎧 Soporte (fallback estático)
@@ -196,6 +198,8 @@ Proyecto_PartnersStatus/
 │   │                                  # Uso: with next(get_session()) as session:
 │   ├── 📄 sync_db.py                  # Script CLI de sincronización de migraciones
 │   │                                  # Aplica scripts SQL en orden numérico y valida relaciones
+│   │                                  # _run_migration(): reintenta hasta 3 veces (delay 3s) ante
+│   │                                  #   errores de conexión — robusto ante cold-start Railway
 │   │                                  # Uso: python db/sync_db.py [--only 005 006] [--check]
 │   ├── 📄 models.py                   # Modelos Pydantic v2
 │   │                                  # AliadoBase · AliadoCreate · AliadoUpdate · AliadoOut
@@ -218,14 +222,22 @@ Proyecto_PartnersStatus/
 │   ├── 📄 010_kpi_diario_observaciones.sql   # Añade columna observaciones TEXT a agente_kpi_diario
 │   │                                         #   permite notas de campo en la bitácora diaria del agente
 │   │   ├── 📄 011_compliance_documentos.sql      # Tabla compliance_documentos (solo DDL — sin seed)
-│   │   │                                        #   carpetas: Politicas/Manuales/Onboarding/Etica/
-│   │   │                                        #             Riesgos/Empresariales/Capacitacion
+│   │   │                                        #   carpetas: Politicas/Manuales/Onboarding/
+│   │   │                                        #     Procesos y Procedimientos/Governanza/
+│   │   │                                        #     Empresariales/Capacitacion/Contratos/
+│   │   │                                        #     Actas y Formatos/Matrices/Tecnologia
 │   │   │                                        #   estados: Vigente/Pendiente/Vencido/Archivado
 │   │   │                                        #   trigger updated_at · índices carpeta/estado/codigo
 │   │   ├── 📄 012_compliance_empresa.sql         # Columna empresa en compliance_documentos
 │   │   │                                        #   entidades: Holdings BPO · PayCOP · Adamo Services · NULL (Compartido)
-│   │   └── 📄 013_cleanup_seed_documentos.sql   # Limpieza idempotente de docs seed (creado_por='sistema')
-│                                                #   DELETE + RESTART SEQUENCE si tabla queda vacía
+│   │   ├── 📄 013_cleanup_seed_documentos.sql   # Limpieza idempotente de docs seed (creado_por='sistema')
+│   │   │                                        #   DELETE + RESTART SEQUENCE si tabla queda vacía
+│   │   ├── 📄 014_rename_carpeta_etica.sql       # Renombra carpeta 'Etica' → 'Procesos y Procedimientos'
+│   │   │                                        #   UPDATE filas + DROP/ADD CHECK constraint
+│   │   ├── 📄 015_rename_carpeta_riesgos.sql     # Renombra carpeta 'Riesgos' → 'Governanza'
+│   │   │                                        #   UPDATE filas + DROP/ADD CHECK constraint
+│   │   └── 📄 016_add_nuevas_carpetas.sql        # Amplía CHECK constraint con 4 nuevas carpetas
+│                                                #   Contratos · Actas y Formatos · Matrices · Tecnologia
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
@@ -336,17 +348,21 @@ Repositorio centralizado de documentos regulatorios de ADAMO Services.
 - **Edición** (nueva versión, nuevo documento) restringida a `admin` y `compliance`
 - **Filtro por empresa**: Todas · Holdings BPO · PayCOP · Adamo Services
 
-**7 carpetas:**
+**11 carpetas:**
 
 | Icono | Carpeta |
 |---|---|
-| 📋 | Políticas |
+| 📋 | Politicas |
 | 📖 | Manuales |
 | 🔗 | Onboarding |
-| ⚖️ | Ética |
-| 🔍 | Riesgos |
+| ⚙️ | Procesos y Procedimientos |
+| 🛡️ | Governanza |
 | 🏢 | Empresariales |
-| 🎓 | Capacitación |
+| 🎓 | Capacitacion |
+| 📝 | Contratos |
+| 📑 | Actas y Formatos |
+| 📊 | Matrices |
+| 💻 | Tecnologia |
 
 **Estados de documento:** `Vigente` · `Pendiente` · `Vencido` · `Archivado` (soft delete)  
 **Formatos:** `PDF` · `DOCX` · `XLSX` · `PPTX` · `OTRO`
@@ -356,15 +372,14 @@ Repositorio centralizado de documentos regulatorios de ADAMO Services.
 - Resumen por carpeta con barra de progreso y badges de alertas (vencidos/pendientes)
 - Lista "Requieren atención" — documentos `Vencido` o `Pendiente` ordenados por urgencia
 
-**Previsualización (OneDrive/SharePoint):**
-- OneDrive personal: `/redir?` → `/embed?` + `em=2`
-- SharePoint corporativo: añade `?action=embedview`
-- Fallback: link directo si el iframe es bloqueado
+**Acciones por tarjeta:**
+- **✏️ Editar** (solo admin/compliance): abre formulario inline con todos los metadatos; `st.rerun()` al guardar
+- **🔗 Abrir**: `st.link_button` que abre el documento en pestaña nueva
 
-**Flujo de actualización de versión:**
-1. Clic "✏️ Nueva Versión" en la tarjeta del documento
-2. `compliance_repo.nueva_version()` → UPDATE estado=Vigente + URL nueva
-3. `audit_repo.registrar()` automático con `valores_anteriores/nuevos`
+**Flujo de edición:**
+1. Clic "✏️ Editar" → toggle `_nv_open_{id}` en session_state
+2. `_form_editar()` → `compliance_repo.actualizar()` + `audit_repo.registrar()`
+3. `st.rerun()` automático para reflejar cambios en la grilla
 
 ---
 
