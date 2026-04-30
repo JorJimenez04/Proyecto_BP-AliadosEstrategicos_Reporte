@@ -615,3 +615,363 @@ def page_partners(user: dict) -> None:
                         st.session_state["delete_id"] = fid
                         st.session_state["edit_id"] = None
                         st.rerun()
+
+
+# ── Tab: Alta de Partner ──────────────────────────────────────────────────────
+
+def _tab_alta_partner(user: dict) -> None:
+    """Formulario de registro de nuevo partner (pestaña interna)."""
+    import streamlit as st
+    from datetime import date as _date
+    from db.database import get_session
+    from db.repositories.partner_repo import PartnerRepository
+    from db.repositories.audit_repo import AuditRepository
+    from db.models import AliadoCreate
+    from config.settings import TiposAliado, NivelesRiesgo, Roles
+
+    st.markdown(
+        '<p style="color:#9ca3af;margin-bottom:18px">'
+        'Completa los datos del nuevo Banking Partner. Los campos marcados con * son obligatorios.</p>',
+        unsafe_allow_html=True,
+    )
+
+    with st.form("form_nuevo_partner_alianzas", clear_on_submit=True):
+        # ── SECCIÓN 1: IDENTIFICACIÓN ─────────────────────────────────────────
+        st.markdown('<p class="section-title">Información Básica e Identificación</p>',
+                    unsafe_allow_html=True)
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            nombre   = st.text_input("Razón Social *", placeholder="Ej: Cobre / Davivienda")
+            nit      = st.text_input("NIT * (900123456-1)", placeholder="900123456-1")
+        with c2:
+            tipo     = st.selectbox("Tipo de Aliado *", TiposAliado.ALL)
+            fecha_vinc = st.date_input("Fecha Vinculación *", value=_date.today())
+        with c3:
+            ciudad   = st.text_input("Ciudad")
+            depto    = st.text_input("Departamento")
+
+        # ── SECCIÓN 2: RELACIÓN CORPORATIVA ──────────────────────────────────
+        st.markdown('<p class="section-title">🏢 Relación con el Grupo Corporativo</p>',
+                    unsafe_allow_html=True)
+        cg1, cg2, cg3 = st.columns(3)
+        with cg1:
+            est_hbpo   = st.selectbox("Estado en HoldingsBPO",
+                                      ["Activo", "Inactivo", "Sin relación"], index=2)
+        with cg2:
+            est_adamo  = st.selectbox("Estado en Adamo",
+                                      ["Activo", "Inactivo", "Sin relación"], index=2)
+        with cg3:
+            est_paycop = st.selectbox("Estado en Paycop",
+                                      ["Activo", "Inactivo", "Sin relación"], index=2)
+
+        # ── SECCIÓN 3: PERFIL OPERATIVO ───────────────────────────────────────
+        st.markdown('<p class="section-title">💳 Perfil Operativo y Capacidades</p>',
+                    unsafe_allow_html=True)
+        co1, co2 = st.columns(2)
+        with co1:
+            crypto      = st.checkbox("¿Es Crypto Friendly?")
+            adult       = st.checkbox("¿Es Adult Friendly?")
+            monetizacion = st.checkbox("Permite Monetización")
+            dispersion  = st.checkbox("Permite Dispersión")
+        with co2:
+            monedas  = st.text_input("Monedas Soportadas", placeholder="COP-USD-MXN-BRL")
+            volumen  = st.text_input("Volumen Real Estimado", placeholder="Ej: 10-11M mensuales")
+
+        clientes = st.text_area("Clientes Vinculados",
+                                placeholder="Ej: Paxum, Scientia, CM Group...")
+        cf1, cf2 = st.columns(2)
+        with cf1:
+            fecha_ini_rel = st.date_input("Fecha Inicio Relación Grupo", value=None)
+        with cf2:
+            fecha_fin_rel = st.date_input("Fecha Fin Relación (si aplica)", value=None)
+
+        # ── SECCIÓN 4: COMPLIANCE ─────────────────────────────────────────────
+        st.markdown('<p class="section-title">⚖️ Cumplimiento y Riesgo</p>',
+                    unsafe_allow_html=True)
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            riesgo = st.selectbox("Nivel de Riesgo Inicial", NivelesRiesgo.ALL, index=1)
+            pep    = st.checkbox("¿Es Persona Expuesta Políticamente (PEP)?")
+        with cc2:
+            freq        = st.selectbox("Frecuencia Revisión",
+                                       ["Anual", "Semestral", "Trimestral", "Mensual"])
+            motivo_inact = st.text_area("Si está Inactivo, ¿por qué?")
+
+        obs = st.text_area("Observaciones Adicionales de Compliance")
+
+        submitted = st.form_submit_button("💾 Registrar Partner", type="primary")
+
+    if submitted:
+        if not nombre or not nit:
+            st.error("Razón Social y NIT son obligatorios.")
+            return
+        try:
+            nuevo = AliadoCreate(
+                nombre_razon_social=nombre, nit=nit, tipo_aliado=tipo,
+                fecha_vinculacion=fecha_vinc, ciudad=ciudad, departamento_geo=depto,
+                nivel_riesgo=riesgo, es_pep=pep, frecuencia_revision=freq,
+                observaciones_compliance=obs,
+                estado_hbpocorp=est_hbpo, estado_adamo=est_adamo,
+                estado_paycop=est_paycop, crypto_friendly=crypto,
+                adult_friendly=adult, permite_monetizacion=monetizacion,
+                permite_dispersion=dispersion, monedas_soportadas=monedas,
+                clientes_vinculados=clientes, volumen_real_mensual=volumen,
+                fecha_inicio_relacion=fecha_ini_rel,
+                fecha_fin_relacion=fecha_fin_rel,
+                motivo_inactividad=motivo_inact,
+            )
+            with next(get_session()) as session:
+                repo  = PartnerRepository(session)
+                audit = AuditRepository(session)
+                nuevo_id = repo.create(nuevo, creado_por=user["id"])
+                audit.registrar(
+                    username=user["username"], usuario_id=user["id"],
+                    accion="CREATE", entidad="aliados", entidad_id=nuevo_id,
+                    descripcion=f"Nuevo partner registrado: {nombre} (NIT: {nit})",
+                    valores_nuevos=nuevo.model_dump(mode="json"),
+                    rol_usuario=user.get("rol"),
+                )
+            # Señal para mostrar éxito en Portafolio y redirigir
+            st.session_state["_alianzas_nuevo_partner"] = (
+                f"✅ **{nombre}** registrado con ID #{nuevo_id}. "
+                "Consulta la pestaña 📋 Portafolio."
+            )
+            st.toast(f"✅ {nombre} registrado exitosamente", icon="✅")
+        except Exception as exc:
+            st.error(f"Error al registrar: {exc}")
+
+
+# ── Tab: Análisis de Riesgo ───────────────────────────────────────────────────
+
+def _tab_analisis_riesgo(user: dict) -> None:
+    """Vista de análisis SARLAFT, Due Diligence y riesgo operativo."""
+    import streamlit as st
+    from db.database import get_session
+    from db.repositories.partner_repo import PartnerRepository
+    from config.settings import Roles
+
+    es_comercial = user.get("rol") == Roles.COMERCIAL
+
+    if es_comercial:
+        st.info(
+            "🔒 Vista de solo lectura. El rol Comercial puede consultar el análisis "
+            "pero no puede modificar niveles de riesgo ni estado SARLAFT.",
+        )
+
+    try:
+        with next(get_session()) as session:
+            repo               = PartnerRepository(session)
+            termometro         = repo.get_termometro_sarlaft()
+            stats_riesgo       = repo.get_stats_riesgo()
+            stats_pipeline     = repo.get_stats_pipeline()
+            sarlaft_vencidas   = repo.get_sarlaft_vencidas()
+            revisiones_proximas = repo.get_revisiones_proximas(dias=30)
+            volumenes          = repo.get_resumen_volumen()
+    except Exception as exc:
+        st.error(f"Error al cargar análisis de riesgo: {exc}")
+        return
+
+    # ── Fila superior: termómetro SARLAFT + distribución de riesgo ───────────
+    col_sarlaft, col_riesgo = st.columns(2)
+
+    _BG     = "#1f2937"
+    _BORDER = "#293056"
+    _GRAY   = "#9ca3af"
+
+    with col_sarlaft:
+        st.markdown(
+            f'<div style="background:{_BG};border:1px solid {_BORDER};border-radius:12px;'
+            f'padding:20px 24px;margin-bottom:16px">'
+            f'<div style="color:{_GRAY};font-size:0.72rem;font-weight:600;'
+            f'text-transform:uppercase;letter-spacing:1px;margin-bottom:14px">'
+            f'🌡️ Termómetro SARLAFT</div>',
+            unsafe_allow_html=True,
+        )
+        t_total = max(sum(termometro.values()), 1)
+        for label, key, color in [
+            ("Vencidos",     "vencidos",  "#ef4444"),
+            ("Próximos 15d", "proximos",  "#f59e0b"),
+            ("Al Día",       "al_dia",    "#5fe9d0"),
+            ("Sin fecha",    "sin_fecha", "#4b5563"),
+        ]:
+            val = termometro.get(key, 0)
+            pct = round(val / t_total * 100)
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+                f'<div style="width:100px;color:{_GRAY};font-size:0.78rem;text-align:right">{label}</div>'
+                f'<div style="flex:1;background:#111827;border-radius:6px;height:10px;overflow:hidden">'
+                f'<div style="width:{pct}%;height:100%;background:{color};border-radius:6px"></div></div>'
+                f'<div style="width:50px;text-align:right">'
+                f'<span style="color:{color};font-weight:700">{val}</span>'
+                f'<span style="color:#4b5563;font-size:0.72rem"> ({pct}%)</span></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_riesgo:
+        st.markdown(
+            f'<div style="background:{_BG};border:1px solid {_BORDER};border-radius:12px;'
+            f'padding:20px 24px;margin-bottom:16px">'
+            f'<div style="color:{_GRAY};font-size:0.72rem;font-weight:600;'
+            f'text-transform:uppercase;letter-spacing:1px;margin-bottom:14px">'
+            f'⚠️ Distribución de Riesgo SARLAFT</div>',
+            unsafe_allow_html=True,
+        )
+        r_total = max(sum(stats_riesgo.values()), 1)
+        for nivel, color in [
+            ("Muy Alto", "#ef4444"),
+            ("Alto",     "#f97316"),
+            ("Medio",    "#f59e0b"),
+            ("Bajo",     "#5fe9d0"),
+        ]:
+            val = stats_riesgo.get(nivel, 0)
+            pct = round(val / r_total * 100)
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+                f'<div style="width:65px;color:{_GRAY};font-size:0.78rem;text-align:right">{nivel}</div>'
+                f'<div style="flex:1;background:#111827;border-radius:6px;height:10px;overflow:hidden">'
+                f'<div style="width:{pct}%;height:100%;background:{color};border-radius:6px"></div></div>'
+                f'<div style="width:50px;text-align:right">'
+                f'<span style="color:{color};font-weight:700">{val}</span>'
+                f'<span style="color:#4b5563;font-size:0.72rem"> ({pct}%)</span></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Pipeline de estados ───────────────────────────────────────────────────
+    st.markdown(
+        f'<div style="background:{_BG};border:1px solid {_BORDER};border-radius:12px;'
+        f'padding:20px 24px;margin-bottom:16px">'
+        f'<div style="color:{_GRAY};font-size:0.72rem;font-weight:600;'
+        f'text-transform:uppercase;letter-spacing:1px;margin-bottom:14px">'
+        f'📊 Pipeline de Estados</div>',
+        unsafe_allow_html=True,
+    )
+    p_total = max(sum(stats_pipeline.values()), 1)
+    pip_cols = st.columns(len(stats_pipeline) or 1)
+    for idx, (estado, cnt) in enumerate(stats_pipeline.items()):
+        color = _COLORES_PIPELINE.get(estado, "#6b7280")
+        pct   = round(cnt / p_total * 100)
+        pip_cols[idx].markdown(
+            f'<div style="text-align:center;background:#111827;border:1px solid {color}33;'
+            f'border-radius:10px;padding:14px 8px">'
+            f'<div style="color:{color};font-size:1.6rem;font-weight:800">{cnt}</div>'
+            f'<div style="color:{_GRAY};font-size:0.68rem;margin-top:4px">{estado}</div>'
+            f'<div style="color:{color};font-size:0.65rem;margin-top:2px">{pct}%</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Partners con SARLAFT vencido ──────────────────────────────────────────
+    if sarlaft_vencidas:
+        st.markdown(
+            f'<div style="background:#2a0f0f;border:1px solid #ef444466;border-radius:12px;'
+            f'padding:20px 24px;margin-bottom:16px">'
+            f'<div style="color:#ef4444;font-size:0.72rem;font-weight:700;'
+            f'text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">'
+            f'🚨 SARLAFT Vencidos ({len(sarlaft_vencidas)})</div>',
+            unsafe_allow_html=True,
+        )
+        for p in sarlaft_vencidas:
+            nombre_p = p.get("nombre_razon_social", "—")
+            nit_p    = p.get("nit", "—")
+            fecha_p  = p.get("proxima_revision_sarlaft", "—")
+            riesgo_p = p.get("nivel_riesgo", "—")
+            r_color  = _COLORES_RIESGO.get(riesgo_p, "#6b7280")
+            st.markdown(
+                f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                f'padding:8px 0;border-bottom:1px solid #293056">'
+                f'<div><span style="color:#f1f5f9;font-weight:600">{nombre_p}</span>'
+                f'<span style="color:#6b7280;font-size:0.78rem;margin-left:8px">{nit_p}</span></div>'
+                f'<div style="display:flex;gap:8px;align-items:center">'
+                f'<span style="color:{r_color};font-size:0.75rem;font-weight:600">{riesgo_p}</span>'
+                f'<span style="color:#ef4444;font-size:0.75rem">{fecha_p}</span>'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Revisiones próximas 30 días ───────────────────────────────────────────
+    if revisiones_proximas:
+        st.markdown(
+            f'<div style="background:#1a1f0f;border:1px solid #f59e0b66;border-radius:12px;'
+            f'padding:20px 24px;margin-bottom:16px">'
+            f'<div style="color:#f59e0b;font-size:0.72rem;font-weight:700;'
+            f'text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">'
+            f'⏰ Revisiones Próximas — 30 días ({len(revisiones_proximas)})</div>',
+            unsafe_allow_html=True,
+        )
+        for p in revisiones_proximas:
+            nombre_p = p.get("nombre_razon_social", "—")
+            fecha_p  = p.get("proxima_revision_sarlaft", "—")
+            riesgo_p = p.get("nivel_riesgo", "—")
+            r_color  = _COLORES_RIESGO.get(riesgo_p, "#6b7280")
+            st.markdown(
+                f'<div style="display:flex;justify-content:space-between;'
+                f'padding:8px 0;border-bottom:1px solid #293056">'
+                f'<span style="color:#f1f5f9">{nombre_p}</span>'
+                f'<div style="display:flex;gap:8px">'
+                f'<span style="color:{r_color};font-size:0.75rem">{riesgo_p}</span>'
+                f'<span style="color:#f59e0b;font-size:0.75rem">{fecha_p}</span>'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ── Módulo maestro: Gestión de Alianzas ──────────────────────────────────────
+
+def page_alianzas(user: dict) -> None:
+    """
+    🤝 Gestión de Alianzas Estratégicas — Banking Partners Hub.
+
+    Consolida en 4 pestañas:
+      📊 Dashboard Operativo  — Core Operations KPIs
+      📋 Portafolio           — Tabla de aliados con filtros y acciones
+      ➕ Alta de Partner       — Formulario de registro (CAN_CREATE_PARTNERS)
+      📈 Análisis de Riesgo   — SARLAFT · Due Diligence · pipeline
+    """
+    import streamlit as st
+    from config.settings import Roles
+
+    # Cabecera del módulo
+    st.markdown(
+        '<h2 style="color:#5fe9d0;margin-bottom:2px">🤝 Gestión de Alianzas Estratégicas</h2>'
+        '<p style="color:#9ca3af;margin-top:0;margin-bottom:18px">'
+        'Banking Partners Hub — Portafolio · Riesgo · Cumplimiento · Alta</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Banner de éxito post-creación (persiste un rerun)
+    _success_msg = st.session_state.pop("_alianzas_nuevo_partner", None)
+    if _success_msg:
+        st.success(_success_msg)
+
+    rol = user.get("rol", "")
+    puede_crear = rol in Roles.CAN_CREATE_PARTNERS
+
+    tabs = st.tabs([
+        "📊 Dashboard Operativo",
+        "📋 Portafolio",
+        "➕ Alta de Partner",
+        "📈 Análisis de Riesgo",
+    ])
+
+    with tabs[0]:
+        from app.components.dashboard_ui import page_dashboard
+        page_dashboard(user)
+
+    with tabs[1]:
+        page_partners(user)
+
+    with tabs[2]:
+        if not puede_crear:
+            st.info("🔒 Tu rol no tiene permisos para registrar nuevos partners.")
+        else:
+            _tab_alta_partner(user)
+
+    with tabs[3]:
+        _tab_analisis_riesgo(user)

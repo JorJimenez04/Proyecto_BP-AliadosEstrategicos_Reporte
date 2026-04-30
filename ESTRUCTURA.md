@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-04-30 (rev. 9)
+> Última actualización: 2026-04-30 (rev. 10)
 
 ---
 
@@ -31,17 +31,16 @@ Proyecto_PartnersStatus/
 │   ├── 📄 main.py                     # Entry point · router de páginas · CSS global
 │   │                                  # _on_nav_radio_change() — callback on_change del radio
 │   │                                  # sidebar() → tuple(page, agente_username | None)
-│   │                                  #   _nav_opts construido condicionalmente por rol (RBAC):
-│   │                                  #     CAN_CREATE_PARTNERS           → ➕ Nuevo Partner
+│   │                                  #   _nav_opts: entrada única 🤝 Gestión de Alianzas (todos)
 │   │                                  #     admin/compliance               → 📋 Log de Auditoría
 │   │                                  #     CAN_VIEW_AGENTES               → 👥 Gestión de Agentes
 │   │                                  #     admin/compliance/comercial/consulta → 📚 Centro Documental
 │   │                                  #   Expander "🏢 Equipos Operativos": carga agentes desde BD
 │   │                                  #   nav_agente en session_state — nunca toca la clave del widget
 │   │                                  # main() router — gatekeepers server-side antes de cada page_*()
+│   │                                  #   🤝 Gestión de Alianzas → page_alianzas(user) (lazy import)
 │   │                                  #   bloquea Auditoría y Gestión de Agentes si rol insuficiente
 │   │                                  #   📚 Centro Documental → page_compliance(user) (lazy import)
-│   │                                  # page_nuevo_partner() · main()
 │   │
 │   ├── 📂 auth/                       # Sistema de autenticación y control de acceso
 │   │   ├── 📄 __init__.py
@@ -67,19 +66,35 @@ Proyecto_PartnersStatus/
 │   │   │                              #              Análisis Volumen · Centro de Alertas
 │   │   │                              # _empresa_card(): tarjeta por empresa con lista de partners
 │   │   │                              # _termometro_row() · _kpi() · _section() · _spacer()
-│   │   ├── 📄 partners_ui.py          # Portafolio de Banking Partners — page_partners()
-│   │   │                              # Tabla por tarjetas con filtros y KPIs rápidos
+│   │   ├── 📄 partners_ui.py          # 🤝 Gestión de Alianzas — módulo maestro Banking Partners Hub
+│   │   │                              # page_alianzas(user): entrada principal — 4 pestañas st.tabs
+│   │   │                              #   📊 Dashboard Operativo → page_dashboard(user)
+│   │   │                              #   📋 Portafolio         → page_partners(user)
+│   │   │                              #   ➕ Alta de Partner     → _tab_alta_partner(user) [CAN_CREATE]
+│   │   │                              #   📈 Análisis de Riesgo → _tab_analisis_riesgo(user)
+│   │   │                              # Banner de éxito post-creación: _alianzas_nuevo_partner en session_state
+│   │   │                              # st.toast() al registrar + st.success() en próximo render
+│   │   │                              # page_partners(user): tabla tarjetas con filtros y KPIs
+│   │   │                              #   Filtros: Estado · Riesgo · Búsqueda · PEP
+│   │   │                              #   Métricas rápidas: Total · Activos · Alto Riesgo · PEPs
 │   │   │                              # _panel_editar(): formulario inline 3 secciones
 │   │   │                              #   (Básica / Relación Corporativa / Perfil Operativo)
 │   │   │                              #   Editar: ADMIN / COMPLIANCE / COMERCIAL
-│   │   │                              #   Campos compliance deshabilitados para rol comercial
+│   │   │                              #   Campos SARLAFT/riesgo/PEP deshabilitados para rol comercial
 │   │   │                              #   try/except en get_by_id() con mensaje de error UI
 │   │   │                              #   valores_anteriores/nuevos como dict (JSON real en log)
 │   │   │                              # _panel_eliminar(): confirmación roja — solo ADMIN
 │   │   │                              #   try/except protegido · valores_anteriores como dict
-│   │   │                              # Auditoría automática en UPDATE y DELETE
-│   │   │                              # _COLORES_RIESGO["Bajo"] = #5fe9d0 (cyan Adamo)
-│   │   │                              # _pill() · _capacidad_badge() · _idx()
+│   │   │                              # _tab_alta_partner(user): formulario 4 secciones (Alta de Partner)
+│   │   │                              #   Identificación · Relación Corporativa · Perfil Operativo · Compliance
+│   │   │                              #   AliadoCreate + repo.create() + audit.registrar()
+│   │   │                              #   clear_on_submit=True · st.toast() en éxito
+│   │   │                              # _tab_analisis_riesgo(user): análisis SARLAFT + riesgo
+│   │   │                              #   Termómetro SARLAFT · Distribución riesgo · Pipeline estados
+│   │   │                              #   Lista vencidos SARLAFT · Lista revisiones próximas 30d
+│   │   │                              #   Rol comercial: banner read-only (sin cambios de estado)
+│   │   │                              # Auditoría automática en CREATE / UPDATE / DELETE
+│   │   │                              # _COLORES_RIESGO["Bajo"] = #5fe9d0 · _pill() · _capacidad_badge()
 │   │   ├── 📄 audit_ui.py             # Log de Auditoría — page_auditoria()
 │   │   │                              # Tabla paginada de log_auditoria
 │   │   ├── 📄 alerts.py               # Centro de Notificaciones de Compliance
@@ -321,22 +336,38 @@ Proyecto_PartnersStatus/
 
 ## 📊 Páginas de la Aplicación
 
-### Dashboard Ejecutivo (`app/components/dashboard_ui.py`)
-**5 secciones verticales:**
-1. **KPIs** — Total partners · Activos · Alto Riesgo · PEPs · SARLAFT vencidos
-2. **Salud Corporativa** — Tarjeta por empresa (HoldingsBPO Corp / Adamo / Paycop)
-   - Counters Activo/Inactivo · barra de progreso · lista de partners con estado y riesgo
-3. **Monitor de Riesgo** — Donut Plotly (distribución por riesgo) + termómetro SARLAFT por estado
-4. **Análisis de Volumen** — Ranking de partners por volumen (`get_resumen_volumen()`)
-5. **Centro de Alertas** — SARLAFT vencidas · próximas revisiones 30 días · botón ⚡ Acción Rápida
+### 🤝 Gestión de Alianzas — Banking Partners Hub (`app/components/partners_ui.py`)
+Módulo maestro consolidado con 4 pestañas. Entrada única en el menú lateral (todos los roles).
 
-### Portafolio de Partners (`app/components/partners_ui.py`)
+#### Tab 📊 Dashboard Operativo
+Renderiza `page_dashboard(user)` completo:
+- **KPIs** — Total partners · Activos · Alto Riesgo · PEPs · En Onboarding
+- **Salud Corporativa** — Tarjeta por empresa (HoldingsBPO Corp / Adamo / Paycop)
+- **Monitor de Riesgo** — Donut Plotly (capacidades riesgo) + termómetro SARLAFT
+- **Análisis de Volumen** — Ranking por volumen real mensual
+- **Centro de Alertas** — SARLAFT vencidas · próximas 30 días · ⚡ Acción Rápida
+
+#### Tab 📋 Portafolio
+Renderiza `page_partners(user)`:
 - **Filtros**: Estado Pipeline · Nivel Riesgo · búsqueda texto · Solo PEP
 - **KPIs rápidos**: Total · Activos · Alto Riesgo · PEPs
-- **Tabla por tarjetas**: pills de colores (pipeline/riesgo/SARLAFT) + badges capacidades operativas
-- **Edición inline** (ADMIN / COMPLIANCE / COMERCIAL): formulario 3 secciones; campos compliance deshabilitados para rol `comercial`; `try/except` en carga de BD; `valores_anteriores` como `dict` real (JSON correcto en log)
-- **Eliminación** (solo ADMIN): panel confirmación con borde rojo + auditoría `DELETE`; `valores_anteriores=dict(aliado)`
-- Fila activa resaltada: cian = editando · rojo = eliminando
+- **Tabla por tarjetas**: pills pipeline/riesgo/SARLAFT + badges capacidades operativas
+- **Edición inline** (ADMIN / COMPLIANCE / COMERCIAL): formulario 3 secciones; campos SARLAFT/riesgo bloqueados para `comercial`
+- **Eliminación** (solo ADMIN): panel borde rojo + auditoría `DELETE`
+
+#### Tab ➕ Alta de Partner
+Solo visible para roles `CAN_CREATE_PARTNERS` (admin · compliance · comercial):
+- Formulario 4 secciones: Identificación · Relación Corporativa · Perfil Operativo · Compliance
+- `AliadoCreate` validado con Pydantic + `repo.create()` + `audit.registrar()`
+- `clear_on_submit=True` + `st.toast()` al registrar · banner de éxito en siguiente render
+
+#### Tab 📈 Análisis de Riesgo
+- **Termómetro SARLAFT**: Vencidos · Próximos 15d · Al Día · Sin fecha (barras de progreso)
+- **Distribución de Riesgo**: Muy Alto / Alto / Medio / Bajo (barras de progreso)
+- **Pipeline de Estados**: contador y % por cada estado
+- **Lista vencidos SARLAFT**: nombre · NIT · nivel riesgo · fecha vencimiento
+- **Revisiones próximas 30d**: nombre · nivel riesgo · fecha próxima
+- Rol `comercial`: banner read-only (no puede modificar riesgo/SARLAFT)
 
 ### Log de Auditoría (`app/components/audit_ui.py`)
 - Tabla paginada de `log_auditoria` — acciones CREATE · UPDATE · DELETE · LOGIN · EXPORT
@@ -423,12 +454,12 @@ git push origin main   # Railway reconstruye la imagen con la foto incluida
 
 ## 👥 Roles de Acceso (RBAC)
 
-| Rol           | Dashboard | Ver Partners | Crear/Editar | Cambiar Estado | Auditoría | Eliminar | Equipos | Gestión Agentes | Centro Documental |
-|---------------|:---------:|:------------:|:------------:|:--------------:|:---------:|:--------:|:-------:|:---------------:|:-----------------:|
-| `admin`       | ✅        | ✅           | ✅           | ✅             | ✅        | ✅       | ✅      | ✅              | ✅ (editar)       |
-| `compliance`  | ✅        | ✅           | ✅           | ✅             | ✅        | ❌       | ✅      | ✅              | ✅ (editar)       |
-| `comercial`   | ✅        | ✅           | Parcial      | Parcial        | ❌        | ❌       | ✅      | ❌              | ✅ (solo lectura) |
-| `consulta`    | ✅        | ✅           | ❌           | ❌             | ❌        | ❌       | ✅      | ❌              | ✅ (solo lectura) |
+| Rol           | Gestión de Alianzas (tab Dashboard) | Tab Portafolio | Tab Alta Partner | Tab Análisis Riesgo | Auditoría | Eliminar | Gestión Agentes | Centro Documental |
+|---------------|:-----------------------------------:|:--------------:|:----------------:|:-------------------:|:---------:|:--------:|:---------------:|:-----------------:|
+| `admin`       | ✅ completo                         | ✅ + editar    | ✅               | ✅ sin restricción  | ✅        | ✅       | ✅              | ✅ (editar)       |
+| `compliance`  | ✅ completo                         | ✅ + editar    | ✅               | ✅ sin restricción  | ✅        | ❌       | ✅              | ✅ (editar)       |
+| `comercial`   | ✅ completo                         | ✅ + editar op.| ✅               | ✅ solo lectura     | ❌        | ❌       | ❌              | ✅ (solo lectura) |
+| `consulta`    | ✅ completo                         | ✅ solo lectura| 🔒 oculto        | ✅ solo lectura     | ❌        | ❌       | ❌              | ✅ (solo lectura) |
 
 ---
 
