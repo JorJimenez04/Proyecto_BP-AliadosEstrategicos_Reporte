@@ -731,14 +731,13 @@ def _tab_alta_partner(user: dict) -> None:
                     valores_nuevos=nuevo.model_dump(mode="json"),
                     rol_usuario=user.get("rol"),
                 )
-            # Señal para mostrar éxito en Portafolio y redirigir
+            # Señal para mostrar éxito en el banner del módulo y en el Portafolio
             st.session_state["_alianzas_nuevo_partner"] = (
                 f"✅ **{nombre}** registrado con ID #{nuevo_id}. "
                 "Consulta la pestaña 📋 Portafolio."
             )
             st.session_state["_alianzas_portafolio_notify"] = (
-                f"✅ **{nombre}** (ID #{nuevo_id}) fue registrado exitosamente. "
-                "El registro aparece en el listado a continuación."
+                f"✅ **{nombre}** (ID #{nuevo_id}) registrado. El registro aparece a continuación."
             )
             st.toast(f"✅ {nombre} registrado exitosamente", icon="✅")
         except Exception as exc:
@@ -932,15 +931,13 @@ def page_alianzas(user: dict) -> None:
     """
     🤝 Gestión de Alianzas Estratégicas — Banking Partners Hub.
 
-    Consolida en pestañas dinámicas:
-      📊 Monitor Operativo    — Core Operations KPIs y salud de la red
-      📋 Portafolio           — Grilla de tarjetas con filtros y acciones
-      ➕ Alta de Partner       — Formulario de registro (solo CAN_CREATE_PARTNERS)
-      🛡️ Cumplimiento y Riesgo — Termómetro SARLAFT · Due Diligence · pipeline
+    Consolida en 3 pestañas:
+      📊 Monitor    — KPIs de gestión: Total, Activos, Riesgo Alto, PEPs
+      📋 Portafolio — Grilla de tarjetas con filtros de búsqueda y edición
+      ➕ Alta        — Formulario de registro (solo CAN_CREATE_PARTNERS)
 
     RBAC:
-      - Pestaña "Alta de Partner" solo visible para admin / compliance / comercial.
-      - Campos SARLAFT en Cumplimiento deshabilitados para rol comercial.
+      - Pestaña Alta visible solo para admin / compliance / comercial.
     """
     import streamlit as st
     from config.settings import Roles
@@ -949,11 +946,11 @@ def page_alianzas(user: dict) -> None:
     st.markdown(
         '<h2 style="color:#5fe9d0;margin-bottom:2px">🤝 Gestión de Alianzas Estratégicas</h2>'
         '<p style="color:#9ca3af;margin-top:0;margin-bottom:18px">'
-        'Banking Partners Hub — Monitor · Portafolio · Cumplimiento · Alta</p>',
+        'Banking Partners Hub — Monitor · Portafolio · Alta</p>',
         unsafe_allow_html=True,
     )
 
-    # Banner de éxito post-creación (persiste un rerun; visible en cualquier pestaña activa)
+    # Banner de éxito post-creación (persiste un rerun)
     _success_msg = st.session_state.pop("_alianzas_nuevo_partner", None)
     if _success_msg:
         st.success(_success_msg)
@@ -961,22 +958,15 @@ def page_alianzas(user: dict) -> None:
     rol = user.get("rol", "")
     puede_crear = rol in Roles.CAN_CREATE_PARTNERS
 
-    # ── Construcción dinámica de pestañas según rol ───────────────────────────
-    _tab_labels = [
-        "📊 Monitor Operativo",
-        "📋 Portafolio",
-    ]
-    _tiene_alta = puede_crear
-    if _tiene_alta:
+    # Construcción dinámica: pestaña Alta solo si tiene permiso
+    _tab_labels = ["📊 Monitor", "📋 Portafolio"]
+    if puede_crear:
         _tab_labels.append("➕ Alta de Partner")
-    _tab_labels.append("🛡️ Cumplimiento y Riesgo")
 
     tabs = st.tabs(_tab_labels)
 
-    # Índice de la pestaña de Cumplimiento varía según si Alta está presente
-    _idx_cumplimiento = 3 if _tiene_alta else 2
-
     with tabs[0]:
+        # KPIs rápidos de gestión: Total, Activos, Riesgo Alto, PEPs
         from app.components.dashboard_ui import page_dashboard
         page_dashboard(user)
 
@@ -987,9 +977,6 @@ def page_alianzas(user: dict) -> None:
             st.success(_portafolio_msg)
         page_partners(user)
 
-    if _tiene_alta:
+    if puede_crear:
         with tabs[2]:
             _tab_alta_partner(user)
-
-    with tabs[_idx_cumplimiento]:
-        _tab_analisis_riesgo(user)

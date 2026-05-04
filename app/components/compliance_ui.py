@@ -1,9 +1,9 @@
 """
 app/components/compliance_ui.py
 Centro Documental de Cumplimiento -- AdamoServices Partner Manager.
-Gestor de documentos regulatorios: Politicas, Manuales, Onboarding,
-Procesos y Procedimientos, Governanza, Empresariales, Capacitacion,
-Contratos, Actas y Formatos, Matrices y Tecnologia (11 carpetas).
+Gestor de documentos regulatorios (11 carpetas): Politicas, Manuales,
+Onboarding, Procesos y Procedimientos, Governanza, Empresariales,
+Capacitacion, Contratos, Actas y Formatos, Matrices y Tecnologia.
 """
 
 from __future__ import annotations
@@ -233,23 +233,14 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         unsafe_allow_html=True,
     )
 
-    # ── Acciones: ✏️ Editar | �️ Previsualizar | 🔗 Abrir ─────────────────────
+    # ── Acciones: ✏️ Editar | 🔗 Abrir ─────────────────────────────────────────
     nv_open_key = f"_nv_open_{key_prefix}{doc_id}"
-    prev_key    = f"_prev_{key_prefix}{doc_id}"
 
     if url:
-        is_previewable = _is_onedrive_url(url)
-
         if puede_editar:
-            cols = st.columns(3) if is_previewable else st.columns(2)
-            c_edit = cols[0]
-            c_prev = cols[1] if is_previewable else None
-            c_open = cols[2] if is_previewable else cols[1]
+            c_edit, c_open = st.columns(2)
         else:
-            cols = st.columns(2) if is_previewable else st.columns(1)
-            c_edit = None
-            c_prev = cols[0] if is_previewable else None
-            c_open = cols[1] if is_previewable else cols[0]
+            c_open = st.columns(1)[0]
 
         # ✏️ Editar (solo editores)
         if puede_editar:
@@ -260,14 +251,6 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
                     st.session_state[nv_open_key] = not st.session_state.get(
                         nv_open_key, False
                     )
-
-        # 👁️ Previsualizar (OneDrive / SharePoint)
-        if is_previewable:
-            prev_lbl = "🔼 Cerrar vista" if st.session_state.get(prev_key) else "👁️ Previsualizar"
-            with c_prev:
-                if st.button(prev_lbl, key=f"{key_prefix}prev_btn_{doc_id}",
-                             use_container_width=True):
-                    st.session_state[prev_key] = not st.session_state.get(prev_key, False)
 
         # 🔗 Abrir (pestaña nueva)
         with c_open:
@@ -282,16 +265,6 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
                 st.session_state[nv_open_key] = not st.session_state.get(
                     nv_open_key, False
                 )
-
-    # 👁️ Iframe de previsualización
-    if url and st.session_state.get(prev_key):
-        preview_url = _to_drive_preview(url)
-        st.markdown(
-            f'<iframe src="{_html.escape(preview_url, quote=True)}" '
-            f'width="100%" height="520" frameborder="0" '
-            f'allowfullscreen style="border-radius:8px;margin-top:8px;"></iframe>',
-            unsafe_allow_html=True,
-        )
 
     # Formulario de edición (fuera del bloque url/no-url)
     if puede_editar and st.session_state.get(nv_open_key):
