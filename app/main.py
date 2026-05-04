@@ -78,8 +78,8 @@ def sidebar(user: dict) -> tuple[str, str | None]:
     Retorna (page, agente_username | None).
 
     page puede ser:
-      "� Core Operations" | "🤝 Partners" | "➕ Nuevo Partner" |
-      "📋 Log de Auditoría" | "👤 Perfil Agente"
+      "🤝 Gestión de Alianzas" | "📋 Log de Auditoría" |
+      "👥 Gestión de Agentes"  | "📚 Centro Documental" | "👤 Perfil Agente"
     agente_username solo está definido cuando page == "👤 Perfil Agente".
     """
     from app.components.agentes_ui import get_agentes_sidebar
@@ -199,7 +199,7 @@ def main():
     elif page == "\U0001f4da Centro Documental":
         from app.components.compliance_ui import page_compliance
         page_compliance(user)
-    elif page == "�👤 Perfil Agente" and agente_username:
+    elif page == "👤 Perfil Agente" and agente_username:
         from app.components.agentes_ui import render_perfil_agente
         render_perfil_agente(agente_username, user=user)
 

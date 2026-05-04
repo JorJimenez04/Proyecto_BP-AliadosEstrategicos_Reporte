@@ -736,6 +736,10 @@ def _tab_alta_partner(user: dict) -> None:
                 f"✅ **{nombre}** registrado con ID #{nuevo_id}. "
                 "Consulta la pestaña 📋 Portafolio."
             )
+            st.session_state["_alianzas_portafolio_notify"] = (
+                f"✅ **{nombre}** (ID #{nuevo_id}) fue registrado exitosamente. "
+                "El registro aparece en el listado a continuación."
+            )
             st.toast(f"✅ {nombre} registrado exitosamente", icon="✅")
         except Exception as exc:
             st.error(f"Error al registrar: {exc}")
@@ -928,11 +932,15 @@ def page_alianzas(user: dict) -> None:
     """
     🤝 Gestión de Alianzas Estratégicas — Banking Partners Hub.
 
-    Consolida en 4 pestañas:
-      📊 Dashboard Operativo  — Core Operations KPIs
-      📋 Portafolio           — Tabla de aliados con filtros y acciones
-      ➕ Alta de Partner       — Formulario de registro (CAN_CREATE_PARTNERS)
-      📈 Análisis de Riesgo   — SARLAFT · Due Diligence · pipeline
+    Consolida en pestañas dinámicas:
+      📊 Monitor Operativo    — Core Operations KPIs y salud de la red
+      📋 Portafolio           — Grilla de tarjetas con filtros y acciones
+      ➕ Alta de Partner       — Formulario de registro (solo CAN_CREATE_PARTNERS)
+      🛡️ Cumplimiento y Riesgo — Termómetro SARLAFT · Due Diligence · pipeline
+
+    RBAC:
+      - Pestaña "Alta de Partner" solo visible para admin / compliance / comercial.
+      - Campos SARLAFT en Cumplimiento deshabilitados para rol comercial.
     """
     import streamlit as st
     from config.settings import Roles
@@ -941,11 +949,11 @@ def page_alianzas(user: dict) -> None:
     st.markdown(
         '<h2 style="color:#5fe9d0;margin-bottom:2px">🤝 Gestión de Alianzas Estratégicas</h2>'
         '<p style="color:#9ca3af;margin-top:0;margin-bottom:18px">'
-        'Banking Partners Hub — Portafolio · Riesgo · Cumplimiento · Alta</p>',
+        'Banking Partners Hub — Monitor · Portafolio · Cumplimiento · Alta</p>',
         unsafe_allow_html=True,
     )
 
-    # Banner de éxito post-creación (persiste un rerun)
+    # Banner de éxito post-creación (persiste un rerun; visible en cualquier pestaña activa)
     _success_msg = st.session_state.pop("_alianzas_nuevo_partner", None)
     if _success_msg:
         st.success(_success_msg)
@@ -953,25 +961,35 @@ def page_alianzas(user: dict) -> None:
     rol = user.get("rol", "")
     puede_crear = rol in Roles.CAN_CREATE_PARTNERS
 
-    tabs = st.tabs([
-        "📊 Dashboard Operativo",
+    # ── Construcción dinámica de pestañas según rol ───────────────────────────
+    _tab_labels = [
+        "📊 Monitor Operativo",
         "📋 Portafolio",
-        "➕ Alta de Partner",
-        "📈 Análisis de Riesgo",
-    ])
+    ]
+    _tiene_alta = puede_crear
+    if _tiene_alta:
+        _tab_labels.append("➕ Alta de Partner")
+    _tab_labels.append("🛡️ Cumplimiento y Riesgo")
+
+    tabs = st.tabs(_tab_labels)
+
+    # Índice de la pestaña de Cumplimiento varía según si Alta está presente
+    _idx_cumplimiento = 3 if _tiene_alta else 2
 
     with tabs[0]:
         from app.components.dashboard_ui import page_dashboard
         page_dashboard(user)
 
     with tabs[1]:
+        # Notificación de partner recién registrado dentro del Portafolio
+        _portafolio_msg = st.session_state.pop("_alianzas_portafolio_notify", None)
+        if _portafolio_msg:
+            st.success(_portafolio_msg)
         page_partners(user)
 
-    with tabs[2]:
-        if not puede_crear:
-            st.info("🔒 Tu rol no tiene permisos para registrar nuevos partners.")
-        else:
+    if _tiene_alta:
+        with tabs[2]:
             _tab_alta_partner(user)
 
-    with tabs[3]:
+    with tabs[_idx_cumplimiento]:
         _tab_analisis_riesgo(user)
