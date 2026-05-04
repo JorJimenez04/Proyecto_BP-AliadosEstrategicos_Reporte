@@ -198,7 +198,7 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
             st.link_button("🔗 Abrir", url=url, use_container_width=True)
 
     else:
-        # Sin URL: solo botón editar si procede
+        # Sin URL: botón editar para editores + aviso para todos
         if puede_editar:
             btn_lbl = "🔼 Cerrar edición" if st.session_state.get(nv_open_key) else "✏️ Editar"
             if st.button(btn_lbl, key=f"{key_prefix}nv_btn_{doc_id}",
@@ -206,6 +206,12 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
                 st.session_state[nv_open_key] = not st.session_state.get(
                     nv_open_key, False
                 )
+        st.markdown(
+            f"<span style='color:{_C_GRAY};font-size:0.72rem;'>Sin enlace — "
+            f"{'añade la URL en ✏️ Editar' if puede_editar else 'requiere URL para habilitar el acceso'}"
+            f"</span>",
+            unsafe_allow_html=True,
+        )
 
     # Formulario de edición (fuera del bloque url/no-url)
     if puede_editar and st.session_state.get(nv_open_key):
@@ -350,16 +356,12 @@ def _form_nuevo_documento(
                 estado  = st.selectbox("Estado", ["Vigente", "Pendiente", "Vencido"])
                 formato = st.selectbox("Formato", ["PDF", "DOCX", "XLSX", "PPTX", "OTRO"])
                 url_doc = st.text_input(
-                    "URL de OneDrive",
+                    "URL del documento",
                     placeholder="https://empresa.sharepoint.com/sites/.../documento.pdf",
                 )
                 fecha_emision     = st.date_input("Fecha emisión",    value=None)
                 fecha_vencimiento = st.date_input("Fecha vencimiento", value=None)
             descripcion = st.text_area("Descripción", height=70)
-            st.caption(
-                "ℹ️ Para habilitar la previsualización, usa un enlace compartido de OneDrive/SharePoint "
-                "con permiso *Cualquier persona con el enlace puede ver*."
-            )
             guardar = st.form_submit_button("💾 Crear documento")
 
         if guardar:
