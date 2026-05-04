@@ -1,4 +1,4 @@
-﻿-- ============================================================
+-- ============================================================
 -- AdamoServices Partner Manager -- Migracion 015
 -- Descripcion : Renombra la carpeta "Riesgos" a
 --               "Governanza" en la tabla compliance_documentos.

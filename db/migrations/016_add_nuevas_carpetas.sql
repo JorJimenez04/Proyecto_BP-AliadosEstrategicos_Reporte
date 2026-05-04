@@ -1,4 +1,4 @@
-﻿-- ============================================================
+-- ============================================================
 -- AdamoServices Partner Manager -- Migracion 016
 -- Descripcion : Agrega las carpetas Contratos, Actas y Formatos,
 --               Matrices y Tecnologia al CHECK constraint de

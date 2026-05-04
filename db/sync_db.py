@@ -75,7 +75,7 @@ def _run_migration(filepath: pathlib.Path, retries: int = 3, delay: float = 3.0)
     Reintenta hasta `retries` veces ante errores de conexión (útil en Railway).
     Retorna True si fue exitoso, False si todos los intentos fallaron.
     """
-    sql = filepath.read_text(encoding="utf-8")
+    sql = filepath.read_text(encoding="utf-8-sig")  # utf-8-sig strips BOM if present
     for attempt in range(1, retries + 1):
         try:
             with engine.begin() as conn:
