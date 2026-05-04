@@ -13,7 +13,6 @@ import re as _re
 from typing import Optional
 from urllib.parse import urlparse as _urlparse
 import streamlit as st
-import streamlit.components.v1 as _components
 
 from db.database import get_session
 from db.repositories.compliance_repo import ComplianceRepository
@@ -98,64 +97,6 @@ def _is_onedrive_url(url: str) -> bool:
         return netloc in _ALLOWED_ONEDRIVE or bool(_SHAREPOINT_RE.match(netloc))
     except Exception:
         return False
-
-
-def _to_drive_preview(url: str) -> str:
-    """
-    Transforma una URL de OneDrive/SharePoint al formato de incrustación iframe.
-
-    OneDrive personal (onedrive.live.com):
-      /redir?... → /embed?...&em=2
-      Si ya es /embed, solo asegura em=2.
-
-    SharePoint corporativo (*.sharepoint.com), incluyendo
-    holdingsbposas-my.sharepoint.com:
-      Añade action=embedview si no está presente.
-
-    1drv.ms (enlace corto): se devuelve tal cual; el navegador
-      seguirá la redirección pero el iframe puede no funcionar.
-    """
-    if not url:
-        return url
-    try:
-        netloc = _urlparse(url).netloc
-
-        # ── OneDrive personal ─────────────────────────────────
-        if netloc == "onedrive.live.com":
-            # redir → embed
-            embed = url.replace("/redir?", "/embed?", 1)
-            # asegurar em=2
-            if "em=" not in embed:
-                sep = "&" if "?" in embed else "?"
-                embed = embed + sep + "em=2"
-            return embed
-
-        # ── SharePoint corporativo ─────────────────────────────
-        if _SHAREPOINT_RE.match(netloc):
-            # Si ya es layouts/Doc.aspx con embedview, no tocar
-            if "_layouts/15/" in url and "action=embedview" in url:
-                return url
-
-            # Eliminar cualquier action= preexistente para evitar conflictos
-            url_clean = _re.sub(r'[?&]action=[^&]*', '', url)
-            url_clean = _re.sub(r'\?&', '?', url_clean)
-
-            sep = "&" if "?" in url_clean else "?"
-
-            # PDF / binario  (:b:/g/  :b:/r/)
-            if _re.search(r'/:b:/[gr]/', url_clean):
-                return url_clean + sep + "action=embedview"
-
-            # Office files (:w: DOCX · :x: XLSX · :p: PPTX · :u: PPTX)
-            if _re.search(r'/:[wxpu]:/[gr]/', url_clean):
-                return url_clean + sep + "action=embedview&wdEmbedApps=0"
-
-            # layouts/Doc.aspx sin action o URL genérica
-            return url_clean + sep + "action=embedview"
-
-    except Exception:
-        pass
-    return url
 
 
 # ─────────────────────────────────────────────────────────────
@@ -430,7 +371,7 @@ def _form_nuevo_documento(
             if url_clean and not _is_onedrive_url(url_clean):
                 st.warning(
                     "⚠️ La URL no parece ser de OneDrive o SharePoint. "
-                    "La previsualización iframe no estará disponible."
+                    "El botón 🔗 Abrir abrirá el enlace en una nueva pestaña de todas formas."
                 )
             try:
                 username = user.get("username") or user.get("usuario") or "sistema"
