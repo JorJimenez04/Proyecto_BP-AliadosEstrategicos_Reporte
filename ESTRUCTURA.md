@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-04-30 (rev. 10)
+> Última actualización: 2026-05-09 (rev. 12)
 
 ---
 
@@ -67,11 +67,10 @@ Proyecto_PartnersStatus/
 │   │   │                              # _empresa_card(): tarjeta por empresa con lista de partners
 │   │   │                              # _termometro_row() · _kpi() · _section() · _spacer()
 │   │   ├── 📄 partners_ui.py          # 🤝 Gestión de Alianzas — módulo maestro Banking Partners Hub
-│   │   │                              # page_alianzas(user): entrada principal — 4 pestañas st.tabs
-│   │   │                              #   📊 Dashboard Operativo → page_dashboard(user)
-│   │   │                              #   📋 Portafolio         → page_partners(user)
-│   │   │                              #   ➕ Alta de Partner     → _tab_alta_partner(user) [CAN_CREATE]
-│   │   │                              #   📈 Análisis de Riesgo → _tab_analisis_riesgo(user)
+│   │                              # page_alianzas(user): entrada principal — 3 pestañas dinámicas st.tabs
+│   │                              #   📊 Monitor    → page_dashboard(user)
+│   │                              #   📋 Portafolio → page_partners(user)
+│   │                              #   ➕ Alta de Partner → _tab_alta_partner(user) [CAN_CREATE solo]
 │   │   │                              # Banner de éxito post-creación: _alianzas_nuevo_partner en session_state
 │   │   │                              # st.toast() al registrar + st.success() en próximo render
 │   │   │                              # page_partners(user): tabla tarjetas con filtros y KPIs
@@ -108,13 +107,17 @@ Proyecto_PartnersStatus/
 │   │   │                              # _doc_card(doc, puede_editar, key_prefix): tarjeta oscura con badges
 │   │   │                              #   badge formato (PDF/DOCX/XLSX/PPTX/OTRO) · badge estado · badge empresa
 │   │   │                              #   versión · fecha de emisión
-│   │   │                              #   botón ✏️ Editar (solo admin/compliance): toggle formulario inline
-│   │   │                              #   botón 🔗 Abrir: link directo en pestaña nueva
+│   │   │                              #   CON url: ✏️ Editar (solo editors) | 🔗 Abrir (link_button, pestaña nueva)
+│   │   │                              #   SIN url: editors → ✏️ Editar + texto «Sin enlace — añade la URL en ✏️ Editar»
+│   │   │                              #            lectura → texto «Sin enlace — requiere URL para habilitar el acceso»
 │   │   │                              #   limpieza automática de título: .replace('}','').strip() al guardar
+│   │   │                              #   SIN iframes ni previsualización embebida (prohibido)
 │   │   │                              # _form_editar(doc): st.form — título · carpeta · empresa · estado
 │   │   │                              #   versión · URL · descripción cambio (auditoría)
 │   │   │                              #   st.rerun() tras guardar para reflejar cambios al instante
 │   │   │                              # _form_nuevo_documento(user): expander + form — solo admin/compliance
+│   │   │                              #   campo «URL del documento» (acepta cualquier URL, no solo OneDrive)
+│   │   │                              #   _is_onedrive_url() solo para warning no-bloqueante si no es SharePoint
 │   │   │                              #   empresa pre-seleccionada y bloqueada cuando viene del filtro
 │   │   │                              #   carpeta pre-seleccionada cuando viene de tab específica
 │   │   │                              #   llama compliance_repo.crear()
@@ -125,9 +128,7 @@ Proyecto_PartnersStatus/
 │   │   │                              #     lista "Atención prioritaria" (Vencido/Pendiente)
 │   │   │                              #   tabs carpeta: barra progreso · filtro estado · grid 3 cols
 │   │   │                              #   formulario carga fijo debajo de tabs (solo empresa seleccionada)
-│   │   │                              # Utilidades SharePoint/OneDrive: _is_onedrive_url() · _to_drive_preview()
-│   │   │                              #   _to_drive_preview(): OneDrive /redir→/embed+em=2
-│   │   │                              #     SharePoint (incl. holdingsbposas-my.sharepoint.com): +?action=embedview
+│   │   │                              # Utilidades: _is_onedrive_url() — warning no-bloqueante en creación
 │   │   │                              # Constantes: _CARPETA_ICON · _ESTADO_COLOR · _FORMATO_COLOR
 │   │   │                              #             _EMPRESA_COLOR · _ALLOWED_ONEDRIVE · _SHAREPOINT_RE
 │   │   │                              # _CARPETAS_ORDEN = [Politicas, Manuales, Onboarding,
@@ -205,6 +206,9 @@ Proyecto_PartnersStatus/
 │   ├── 📄 __init__.py
 │   └── 📄 settings.py                 # APP_NAME · DATABASE_URL · SECRET_KEY
 │                                      # Roles · EstadosAliado · NivelesRiesgo · EstadosSARLAFT · TiposAliado
+│                                      # Jurisdicciones.ALL (~45 países con emoji) · Jurisdicciones.ALTO_RIESGO
+│                                      #   (GAFI blacklist: Irán · Corea del Norte · Cuba · Venezuela · offshore)
+│                                      # Roles.CAN_EDIT_JURISDICTIONS = frozenset({"admin","compliance"})
 │
 ├── 📂 db/                             # Capa de datos
 │   ├── 📄 __init__.py
@@ -219,6 +223,8 @@ Proyecto_PartnersStatus/
 │   ├── 📄 models.py                   # Modelos Pydantic v2
 │   │                                  # AliadoBase · AliadoCreate · AliadoUpdate · AliadoOut
 │   │                                  # UsuarioBase · UsuarioCreate · UsuarioUpdate · UsuarioOut
+│   │                                  # AliadoBase.jurisdicciones: List[str] = [] (campo de dominio)
+│   │                                  # AliadoUpdate.jurisdicciones: Optional[List[str]] = None
 │   │
 │   ├── 📂 migrations/                 # Scripts SQL versionados (PostgreSQL · idempotentes)
 │   │   ├── 📄 001_initial_schema_pg.sql          # Esquema inicial: tablas, índices y triggers
@@ -251,8 +257,10 @@ Proyecto_PartnersStatus/
 │   │   │                                        #   UPDATE filas + DROP/ADD CHECK constraint
 │   │   ├── 📄 015_rename_carpeta_riesgos.sql     # Renombra carpeta 'Riesgos' → 'Governanza'
 │   │   │                                        #   UPDATE filas + DROP/ADD CHECK constraint
-│   │   └── 📄 016_add_nuevas_carpetas.sql        # Amplía CHECK constraint con 4 nuevas carpetas
-│                                                #   Contratos · Actas y Formatos · Matrices · Tecnologia
+│   │   ├── 📄 016_add_nuevas_carpetas.sql        # Amplía CHECK constraint con 4 nuevas carpetas
+│   │   │                                        #   Contratos · Actas y Formatos · Matrices · Tecnologia
+│   │   └── 📄 017_add_partner_jurisdictions.sql  # Columna jurisdicciones TEXT[] NOT NULL DEFAULT '{}'
+│                                                #   índice GIN para búsquedas array eficientes
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
@@ -262,7 +270,7 @@ Proyecto_PartnersStatus/
 │       │                              #   _CAMPOS_RIESGO: es_pep · crypto_friendly · adult_friendly
 │       │                              #   estado_sarlaft · estado_due_diligence · contrato_firmado
 │       │                              #   listas_verificadas · lista_ofac_ok · rut_recibido
-│       │                              #   camara_comercio_recibida · permite_monetizacion
+│       │                              #   camara_comercio_recibida · permite_monetizacion · jurisdicciones
 │       │                              # get_by_id() · delete()
 │       │                              # get_lista_enriquecida() · get_stats_pipeline()
 │       │                              # get_stats_riesgo() · get_sarlaft_vencidas()
@@ -271,6 +279,9 @@ Proyecto_PartnersStatus/
 │       │                              # get_termometro_sarlaft() · get_resumen_volumen()
 │       │                              # get_partners_por_empresa(empresa)
 │       │                              # calcular_puntaje_riesgo() — rubrica SARLAFT-compatible
+│       │                              #   +15 pts: ≥1 jurisdicción GAFI alto riesgo
+│       │                              #   +10 pts adicionales: ≥2 jurisdicciones GAFI
+│       │                              #   +5 pts: exposición múltiple (≥5 jurisdicciones cualquier tipo)
 │       ├── 📄 audit_repo.py           # Log de auditoría inmutable (solo escritura/lectura)
 │       │                              # registrar() — normaliza resultado · convierte dict a JSON
 │       │                              #   acepta valores_anteriores/nuevos como dict (no str)
@@ -337,9 +348,9 @@ Proyecto_PartnersStatus/
 ## 📊 Páginas de la Aplicación
 
 ### 🤝 Gestión de Alianzas — Banking Partners Hub (`app/components/partners_ui.py`)
-Módulo maestro consolidado con 4 pestañas. Entrada única en el menú lateral (todos los roles).
+Módulo maestro consolidado con **3 pestañas dinámicas**. Entrada única en el menú lateral (todos los roles).
 
-#### Tab 📊 Dashboard Operativo
+#### Tab 📊 Monitor
 Renderiza `page_dashboard(user)` completo:
 - **KPIs** — Total partners · Activos · Alto Riesgo · PEPs · En Onboarding
 - **Salud Corporativa** — Tarjeta por empresa (HoldingsBPO Corp / Adamo / Paycop)
@@ -349,25 +360,18 @@ Renderiza `page_dashboard(user)` completo:
 
 #### Tab 📋 Portafolio
 Renderiza `page_partners(user)`:
-- **Filtros**: Estado Pipeline · Nivel Riesgo · búsqueda texto · Solo PEP
+- **Filtros**: Estado Pipeline · Nivel Riesgo · búsqueda texto · Solo PEP · 🌍 Jurisdicción de Operación
 - **KPIs rápidos**: Total · Activos · Alto Riesgo · PEPs
-- **Tabla por tarjetas**: pills pipeline/riesgo/SARLAFT + badges capacidades operativas
-- **Edición inline** (ADMIN / COMPLIANCE / COMERCIAL): formulario 3 secciones; campos SARLAFT/riesgo bloqueados para `comercial`
+- **Tabla por tarjetas**: pills pipeline/riesgo/SARLAFT + badges capacidades operativas + badges de jurisdicciones (rojo para GAFI alto riesgo, gris para resto; máx 6 + contador overflow)
+- **Edición inline** (ADMIN / COMPLIANCE / COMERCIAL): formulario 3 secciones; campos SARLAFT/riesgo y **Jurisdicciones** bloqueados para `comercial`
 - **Eliminación** (solo ADMIN): panel borde rojo + auditoría `DELETE`
 
 #### Tab ➕ Alta de Partner
-Solo visible para roles `CAN_CREATE_PARTNERS` (admin · compliance · comercial):
+Solo visible para roles `CAN_CREATE_PARTNERS` (admin · compliance · comercial). Pestaña oculta para `consulta`:
 - Formulario 4 secciones: Identificación · Relación Corporativa · Perfil Operativo · Compliance
+- **Relación Corporativa** incluye `🌍 Jurisdicciones de Operación` (multiselect de `Jurisdicciones.ALL`)
 - `AliadoCreate` validado con Pydantic + `repo.create()` + `audit.registrar()`
 - `clear_on_submit=True` + `st.toast()` al registrar · banner de éxito en siguiente render
-
-#### Tab 📈 Análisis de Riesgo
-- **Termómetro SARLAFT**: Vencidos · Próximos 15d · Al Día · Sin fecha (barras de progreso)
-- **Distribución de Riesgo**: Muy Alto / Alto / Medio / Bajo (barras de progreso)
-- **Pipeline de Estados**: contador y % por cada estado
-- **Lista vencidos SARLAFT**: nombre · NIT · nivel riesgo · fecha vencimiento
-- **Revisiones próximas 30d**: nombre · nivel riesgo · fecha próxima
-- Rol `comercial`: banner read-only (no puede modificar riesgo/SARLAFT)
 
 ### Log de Auditoría (`app/components/audit_ui.py`)
 - Tabla paginada de `log_auditoria` — acciones CREATE · UPDATE · DELETE · LOGIN · EXPORT
@@ -404,8 +408,9 @@ Repositorio centralizado de documentos regulatorios de ADAMO Services.
 - Lista "Requieren atención" — documentos `Vencido` o `Pendiente` ordenados por urgencia
 
 **Acciones por tarjeta:**
-- **✏️ Editar** (solo admin/compliance): abre formulario inline con todos los metadatos; `st.rerun()` al guardar
-- **🔗 Abrir**: `st.link_button` que abre el documento en pestaña nueva
+- **Con URL** → `✏️ Editar` (solo admin/compliance) + `🔗 Abrir` (`st.link_button`, pestaña nueva)
+- **Sin URL** → Editores: `✏️ Editar` + aviso *«Sin enlace — añade la URL en ✏️ Editar»*; Solo lectura: aviso *«Sin enlace — requiere URL para habilitar el acceso»*
+- Sin iframes ni previsualización embebida
 
 **Flujo de edición:**
 1. Clic "✏️ Editar" → toggle `_nv_open_{id}` en session_state
@@ -454,12 +459,12 @@ git push origin main   # Railway reconstruye la imagen con la foto incluida
 
 ## 👥 Roles de Acceso (RBAC)
 
-| Rol           | Gestión de Alianzas (tab Dashboard) | Tab Portafolio | Tab Alta Partner | Tab Análisis Riesgo | Auditoría | Eliminar | Gestión Agentes | Centro Documental |
-|---------------|:-----------------------------------:|:--------------:|:----------------:|:-------------------:|:---------:|:--------:|:---------------:|:-----------------:|
-| `admin`       | ✅ completo                         | ✅ + editar    | ✅               | ✅ sin restricción  | ✅        | ✅       | ✅              | ✅ (editar)       |
-| `compliance`  | ✅ completo                         | ✅ + editar    | ✅               | ✅ sin restricción  | ✅        | ❌       | ✅              | ✅ (editar)       |
-| `comercial`   | ✅ completo                         | ✅ + editar op.| ✅               | ✅ solo lectura     | ❌        | ❌       | ❌              | ✅ (solo lectura) |
-| `consulta`    | ✅ completo                         | ✅ solo lectura| 🔒 oculto        | ✅ solo lectura     | ❌        | ❌       | ❌              | ✅ (solo lectura) |
+| Rol           | Tab Monitor | Tab Portafolio | Tab Alta Partner | Auditoría | Eliminar | Gestión Agentes | Centro Documental | Editar Jurisd. |
+|---------------|:-----------:|:--------------:|:----------------:|:---------:|:--------:|:---------------:|:-----------------:|:--------------:|
+| `admin`       | ✅ completo | ✅ + editar    | ✅               | ✅        | ✅       | ✅              | ✅ (editar)       | ✅             |
+| `compliance`  | ✅ completo | ✅ + editar    | ✅               | ✅        | ❌       | ✅              | ✅ (editar)       | ✅             |
+| `comercial`   | ✅ completo | ✅ + editar op.| ✅               | ❌        | ❌       | ❌              | ✅ (solo lectura) | 🔒 deshabilitado|
+| `consulta`    | ✅ completo | ✅ solo lectura| 🔒 oculto        | ❌        | ❌       | ❌              | ✅ (solo lectura) | 🔒 deshabilitado|
 
 ---
 
