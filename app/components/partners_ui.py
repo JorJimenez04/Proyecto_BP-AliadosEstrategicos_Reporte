@@ -600,11 +600,12 @@ def page_partners(user: dict) -> None:
             badges_jur = []
             for j in jur_list[:6]:
                 is_risky = j in Jurisdicciones.ALTO_RIESGO
-                bg    = "#450a0a" if is_risky else "#1f2937"
-                color = "#fca5a5" if is_risky else "#9ca3af"
+                bg      = "#450a0a" if is_risky else "#1f2937"
+                color   = "#fca5a5" if is_risky else "#9ca3af"
+                border  = "#ef444455" if is_risky else "#374151"
                 badges_jur.append(
                     f'<span style="background:{bg};color:{color};border:1px solid '
-                    f'{\'#ef444455\' if is_risky else \'#374151\'};border-radius:4px;'
+                    f'{border};border-radius:4px;'
                     f'padding:1px 5px;font-size:10px;white-space:nowrap">{j}</span>'
                 )
             if len(jur_list) > 6:
