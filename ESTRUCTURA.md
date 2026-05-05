@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-05-09 (rev. 12)
+> Última actualización: 2026-05-09 (rev. 13)
 
 ---
 
@@ -577,6 +577,7 @@ git push origin main
 - **Fotos de agentes**: el archivo debe llamarse exactamente `<username>.jpg` (todo minúsculas) — Linux/Railway es case-sensitive. Convención: `adrian_c.jpg` para username `adrian_c`
 - **Avatar upload**: `_seccion_foto_uploader()` auto-save al disco en local al seleccionar el archivo — no se requiere botón extra. En producción, ofrece `st.download_button` para commit manual
 - **IA Insights**: `ai_handler.analyze_gestion()` anonimiza PII con regex antes de enviar a la API. Caché en `session_state` (TTL 30 min, clave = sha256 del texto). La pestaña funciona en modo degradado (sin romper UI) si `AI_PROVIDER` o API key no están configurados
+- **f-strings con condicionales**: nunca usar comillas alternativas ni `\` dentro de expresiones `f"...{...}"` — SyntaxError en Railway. Pre-computar siempre en variable previa: `border = "#x" if cond else "#y"` → `f'...{border}...'`
 
 ---
 
