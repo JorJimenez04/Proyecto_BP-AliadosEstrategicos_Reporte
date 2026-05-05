@@ -159,6 +159,16 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
     nombre   = _html.escape(str(doc.get("nombre",  "Sin nombre")))
     desc_raw = doc.get("descripcion") or ""
     desc     = _html.escape(desc_raw)
+    carpeta  = doc.get("carpeta", "")
+
+    # Badge ISO: carpetas críticas para norma ISO 27001 / 37001
+    _ISO_CRITICAS = frozenset({"Politicas", "Matrices"})
+    iso_badge = (
+        '&nbsp;<span style="background:#312e81;color:#a5b4fc;'
+        'font-size:0.62rem;padding:1px 5px;border-radius:4px;'
+        'font-weight:700">ISO ✓</span>'
+        if carpeta in _ISO_CRITICAS else ""
+    )
 
     # Pre-computar borde/glow según estado (sin backslash en f-strings)
     card_border_top  = e_fg
@@ -187,15 +197,16 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         )
         + f'</div>'
 
-        # Fila 2: título
+        # Fila 2: título + badge ISO
         f'<div style="color:{_C_TEXT};font-weight:700;font-size:0.9rem;'
-        f'line-height:1.35;margin-bottom:6px;">{nombre}</div>'
+        f'line-height:1.35;margin-bottom:6px;">{nombre}{iso_badge}</div>'
 
-        # Fila 3: descripción truncada (2 líneas)
+        # Fila 3: descripción truncada — evidencia de control de cambios
         + (
             f'<div style="color:{_C_GRAY};font-size:0.74rem;line-height:1.45;'
             f'margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;'
-            f'-webkit-box-orient:vertical;overflow:hidden;">{desc}</div>'
+            f'-webkit-box-orient:vertical;overflow:hidden;'
+            f'font-style:italic">"{desc}"</div>'
             if desc else ''
         )
 
@@ -522,32 +533,218 @@ def page_compliance(user: dict) -> None:
         with tab:
             if tab_idx == 0:
                 # ════════════════════════════════════════════════════════════
-                # TAB "TODOS" — Panel ejecutivo de estado (solo visualización)
+                # TAB "TODOS" — Modo Gobernanza ISO (vista global) o
+                #               Portafolio por empresa (vista filtrada)
                 # ════════════════════════════════════════════════════════════
 
-                # ── Búsqueda de texto ─────────────────────────────────────
-                busqueda = st.text_input(
-                    "🔍 Buscar documento",
-                    placeholder="Nombre, código o descripción…",
-                    key="busqueda_todos",
-                    label_visibility="collapsed",
-                )
-                docs_busqueda = todos
-                if busqueda.strip():
-                    q = busqueda.strip().lower()
-                    docs_busqueda = [
-                        d for d in todos
-                        if q in (d.get("nombre") or "").lower()
-                        or q in (d.get("codigo") or "").lower()
-                        or q in (d.get("descripcion") or "").lower()
+                if filtro_empresa is None:
+                    # ════════════════════════════════════════════════════════
+                    # MODO GOBERNANZA: filtro = "Todas las empresas"
+                    # ════════════════════════════════════════════════════════
+                    import plotly.graph_objects as go
+
+                    # Cargar métricas del grupo
+                    try:
+                        with next(get_session()) as session:
+                            grupo = ComplianceRepository(session).get_stats_grupo()
+                    except Exception as exc:
+                        st.error(f"Error cargando métricas del grupo: {exc}")
+                        grupo = {"por_empresa": [], "por_empresa_carpeta": [],
+                                 "gap_total": 0, "vigencia_pct": 0.0}
+
+                    vigencia_pct = grupo["vigencia_pct"]
+                    gap_total    = grupo["gap_total"]
+
+                    # ── Encabezado especial ───────────────────────────────
+                    st.markdown(
+                        f'<div style="background:linear-gradient(135deg,#0f172a,#1e2740);'
+                        f'border:1px solid #3b4f7a;border-left:4px solid {_C_VIOLET};'
+                        f'border-radius:10px;padding:16px 20px;margin-bottom:18px;">'
+                        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">'
+                        f'<span style="font-size:1.4rem">🏛️</span>'
+                        f'<div>'
+                        f'<div style="color:{_C_TEXT};font-size:1.05rem;font-weight:700">'
+                        f'Gobernanza del Grupo Corporativo</div>'
+                        f'<div style="color:#64748b;font-size:0.76rem">'
+                        f'Estándar ISO 27001 / ISO 37001 — Control de Información Documentada</div>'
+                        f'</div>'
+                        f'</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+                    # ── KPIs ISO de Preparación ───────────────────────────
+                    vig_color  = _C_GREEN  if vigencia_pct >= 80 else (_C_AMBER if vigencia_pct >= 60 else _C_RED)
+                    gap_color  = _C_GREEN  if gap_total == 0    else (_C_AMBER if gap_total <= 5   else _C_RED)
+                    gap_label  = "Sin brechas" if gap_total == 0 else f"{gap_total} docs requieren acción"
+                    total_corp = stats["total"]
+
+                    k1, k2, k3, k4 = st.columns(4)
+                    _iso_kpis = [
+                        (k1, "📊 Índice de Vigencia", f"{vigencia_pct}%", vig_color,
+                         "Documentos vigentes sobre total activo"),
+                        (k2, "🚨 Gap de Cumplimiento", str(gap_total), gap_color,
+                         gap_label),
+                        (k3, "📋 Total Documentado", str(total_corp), _C_CYAN,
+                         "Documentos activos (no archivados)"),
+                        (k4, "🏢 Empresas Cubiertas", "3 / 3", _C_GREEN,
+                         "Holdings BPO · PayCOP · Adamo Services"),
+                    ]
+                    for col, titulo, valor, color, subtitulo in _iso_kpis:
+                        col.markdown(
+                            f'<div style="background:#0f172a;border:1px solid #1e2740;'
+                            f'border-top:3px solid {color};border-radius:8px;'
+                            f'padding:14px 16px;text-align:center;">'
+                            f'<div style="color:#64748b;font-size:0.72rem;margin-bottom:4px">{titulo}</div>'
+                            f'<div style="color:{color};font-size:1.8rem;font-weight:700;line-height:1">{valor}</div>'
+                            f'<div style="color:#475569;font-size:0.68rem;margin-top:5px">{subtitulo}</div>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+
+                    st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
+
+                    # ── Gráficos Plotly ───────────────────────────────────
+                    _EMPRESAS_GRAF = ["Holdings BPO", "PayCOP", "Adamo Services"]
+                    _COLORES_EMP   = [_C_VIOLET, _C_CYAN, _C_AMBER]
+                    _ISO_CARPETAS  = [
+                        "Politicas", "Manuales",
+                        "Procesos y Procedimientos", "Governanza", "Matrices",
                     ]
 
-                # ── Resumen por carpeta ───────────────────────────────────
-                if not busqueda.strip():
+                    # Pre-procesar datos por empresa y carpeta
+                    pec = grupo["por_empresa_carpeta"]
+
+                    def _get_vigentes(empresa: str, carpeta: str) -> int:
+                        r = next(
+                            (x for x in pec
+                             if x["empresa"] == empresa and x["carpeta"] == carpeta),
+                            None,
+                        )
+                        return int(r["vigentes"]) if r else 0
+
+                    def _get_total(empresa: str, carpeta: str) -> int:
+                        r = next(
+                            (x for x in pec
+                             if x["empresa"] == empresa and x["carpeta"] == carpeta),
+                            None,
+                        )
+                        return int(r["total"]) if r else 0
+
+                    col_radar, col_barra = st.columns(2)
+
+                    # ── Radar ISO: completitud por carpeta crítica ────────
+                    with col_radar:
+                        st.markdown(
+                            f'<p style="color:{_C_GRAY};font-size:0.75rem;'
+                            f'text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'
+                            f'🕸️ Radar ISO — Completitud Carpetas Críticas</p>',
+                            unsafe_allow_html=True,
+                        )
+                        radar_fig = go.Figure()
+                        for emp, col_emp in zip(_EMPRESAS_GRAF, _COLORES_EMP):
+                            vals = []
+                            for carp in _ISO_CARPETAS:
+                                total_v = _get_total(emp, carp)
+                                vigent_v = _get_vigentes(emp, carp)
+                                vals.append(round(vigent_v / total_v * 100, 1) if total_v else 0)
+                            # Cerrar el polígono
+                            vals_closed = vals + [vals[0]]
+                            cats_closed = _ISO_CARPETAS + [_ISO_CARPETAS[0]]
+                            radar_fig.add_trace(go.Scatterpolar(
+                                r=vals_closed,
+                                theta=cats_closed,
+                                fill="toself",
+                                name=emp,
+                                line=dict(color=col_emp, width=2),
+                                fillcolor=col_emp + "22",
+                            ))
+                        radar_fig.update_layout(
+                            polar=dict(
+                                bgcolor="#0f172a",
+                                radialaxis=dict(
+                                    visible=True, range=[0, 100],
+                                    tickfont=dict(size=9, color="#64748b"),
+                                    gridcolor="#1e2740",
+                                    linecolor="#1e2740",
+                                ),
+                                angularaxis=dict(
+                                    tickfont=dict(size=9, color="#94a3b8"),
+                                    gridcolor="#1e2740",
+                                    linecolor="#293056",
+                                ),
+                            ),
+                            paper_bgcolor="#0f172a",
+                            plot_bgcolor="#0f172a",
+                            font=dict(color="#94a3b8", size=10),
+                            legend=dict(
+                                orientation="h", x=0.5, xanchor="center", y=-0.1,
+                                font=dict(size=10),
+                            ),
+                            margin=dict(l=30, r=30, t=20, b=40),
+                            height=320,
+                        )
+                        st.plotly_chart(radar_fig, use_container_width=True,
+                                        config={"displayModeBar": False})
+
+                    # ── Barras apiladas: salud documental por empresa ─────
+                    with col_barra:
+                        st.markdown(
+                            f'<p style="color:{_C_GRAY};font-size:0.75rem;'
+                            f'text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'
+                            f'📊 Salud Documental — Comparativa Inter-Empresas</p>',
+                            unsafe_allow_html=True,
+                        )
+                        pe = grupo["por_empresa"]
+
+                        def _emp_val(empresa: str, campo: str) -> int:
+                            r = next((x for x in pe if x["empresa"] == empresa), None)
+                            return int(r[campo]) if r else 0
+
+                        bar_fig = go.Figure()
+                        estados_bar = [
+                            ("vigentes",   "Vigente",   _C_GREEN),
+                            ("pendientes", "Pendiente", _C_AMBER),
+                            ("vencidos",   "Vencido",   _C_RED),
+                        ]
+                        for campo, label, color in estados_bar:
+                            bar_fig.add_trace(go.Bar(
+                                name=label,
+                                x=_EMPRESAS_GRAF,
+                                y=[_emp_val(e, campo) for e in _EMPRESAS_GRAF],
+                                marker_color=color,
+                            ))
+                        bar_fig.update_layout(
+                            barmode="stack",
+                            paper_bgcolor="#0f172a",
+                            plot_bgcolor="#0f172a",
+                            font=dict(color="#94a3b8", size=10),
+                            legend=dict(
+                                orientation="h", x=0.5, xanchor="center", y=-0.12,
+                                font=dict(size=10),
+                            ),
+                            xaxis=dict(
+                                tickfont=dict(size=10),
+                                gridcolor="#1e2740",
+                                linecolor="#293056",
+                            ),
+                            yaxis=dict(
+                                tickfont=dict(size=10),
+                                gridcolor="#1e2740",
+                                linecolor="#293056",
+                                title=dict(text="Documentos", font=dict(size=10)),
+                            ),
+                            margin=dict(l=40, r=10, t=20, b=50),
+                            height=320,
+                        )
+                        st.plotly_chart(bar_fig, use_container_width=True,
+                                        config={"displayModeBar": False})
+
+                    # ── Resumen por carpeta ───────────────────────────────
                     st.markdown(
-                        f"<p style='color:{_C_GRAY};font-size:0.78rem;font-weight:700;"
-                        f"text-transform:uppercase;letter-spacing:1px;margin:8px 0 10px;'>"
-                        f"Resumen por carpeta</p>",
+                        f'<p style="color:{_C_GRAY};font-size:0.75rem;font-weight:700;'
+                        f'text-transform:uppercase;letter-spacing:1px;margin:16px 0 8px">'
+                        f'Estado por Carpeta — Grupo Corporativo</p>',
                         unsafe_allow_html=True,
                     )
                     for carp in _CARPETAS_ORDEN:
@@ -560,6 +757,14 @@ def page_compliance(user: dict) -> None:
                         pend_c   = cs.get("pendientes", 0) if cs else 0
                         pct_c    = vigent_c / total_c if total_c else 0
                         icono    = _CARPETA_ICON.get(carp, "📁")
+                        # Marcar carpetas críticas ISO
+                        iso_tag  = ("&nbsp;<span style='background:#312e81;color:#a5b4fc;"
+                                    "font-size:0.65rem;padding:1px 6px;border-radius:4px;"
+                                    "font-weight:600'>ISO ✓</span>"
+                                    if carp in ("Politicas", "Manuales",
+                                                "Procesos y Procedimientos",
+                                                "Governanza", "Matrices")
+                                    else "")
 
                         alert_html = ""
                         if vencid_c:
@@ -575,67 +780,207 @@ def page_compliance(user: dict) -> None:
                                 f"⏳ {pend_c} pendiente{'s' if pend_c>1 else ''}</span>"
                             )
 
-                        bar_fill  = int(pct_c * 120)
-                        bar_color = _C_CYAN if pct_c >= 0.8 else (_C_AMBER if pct_c >= 0.5 else "#ef4444")
+                        bar_color = _C_CYAN if pct_c >= 0.8 else (_C_AMBER if pct_c >= 0.5 else _C_RED)
+                        bar_pct   = int(pct_c * 100)
                         st.markdown(
                             f'<div style="background:{_C_CARD};border:1px solid {_C_BORDER};'
-                            f'border-radius:8px;padding:10px 14px;margin-bottom:6px;'
+                            f'border-radius:8px;padding:10px 14px;margin-bottom:5px;'
                             f'display:flex;align-items:center;gap:12px;">'
-                            f'<span style="font-size:1.1rem;">{icono}</span>'
-                            f'<div style="flex:1;">'
-                            f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-                            f'<span style="color:{_C_TEXT};font-size:0.85rem;font-weight:600;">{carp}</span>'
-                            f'<span style="color:{_C_GRAY};font-size:0.75rem;">{vigent_c}/{total_c} vigentes{alert_html}</span>'
+                            f'<span style="font-size:1.1rem">{icono}</span>'
+                            f'<div style="flex:1">'
+                            f'<div style="display:flex;justify-content:space-between;align-items:center">'
+                            f'<span style="color:{_C_TEXT};font-size:0.84rem;font-weight:600">'
+                            f'{carp}{iso_tag}</span>'
+                            f'<span style="color:{_C_GRAY};font-size:0.73rem">'
+                            f'{vigent_c}/{total_c} vigentes{alert_html}</span>'
                             f'</div>'
-                            f'<div style="background:#1f2937;border-radius:4px;height:5px;margin-top:5px;">'
-                            f'<div style="background:{bar_color};width:{bar_fill}px;max-width:100%;height:5px;border-radius:4px;"></div>'
+                            f'<div style="background:#1e2740;border-radius:4px;height:5px;margin-top:6px">'
+                            f'<div style="background:{bar_color};width:{bar_pct}%;'
+                            f'max-width:100%;height:5px;border-radius:4px"></div>'
                             f'</div>'
                             f'</div>'
                             f'</div>',
                             unsafe_allow_html=True,
                         )
 
-                    # ── Atención prioritaria ──────────────────────────────
+                    # ── Gap Analysis: documentos que requieren acción ─────
                     prioritarios = [
                         d for d in todos if d.get("estado") in ("Vencido", "Pendiente")
                     ]
                     if prioritarios:
                         st.markdown(
-                            f"<p style='color:{_C_GRAY};font-size:0.78rem;font-weight:700;"
-                            f"text-transform:uppercase;letter-spacing:1px;margin:18px 0 8px;'>"
-                            f"Requieren atención ({len(prioritarios)})</p>",
+                            f'<p style="color:{_C_GRAY};font-size:0.75rem;font-weight:700;'
+                            f'text-transform:uppercase;letter-spacing:1px;margin:18px 0 8px">'
+                            f'🚨 Gap Analysis — Requieren Acción para Auditoría '
+                            f'({len(prioritarios)})</p>',
                             unsafe_allow_html=True,
                         )
-                        for d in sorted(prioritarios, key=lambda x: x.get("estado", "") == "Vencido", reverse=True):
-                            est = d.get("estado", "")
-                            est_color = _ESTADO_COLOR.get(est, (_C_GRAY, "#00000000"))
-                            emp = d.get("empresa") or "Compartido"
+                        for d in sorted(
+                            prioritarios,
+                            key=lambda x: (x.get("estado", "") == "Vencido", x.get("updated_at", "")),
+                            reverse=True,
+                        ):
+                            est      = d.get("estado", "")
+                            est_fg   = _ESTADO_COLOR.get(est, (_C_GRAY, "#0"))[0]
+                            emp      = d.get("empresa") or "Compartido"
+                            emp_c    = _EMPRESA_COLOR.get(emp, _C_GRAY)
+                            ver      = d.get("version", "—")
+                            updated  = str(d.get("updated_at", ""))[:10] or "—"
+                            desc_raw = (d.get("descripcion") or "")[:80]
+                            desc_esc = _html.escape(desc_raw)
+                            nombre_e = _html.escape(d.get("nombre", ""))
+                            carpeta_e = d.get("carpeta", "")
                             st.markdown(
-                                f'<div style="background:{_C_CARD};border-left:3px solid {est_color[0]};"'
-                                f'border-radius:0 6px 6px 0;padding:8px 12px;margin-bottom:4px;">'
-                                f'<span style="color:{est_color[0]};font-size:0.72rem;font-weight:700;">{est.upper()}</span>'
-                                f'&nbsp;&nbsp;<span style="color:{_C_TEXT};font-size:0.83rem;">{_html.escape(d.get("nombre",""))}</span>'
-                                f'&nbsp;&nbsp;<span style="color:{_C_GRAY};font-size:0.72rem;">'
-                                f'{_CARPETA_ICON.get(d.get("carpeta",""),"📁")} {d.get("carpeta","")} · {emp}'
-                                f'</span></div>',
+                                f'<div style="background:{_C_CARD};border-left:3px solid {est_fg};'
+                                f'border-radius:0 8px 8px 0;padding:10px 14px;margin-bottom:5px">'
+                                f'<div style="display:flex;justify-content:space-between;'
+                                f'align-items:flex-start;flex-wrap:wrap;gap:4px">'
+                                f'<div>'
+                                f'<span style="color:{est_fg};font-size:0.7rem;font-weight:700;'
+                                f'margin-right:8px">{est.upper()}</span>'
+                                f'<span style="color:{_C_TEXT};font-size:0.84rem;'
+                                f'font-weight:600">{nombre_e}</span>'
+                                f'</div>'
+                                f'<div style="display:flex;gap:5px;align-items:center">'
+                                f'<span style="background:{emp_c}22;color:{emp_c};font-size:0.68rem;'
+                                f'padding:1px 7px;border-radius:4px;border:1px solid {emp_c}44">'
+                                f'{emp}</span>'
+                                f'</div>'
+                                f'</div>'
+                                f'<div style="display:flex;gap:12px;margin-top:5px;flex-wrap:wrap">'
+                                f'<span style="color:#475569;font-size:0.7rem">'
+                                f'{_CARPETA_ICON.get(carpeta_e,"📁")} {carpeta_e}</span>'
+                                f'<span style="color:#475569;font-size:0.7rem">'
+                                f'v{ver}</span>'
+                                f'<span style="color:#475569;font-size:0.7rem">'
+                                f'📅 Última mod. {updated}</span>'
+                                + (
+                                    f'<span style="color:#64748b;font-size:0.7rem;'
+                                    f'font-style:italic">'
+                                    f'"{desc_esc}"</span>'
+                                    if desc_esc else ''
+                                )
+                                + f'</div>'
+                                f'</div>',
                                 unsafe_allow_html=True,
                             )
 
                 else:
-                    # ── Resultados de búsqueda ────────────────────────────
-                    if docs_busqueda:
+                    # ════════════════════════════════════════════════════════
+                    # MODO EMPRESA: vista filtrada — búsqueda + tarjetas
+                    # ════════════════════════════════════════════════════════
+
+                    # ── Búsqueda de texto ─────────────────────────────────
+                    busqueda = st.text_input(
+                        "🔍 Buscar documento",
+                        placeholder="Nombre, código o descripción…",
+                        key="busqueda_todos",
+                        label_visibility="collapsed",
+                    )
+                    docs_busqueda = todos
+                    if busqueda.strip():
+                        q = busqueda.strip().lower()
+                        docs_busqueda = [
+                            d for d in todos
+                            if q in (d.get("nombre") or "").lower()
+                            or q in (d.get("codigo") or "").lower()
+                            or q in (d.get("descripcion") or "").lower()
+                        ]
+
+                    # ── Resumen por carpeta ───────────────────────────────
+                    if not busqueda.strip():
                         st.markdown(
-                            f"<p style='color:{_C_GRAY};font-size:0.78rem;margin-bottom:10px;'>"
-                            f"{len(docs_busqueda)} resultado(s)</p>",
+                            f"<p style='color:{_C_GRAY};font-size:0.78rem;font-weight:700;"
+                            f"text-transform:uppercase;letter-spacing:1px;margin:8px 0 10px;'>"
+                            f"Resumen por carpeta</p>",
                             unsafe_allow_html=True,
                         )
-                        col_a, col_b, col_c = st.columns(3)
-                        _cols = [col_a, col_b, col_c]
-                        for idx, doc in enumerate(docs_busqueda):
-                            with _cols[idx % 3]:
-                                _doc_card(doc, puede_editar, key_prefix="busq_")
+                        for carp in _CARPETAS_ORDEN:
+                            cs = next(
+                                (c for c in stats["por_carpeta"] if c["carpeta"] == carp), None
+                            )
+                            total_c  = cs.get("total",      0) if cs else 0
+                            vigent_c = cs.get("vigentes",   0) if cs else 0
+                            vencid_c = cs.get("vencidos",   0) if cs else 0
+                            pend_c   = cs.get("pendientes", 0) if cs else 0
+                            pct_c    = vigent_c / total_c if total_c else 0
+                            icono    = _CARPETA_ICON.get(carp, "📁")
+
+                            alert_html = ""
+                            if vencid_c:
+                                alert_html += (
+                                    f"&nbsp;<span style='background:#7f1d1d;color:#fca5a5;"
+                                    f"font-size:0.68rem;padding:1px 7px;border-radius:10px;'>"
+                                    f"⚠ {vencid_c} vencido{'s' if vencid_c>1 else ''}</span>"
+                                )
+                            if pend_c:
+                                alert_html += (
+                                    f"&nbsp;<span style='background:#78350f;color:#fcd34d;"
+                                    f"font-size:0.68rem;padding:1px 7px;border-radius:10px;'>"
+                                    f"⏳ {pend_c} pendiente{'s' if pend_c>1 else ''}</span>"
+                                )
+
+                            bar_color = _C_CYAN if pct_c >= 0.8 else (_C_AMBER if pct_c >= 0.5 else _C_RED)
+                            bar_pct   = int(pct_c * 100)
+                            st.markdown(
+                                f'<div style="background:{_C_CARD};border:1px solid {_C_BORDER};'
+                                f'border-radius:8px;padding:10px 14px;margin-bottom:6px;'
+                                f'display:flex;align-items:center;gap:12px;">'
+                                f'<span style="font-size:1.1rem;">{icono}</span>'
+                                f'<div style="flex:1;">'
+                                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                                f'<span style="color:{_C_TEXT};font-size:0.85rem;font-weight:600;">{carp}</span>'
+                                f'<span style="color:{_C_GRAY};font-size:0.75rem;">{vigent_c}/{total_c} vigentes{alert_html}</span>'
+                                f'</div>'
+                                f'<div style="background:#1f2937;border-radius:4px;height:5px;margin-top:5px;">'
+                                f'<div style="background:{bar_color};width:{bar_pct}%;max-width:100%;height:5px;border-radius:4px;"></div>'
+                                f'</div>'
+                                f'</div>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                        # ── Atención prioritaria ──────────────────────────
+                        prioritarios = [
+                            d for d in todos if d.get("estado") in ("Vencido", "Pendiente")
+                        ]
+                        if prioritarios:
+                            st.markdown(
+                                f"<p style='color:{_C_GRAY};font-size:0.78rem;font-weight:700;"
+                                f"text-transform:uppercase;letter-spacing:1px;margin:18px 0 8px;'>"
+                                f"Requieren atención ({len(prioritarios)})</p>",
+                                unsafe_allow_html=True,
+                            )
+                            for d in sorted(prioritarios, key=lambda x: x.get("estado", "") == "Vencido", reverse=True):
+                                est = d.get("estado", "")
+                                est_color = _ESTADO_COLOR.get(est, (_C_GRAY, "#00000000"))
+                                emp = d.get("empresa") or "Compartido"
+                                st.markdown(
+                                    f'<div style="background:{_C_CARD};border-left:3px solid {est_color[0]};'
+                                    f'border-radius:0 6px 6px 0;padding:8px 12px;margin-bottom:4px;">'
+                                    f'<span style="color:{est_color[0]};font-size:0.72rem;font-weight:700;">{est.upper()}</span>'
+                                    f'&nbsp;&nbsp;<span style="color:{_C_TEXT};font-size:0.83rem;">{_html.escape(d.get("nombre",""))}</span>'
+                                    f'&nbsp;&nbsp;<span style="color:{_C_GRAY};font-size:0.72rem;">'
+                                    f'{_CARPETA_ICON.get(d.get("carpeta",""),"📁")} {d.get("carpeta","")} · {emp}'
+                                    f'</span></div>',
+                                    unsafe_allow_html=True,
+                                )
+
                     else:
-                        st.info("No se encontraron documentos con ese término.")
+                        # ── Resultados de búsqueda ────────────────────────
+                        if docs_busqueda:
+                            st.markdown(
+                                f"<p style='color:{_C_GRAY};font-size:0.78rem;margin-bottom:10px;'>"
+                                f"{len(docs_busqueda)} resultado(s)</p>",
+                                unsafe_allow_html=True,
+                            )
+                            col_a, col_b, col_c = st.columns(3)
+                            _cols = [col_a, col_b, col_c]
+                            for idx, doc in enumerate(docs_busqueda):
+                                with _cols[idx % 3]:
+                                    _doc_card(doc, puede_editar, key_prefix="busq_")
+                        else:
+                            st.info("No se encontraron documentos con ese término.")
 
                 continue   # el resto del bucle es solo para tabs de carpeta
 

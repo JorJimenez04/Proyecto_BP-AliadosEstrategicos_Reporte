@@ -310,6 +310,73 @@ class ComplianceRepository:
             "[Compliance] Doc id=%s → v%s por %s", doc_id, nueva_version, actualizado_por
         )
 
+    def get_stats_grupo(self) -> dict:
+        """
+        Retorna métricas agregadas para el Dashboard de Gobernanza Corporativa.
+
+        Estructura devuelta:
+          {
+            "por_empresa": [
+                {"empresa": str, "total": int, "vigentes": int,
+                 "pendientes": int, "vencidos": int},
+                ...
+            ],
+            "por_empresa_carpeta": [
+                {"empresa": str, "carpeta": str, "total": int, "vigentes": int},
+                ...
+            ],
+            "gap_total": int,   # pendientes + vencidos (toda la corporación)
+            "vigencia_pct": float,  # % vigentes sobre total no archivado
+          }
+        """
+        _EMPRESAS_GRUPO = ("Holdings BPO", "PayCOP", "Adamo Services")
+
+        por_empresa = self.session.execute(text("""
+            SELECT
+                COALESCE(empresa, 'Compartido') AS empresa,
+                COUNT(*) FILTER (WHERE estado != 'Archivado')  AS total,
+                COUNT(*) FILTER (WHERE estado = 'Vigente')     AS vigentes,
+                COUNT(*) FILTER (WHERE estado = 'Pendiente')   AS pendientes,
+                COUNT(*) FILTER (WHERE estado = 'Vencido')     AS vencidos
+            FROM compliance_documentos
+            WHERE empresa IN :empresas
+            GROUP BY empresa
+            ORDER BY empresa
+        """), {"empresas": _EMPRESAS_GRUPO}).mappings().fetchall()
+
+        por_empresa_carpeta = self.session.execute(text("""
+            SELECT
+                COALESCE(empresa, 'Compartido') AS empresa,
+                carpeta,
+                COUNT(*) FILTER (WHERE estado != 'Archivado')  AS total,
+                COUNT(*) FILTER (WHERE estado = 'Vigente')     AS vigentes
+            FROM compliance_documentos
+            WHERE empresa IN :empresas
+            GROUP BY empresa, carpeta
+            ORDER BY empresa, carpeta
+        """), {"empresas": _EMPRESAS_GRUPO}).mappings().fetchall()
+
+        # Totales corporativos
+        totales = self.session.execute(text("""
+            SELECT
+                COUNT(*) FILTER (WHERE estado != 'Archivado')        AS total,
+                COUNT(*) FILTER (WHERE estado = 'Vigente')           AS vigentes,
+                COUNT(*) FILTER (WHERE estado IN ('Pendiente','Vencido')) AS gap
+            FROM compliance_documentos
+        """)).mappings().fetchone()
+
+        total_corp   = int(totales["total"])   if totales["total"]   else 0
+        vigentes_corp = int(totales["vigentes"]) if totales["vigentes"] else 0
+        gap_total    = int(totales["gap"])     if totales["gap"]     else 0
+        vigencia_pct = round(vigentes_corp / total_corp * 100, 1) if total_corp else 0.0
+
+        return {
+            "por_empresa":         [dict(r) for r in por_empresa],
+            "por_empresa_carpeta": [dict(r) for r in por_empresa_carpeta],
+            "gap_total":           gap_total,
+            "vigencia_pct":        vigencia_pct,
+        }
+
     def archivar(self, doc_id: int, actualizado_por: str) -> None:
         """Soft delete: cambia estado a Archivado."""
         self.session.execute(text("""
