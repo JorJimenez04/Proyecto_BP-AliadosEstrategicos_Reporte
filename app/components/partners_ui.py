@@ -30,6 +30,22 @@ _COLORES_SARLAFT: dict[str, str] = {
     "Vencido":     "#ef4444",
 }
 
+# Borde de tarjeta según nivel de riesgo
+_BORDER_RIESGO: dict[str, str] = {
+    "Bajo":     "#22c55e",
+    "Medio":    "#f59e0b",
+    "Alto":     "#f97316",
+    "Muy Alto": "#ef4444",
+}
+
+# Color del indicador de score según nivel de riesgo
+_SCORE_COLOR: dict[str, str] = {
+    "Bajo":     "#22c55e",
+    "Medio":    "#f59e0b",
+    "Alto":     "#f97316",
+    "Muy Alto": "#ef4444",
+}
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _pill(texto: str, color: str) -> str:
@@ -560,115 +576,200 @@ def page_partners(user: dict) -> None:
         st.info("No se encontraron partners con los filtros aplicados.")
         return
 
-    hay_acciones = puede_editar or puede_eliminar
     edit_activo = st.session_state.get("edit_id")
-    del_activo = st.session_state.get("delete_id")
+    del_activo  = st.session_state.get("delete_id")
 
     for fila in filas:
-        fid = _idx(fila, "id")
-        nombre = _idx(fila, "nombre_razon_social", "—")
-        nit = _idx(fila, "nit", "—")
-        estado_pip = _idx(fila, "estado_pipeline", "—")
-        riesgo = _idx(fila, "nivel_riesgo", "—")
-        sarlaft = _idx(fila, "estado_sarlaft", "—")
+        fid         = _idx(fila, "id")
+        nombre      = _idx(fila, "nombre_razon_social", "—")
+        nit         = _idx(fila, "nit", "—")
+        tipo        = _idx(fila, "tipo_aliado", "—")
+        estado_pip  = _idx(fila, "estado_pipeline", "—")
+        riesgo      = _idx(fila, "nivel_riesgo", "—")
+        sarlaft     = _idx(fila, "estado_sarlaft", "—")
         es_pep_fila = bool(_idx(fila, "es_pep", False))
-        puntaje = _idx(fila, "puntaje_riesgo", 0) or 0
+        puntaje     = _idx(fila, "puntaje_riesgo", 0) or 0
+        fecha_rev   = _idx(fila, "fecha_proxima_revision")
 
-        # Resaltado de fila activa
+        # ── Colores de tarjeta (pre-computados — sin backslash en f-strings) ──────
         if fid == edit_activo:
-            borde = "#5fe9d0"
-            fondo = "#0f2a2a"
+            card_border = "#5fe9d0"
+            card_bg     = "#061a1a"
+            card_glow   = "0 0 14px #5fe9d033"
         elif fid == del_activo:
-            borde = "#ef4444"
-            fondo = "#2a0f0f"
+            card_border = "#ef4444"
+            card_bg     = "#1a0606"
+            card_glow   = "0 0 14px #ef444433"
         else:
-            borde = "#293056"
-            fondo = "#1f2937"
+            card_border = _BORDER_RIESGO.get(riesgo, "#293056")
+            card_bg     = "#1a1f2e"
+            card_glow   = "none"
 
-        # Capacidades operativas
+        score_color = _SCORE_COLOR.get(riesgo, "#6b7280")
+        score_pct   = min(100, int(puntaje))
+        fecha_str   = str(fecha_rev) if fecha_rev else "—"
+
+        # ── Pills / badges ────────────────────────────────────────────────────
+        pip_pill     = _pill(estado_pip, _COLORES_PIPELINE.get(estado_pip, "#6b7280"))
+        riesgo_pill  = _pill(riesgo,     _COLORES_RIESGO.get(riesgo, "#6b7280"))
+        sarlaft_pill = _pill(sarlaft,    _COLORES_SARLAFT.get(sarlaft, "#6b7280"))
+        pep_badge    = _pill("⚠ PEP", "#f59e0b") if es_pep_fila else ""
+
+        # ── Capacidades ───────────────────────────────────────────────────────
         caps_html = (
-            _capacidad_badge("Crypto", bool(_idx(fila, "crypto_friendly")))
-            + _capacidad_badge("Adult", bool(_idx(fila, "adult_friendly")))
-            + _capacidad_badge("Monet.", bool(_idx(fila, "permite_monetizacion")))
-            + _capacidad_badge("Dispers.", bool(_idx(fila, "permite_dispersion")))
+            _capacidad_badge("🔷 Crypto",    bool(_idx(fila, "crypto_friendly")))
+            + _capacidad_badge("🔞 Adult",   bool(_idx(fila, "adult_friendly")))
+            + _capacidad_badge("💱 Monet.",  bool(_idx(fila, "permite_monetizacion")))
+            + _capacidad_badge("📤 Dispers.", bool(_idx(fila, "permite_dispersion")))
         )
 
-        # Jurisdicciones (badges con indicador de alto riesgo GAFI)
-        jur_list = _idx(fila, "jurisdicciones") or []
-        jur_html_block = ""
+        # ── Jurisdicciones (badges GAFI resaltados en rojo suave) ─────────────
+        jur_list       = _idx(fila, "jurisdicciones") or []
+        jur_block_html = ""
         if jur_list:
             badges_jur = []
             for j in jur_list[:6]:
                 is_risky = j in Jurisdicciones.ALTO_RIESGO
-                bg      = "#450a0a" if is_risky else "#1f2937"
-                color   = "#fca5a5" if is_risky else "#9ca3af"
-                border  = "#ef444455" if is_risky else "#374151"
+                jbg      = "#450a0a" if is_risky else "#1e2740"
+                jcolor   = "#fca5a5" if is_risky else "#93c5fd"
+                jborder  = "#ef444466" if is_risky else "#3b4f7a"
                 badges_jur.append(
-                    f'<span style="background:{bg};color:{color};border:1px solid '
-                    f'{border};border-radius:4px;'
-                    f'padding:1px 5px;font-size:10px;white-space:nowrap">{j}</span>'
+                    f'<span style="background:{jbg};color:{jcolor};border:1px solid '
+                    f'{jborder};border-radius:5px;padding:2px 7px;font-size:10px;'
+                    f'font-weight:500;white-space:nowrap">{j}</span>'
                 )
             if len(jur_list) > 6:
+                extra = len(jur_list) - 6
                 badges_jur.append(
-                    '<span style="color:#6b7280;font-size:10px">'
-                    f'+{len(jur_list)-6} más</span>'
+                    f'<span style="color:#6b7280;font-size:10px;padding:2px 4px">'
+                    f'+{extra} más</span>'
                 )
-            jur_html_block = (
-                '<div style="display:flex;gap:3px;flex-wrap:wrap;align-items:center;margin-top:5px">'
-                '<span style="color:#9ca3af;font-size:11px;margin-right:2px">🌍</span>'
+            jur_block_html = (
+                '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">'
                 + " ".join(badges_jur)
                 + '</div>'
             )
 
-        # Badges principales
-        pip_pill   = _pill(estado_pip, _COLORES_PIPELINE.get(estado_pip, "#6b7280"))
-        riesgo_pill = _pill(riesgo, _COLORES_RIESGO.get(riesgo, "#6b7280"))
-        sarlaft_pill = _pill(sarlaft, _COLORES_SARLAFT.get(sarlaft, "#6b7280"))
-        pep_badge  = _pill("PEP", "#f59e0b") if es_pep_fila else ""
+        jur_section = (
+            '<div style="margin-bottom:10px">'
+            '<span style="color:#64748b;font-size:10px;text-transform:uppercase;'
+            'letter-spacing:.5px;margin-right:6px">🌍 Jurisdicciones</span>'
+            + jur_block_html
+            + '</div>'
+        ) if jur_list else ""
 
-        row_html = (
-            f'<div style="background:{fondo};border:1px solid {borde};border-radius:10px;'
-            f'padding:14px 18px;margin-bottom:8px">'
-            f'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
-            f'<div style="flex:1;min-width:0">'
-            f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">'
-            f'<span style="font-weight:700;color:#f1f5f9;font-size:15px">{nombre}</span>'
-            f'<span style="color:#6b7280;font-size:12px">{nit}</span>'
-            f'{pep_badge}'
+        # ── HTML de la tarjeta ────────────────────────────────────────────────
+        card_html = (
+            # Contenedor principal — borde dinámico según riesgo
+            f'<div style="background:{card_bg};border:1.5px solid {card_border};'
+            f'border-radius:12px;padding:16px 20px 14px;margin-bottom:2px;'
+            f'box-shadow:{card_glow}">'
+
+            # Encabezado: nombre + NIT a la izq, estado pipeline + PEP a la der
+            f'<div style="display:flex;justify-content:space-between;align-items:flex-start;'
+            f'margin-bottom:8px;flex-wrap:wrap;gap:6px">'
+            f'<div>'
+            f'<span style="font-weight:700;color:#f1f5f9;font-size:16px;margin-right:8px">'
+            f'{nombre}</span>'
+            f'<span style="color:#64748b;font-size:12px">{nit}</span>'
             f'</div>'
-            f'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'
-            f'{pip_pill}{riesgo_pill}{sarlaft_pill}'
+            f'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">'
+            f'{pip_pill}{pep_badge}'
             f'</div>'
-            f'<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">'
-            f'<span style="color:#9ca3af;font-size:11px;margin-right:4px">Capacidades:</span>'
+            f'</div>'
+
+            # Fila de riesgo + SARLAFT
+            f'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px">'
+            f'{riesgo_pill}{sarlaft_pill}'
+            f'</div>'
+
+            # Grid 2 columnas: info + score de riesgo
+            f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+
+            # Col izq — Tipo de Alianza + Próxima Revisión
+            f'<div style="background:#ffffff0a;border-radius:8px;padding:10px 12px">'
+            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
+            f'<span style="font-size:16px">🏦</span>'
+            f'<div>'
+            f'<div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.5px">'
+            f'Tipo de Alianza</div>'
+            f'<div style="color:#e2e8f0;font-size:13px;font-weight:600">{tipo}</div>'
+            f'</div>'
+            f'</div>'
+            f'<div style="display:flex;align-items:center;gap:8px">'
+            f'<span style="font-size:15px">📅</span>'
+            f'<div>'
+            f'<div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.5px">'
+            f'Próx. Revisión</div>'
+            f'<div style="color:#cbd5e1;font-size:12px">{fecha_str}</div>'
+            f'</div>'
+            f'</div>'
+            f'</div>'
+
+            # Col der — Score de Riesgo con barra de progreso
+            f'<div style="background:#ffffff0a;border-radius:8px;padding:10px 12px">'
+            f'<div style="color:#64748b;font-size:10px;text-transform:uppercase;'
+            f'letter-spacing:.5px;margin-bottom:6px">🎯 Score de Riesgo</div>'
+            f'<div style="display:flex;align-items:baseline;gap:4px;margin-bottom:8px">'
+            f'<span style="font-size:24px;font-weight:700;color:{score_color}">{int(puntaje)}</span>'
+            f'<span style="font-size:11px;color:#64748b">/ 100</span>'
+            f'</div>'
+            f'<div style="background:#1e293b;border-radius:9999px;height:7px;overflow:hidden">'
+            f'<div style="background:{score_color};width:{score_pct}%;height:100%;'
+            f'border-radius:9999px"></div>'
+            f'</div>'
+            f'</div>'
+
+            f'</div>'  # end grid
+
+            # Jurisdicciones (condicional)
+            + jur_section
+
+            # Capacidades operativas
+            + f'<div>'
+            f'<span style="color:#64748b;font-size:10px;text-transform:uppercase;'
+            f'letter-spacing:.5px;margin-right:6px">⚡ Capacidades</span>'
             f'{caps_html}'
             f'</div>'
-            + jur_html_block
-            + f'</div>'
-            f'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:80px">'
-            f'<span style="color:#9ca3af;font-size:11px">Puntaje</span>'
-            f'<span style="color:#5fe9d0;font-weight:700;font-size:18px">{int(puntaje)}</span>'
-            f'</div>'
-            f'</div>'
-            f'</div>'
-        )
-        st.markdown(row_html, unsafe_allow_html=True)
 
-        # Botones de acciones (fuera del HTML — Streamlit no soporta botones en markdown)
-        if hay_acciones:
-            btn_cols = st.columns([1, 1, 10])
-            if puede_editar:
-                with btn_cols[0]:
-                    if st.button("✏️", key=f"edit_btn_{fid}", help=f"Editar {nombre}"):
+            f'</div>'  # end card
+        )
+
+        with st.container():
+            st.markdown(card_html, unsafe_allow_html=True)
+
+            # ── Pie de tarjeta: botones de acción ─────────────────────────────
+            btn_c1, btn_c2, btn_c3, _ = st.columns([2, 2, 2, 6])
+
+            with btn_c1:
+                if st.button("👁️ Ver Detalle", key=f"view_btn_{fid}",
+                             use_container_width=True):
+                    st.session_state["edit_id"] = fid
+                    st.session_state["delete_id"] = None
+                    st.rerun()
+
+            with btn_c2:
+                if puede_editar:
+                    edit_disabled = (rol == Roles.COMERCIAL)
+                    if st.button("✏️ Editar", key=f"edit_btn_{fid}",
+                                 use_container_width=True,
+                                 disabled=edit_disabled):
                         st.session_state["edit_id"] = fid
                         st.session_state["delete_id"] = None
                         st.rerun()
-            if puede_eliminar:
-                with btn_cols[1]:
-                    if st.button("🗑️", key=f"del_btn_{fid}", help=f"Eliminar {nombre}"):
+
+            with btn_c3:
+                if puede_eliminar:
+                    if st.button("🗑️ Eliminar", key=f"del_btn_{fid}",
+                                 use_container_width=True):
                         st.session_state["delete_id"] = fid
                         st.session_state["edit_id"] = None
                         st.rerun()
+
+        st.markdown(
+            '<hr style="border:0;border-top:1px solid #1e2740;margin:4px 0 14px 0">',
+            unsafe_allow_html=True,
+        )
 
 
 # ── Tab: Alta de Partner ──────────────────────────────────────────────────────
