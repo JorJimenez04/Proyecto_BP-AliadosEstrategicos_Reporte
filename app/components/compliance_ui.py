@@ -135,7 +135,7 @@ def _kpi_cards(stats: dict) -> None:
 
 
 def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
-    """Renderiza un documento como tarjeta oscura con badges de estado, formato y empresa."""
+    """Tarjeta de documento — borde dinámico por estado, layout moderno."""
     estado  = doc.get("estado",  "Vigente")
     fmt     = doc.get("formato", "OTRO")
     empresa = doc.get("empresa")
@@ -149,32 +149,71 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
     badge_empresa = ""
     if empresa:
         emp_c = _EMPRESA_COLOR.get(empresa, _C_GRAY)
-        badge_empresa = " &nbsp;" + _badge(empresa, emp_c, emp_c + "22")
+        badge_empresa = _badge(empresa, emp_c, emp_c + "22")
 
-    url = doc.get("url_documento")
-
+    url      = doc.get("url_documento")
     fecha_raw = doc.get("fecha_emision")
-    fecha  = str(fecha_raw) if fecha_raw else "-"
-    ver    = _html.escape(str(doc.get("version",  "-")))
-    codigo = _html.escape(str(doc.get("codigo",   "")))
-    nombre = _html.escape(str(doc.get("nombre",   "Sin nombre")))
+    fecha    = str(fecha_raw) if fecha_raw else "—"
+    ver      = _html.escape(str(doc.get("version", "—")))
+    codigo   = _html.escape(str(doc.get("codigo",  "")))
+    nombre   = _html.escape(str(doc.get("nombre",  "Sin nombre")))
     desc_raw = doc.get("descripcion") or ""
     desc     = _html.escape(desc_raw)
 
+    # Pre-computar borde/glow según estado (sin backslash en f-strings)
+    card_border_top  = e_fg
+    card_border_side = e_fg + "44"
+    has_url_icon     = "🔗" if url else "🔒"
+
     st.markdown(
-        f'<div style="background:{_C_CARD};border:1px solid {_C_BORDER};border-radius:8px;padding:16px;margin-bottom:6px;">'
-        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'
-        f'<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">{badge_formato}{badge_estado}{badge_empresa}</div>'
-        f'<div style="color:{_C_GRAY};font-size:0.72rem;">{codigo}</div>'
+        # Contenedor — borde superior de color por estado
+        f'<div style="background:{_C_CARD};'
+        f'border:1px solid {card_border_side};'
+        f'border-top:3px solid {card_border_top};'
+        f'border-radius:10px;padding:14px 16px 12px;margin-bottom:4px;">'
+
+        # Fila 1: badges (formato · estado · empresa) + código
+        f'<div style="display:flex;justify-content:space-between;'
+        f'align-items:flex-start;flex-wrap:wrap;gap:4px;margin-bottom:10px;">'
+        f'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">'
+        f'{badge_formato}&nbsp;{badge_estado}'
+        + (f'&nbsp;{badge_empresa}' if badge_empresa else '')
+        + f'</div>'
+        + (
+            f'<div style="color:#94a3b8;font-size:0.68rem;background:#0f172a;'
+            f'padding:2px 8px;border-radius:4px;font-family:monospace;'
+            f'white-space:nowrap">{codigo}</div>'
+            if codigo else ''
+        )
+        + f'</div>'
+
+        # Fila 2: título
+        f'<div style="color:{_C_TEXT};font-weight:700;font-size:0.9rem;'
+        f'line-height:1.35;margin-bottom:6px;">{nombre}</div>'
+
+        # Fila 3: descripción truncada (2 líneas)
+        + (
+            f'<div style="color:{_C_GRAY};font-size:0.74rem;line-height:1.45;'
+            f'margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;'
+            f'-webkit-box-orient:vertical;overflow:hidden;">{desc}</div>'
+            if desc else ''
+        )
+
+        # Footer: versión + fecha + icono URL
+        + f'<div style="display:flex;align-items:center;gap:6px;'
+        f'margin-top:8px;padding-top:8px;border-top:1px solid #1e2740;">'
+        f'<span style="background:#0f172a;color:{_C_GRAY};font-size:0.68rem;'
+        f'padding:2px 7px;border-radius:4px;font-family:monospace;">v{ver}</span>'
+        f'<span style="color:#475569;font-size:0.7rem;flex:1">{fecha}</span>'
+        f'<span style="font-size:0.75rem;color:{"#22c55e" if url else "#475569"}">'
+        f'{has_url_icon}</span>'
         f'</div>'
-        f'<div style="color:{_C_TEXT};font-weight:600;font-size:0.92rem;margin-bottom:2px;">{nombre}</div>'
-        + (f'<div style="color:{_C_GRAY};font-size:0.78rem;margin-bottom:6px;">{desc}</div>' if desc else '')
-        + f'<div style="color:{_C_GRAY};font-size:0.75rem;margin-top:8px;">v{ver} &nbsp;|&nbsp; {fecha}</div>'
+
         f'</div>',
         unsafe_allow_html=True,
     )
 
-    # ── Acciones: ✏️ Editar | 🔗 Abrir ─────────────────────────────────────────
+    # ── Botones de acción ──────────────────────────────────────────────────────
     nv_open_key = f"_nv_open_{key_prefix}{doc_id}"
 
     if url:
@@ -183,41 +222,36 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         else:
             c_open = st.columns(1)[0]
 
-        # ✏️ Editar (solo editores)
         if puede_editar:
-            btn_lbl = "🔼 Cerrar edición" if st.session_state.get(nv_open_key) else "✏️ Editar"
+            is_open = st.session_state.get(nv_open_key, False)
+            btn_lbl = "🔼 Cerrar" if is_open else "✏️ Editar"
             with c_edit:
                 if st.button(btn_lbl, key=f"{key_prefix}nv_btn_{doc_id}",
                              use_container_width=True):
-                    st.session_state[nv_open_key] = not st.session_state.get(
-                        nv_open_key, False
-                    )
+                    st.session_state[nv_open_key] = not is_open
 
-        # 🔗 Abrir (pestaña nueva)
         with c_open:
             st.link_button("🔗 Abrir", url=url, use_container_width=True)
 
     else:
-        # Sin URL: botón editar para editores + aviso para todos
         if puede_editar:
-            btn_lbl = "🔼 Cerrar edición" if st.session_state.get(nv_open_key) else "✏️ Editar"
+            is_open = st.session_state.get(nv_open_key, False)
+            btn_lbl = "🔼 Cerrar" if is_open else "✏️ Editar"
             if st.button(btn_lbl, key=f"{key_prefix}nv_btn_{doc_id}",
-                         use_container_width=False):
-                st.session_state[nv_open_key] = not st.session_state.get(
-                    nv_open_key, False
-                )
+                         use_container_width=True):
+                st.session_state[nv_open_key] = not is_open
+        no_url_msg = "añade la URL en ✏️ Editar" if puede_editar else "requiere URL para habilitar acceso"
         st.markdown(
-            f"<span style='color:{_C_GRAY};font-size:0.72rem;'>Sin enlace — "
-            f"{'añade la URL en ✏️ Editar' if puede_editar else 'requiere URL para habilitar el acceso'}"
-            f"</span>",
+            f'<div style="color:#475569;font-size:0.7rem;margin-top:2px;">'
+            f'🔒 Sin enlace — {no_url_msg}</div>',
             unsafe_allow_html=True,
         )
 
-    # Formulario de edición (fuera del bloque url/no-url)
+    # Formulario de edición (inline)
     if puede_editar and st.session_state.get(nv_open_key):
         _form_editar(doc, key_prefix=key_prefix)
 
-    st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
 
 
 def _form_editar(doc: dict, key_prefix: str = "") -> None:
