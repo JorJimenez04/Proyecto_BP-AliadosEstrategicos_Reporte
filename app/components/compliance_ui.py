@@ -34,6 +34,12 @@ _C_GREEN  = "#22c55e"
 _C_GRAY   = "#9ca3af"
 _C_TEXT   = "#e2e8f0"
 
+
+def _hex_fill(h: str, alpha: float = 0.13) -> str:
+    """Convierte '#rrggbb' a 'rgba(r,g,b,a)' para Plotly fillcolor."""
+    r, g, b = int(h[1:3], 16), int(h[3:5], 16), int(h[5:7], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
 _ESTADO_COLOR: dict[str, tuple[str, str]] = {
     "Vigente":   (_C_GREEN,  "#14532d22"),
     "Pendiente": (_C_AMBER,  "#78350f22"),
@@ -657,7 +663,7 @@ def page_compliance(user: dict) -> None:
                                 fill="toself",
                                 name=emp,
                                 line=dict(color=col_emp, width=2),
-                                fillcolor=col_emp + "22",
+                                fillcolor=_hex_fill(col_emp),
                             ))
                         radar_fig.update_layout(
                             polar=dict(
