@@ -65,7 +65,7 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
     from db.repositories.audit_repo import AuditRepository
     from db.models import AliadoUpdate
     from config.settings import (
-        EstadosAliado, NivelesRiesgo, TiposAliado, EstadosSARLAFT, Roles,
+        EstadosAliado, NivelesRiesgo, TiposAliado, EstadosSARLAFT, Roles, Jurisdicciones,
     )
 
     st.markdown(
@@ -178,6 +178,17 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
             key=prefix + "motivo_inact",
         )
 
+        jur_actual = list(aliado.get("jurisdicciones") or [])
+        jur_validas = [j for j in jur_actual if j in Jurisdicciones.ALL]
+        jur_sel = st.multiselect(
+            "🌍 Jurisdicciones de Operación",
+            options=Jurisdicciones.ALL,
+            default=jur_validas,
+            key=prefix + "jurisdicciones",
+            disabled=rol_activo not in Roles.CAN_EDIT_JURISDICTIONS,
+            help="Solo Admin y Compliance pueden editar este campo (afecta el scoring SARLAFT).",
+        )
+
     # ── Sección 3: Perfil Operativo ───────────────────────────────────────────
     with st.expander("Perfil Operativo"):
         col1, col2 = st.columns(2)
@@ -267,6 +278,7 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 motivo_inactividad=motivo_inact or None,
                 fecha_inicio_relacion=fecha_inicio if fecha_inicio else None,
                 fecha_fin_relacion=fecha_fin if fecha_fin else None,
+                jurisdicciones=jur_sel,
                 actualizado_por=user.get("id"),
             )
             try:
@@ -431,7 +443,7 @@ def page_partners(user: dict) -> None:
     import streamlit as st
     from db.database import get_session
     from db.repositories.partner_repo import PartnerRepository
-    from config.settings import EstadosAliado, NivelesRiesgo, Roles
+    from config.settings import EstadosAliado, NivelesRiesgo, Roles, Jurisdicciones
 
     # ── Permisos ──────────────────────────────────────────────────────────────
     rol = user.get("rol", "")
@@ -479,6 +491,15 @@ def page_partners(user: dict) -> None:
             f_buscar = st.text_input("Buscar por nombre / NIT", key="f_buscar")
         with col4:
             f_pep = st.selectbox("PEP", ["Todos", "Solo PEP", "Sin PEP"], key="f_pep")
+        col5, _ = st.columns([2, 2])
+        with col5:
+            f_jur = st.multiselect(
+                "🌍 Jurisdicción de Operación",
+                options=Jurisdicciones.ALL,
+                default=[],
+                key="f_jur",
+                help="Filtra por países donde opera el partner.",
+            )
 
     # ── Carga de datos ────────────────────────────────────────────────────────
     with next(get_session()) as session:
@@ -501,6 +522,11 @@ def page_partners(user: dict) -> None:
         filas = [r for r in filas if _idx(r, "es_pep")]
     elif f_pep == "Sin PEP":
         filas = [r for r in filas if not _idx(r, "es_pep")]
+    if f_jur:
+        filas = [
+            r for r in filas
+            if any(j in (_idx(r, "jurisdicciones") or []) for j in f_jur)
+        ]
 
     # ── Métricas rápidas ──────────────────────────────────────────────────────
     total = len(filas)
@@ -567,6 +593,32 @@ def page_partners(user: dict) -> None:
             + _capacidad_badge("Dispers.", bool(_idx(fila, "permite_dispersion")))
         )
 
+        # Jurisdicciones (badges con indicador de alto riesgo GAFI)
+        jur_list = _idx(fila, "jurisdicciones") or []
+        jur_html_block = ""
+        if jur_list:
+            badges_jur = []
+            for j in jur_list[:6]:
+                is_risky = j in Jurisdicciones.ALTO_RIESGO
+                bg    = "#450a0a" if is_risky else "#1f2937"
+                color = "#fca5a5" if is_risky else "#9ca3af"
+                badges_jur.append(
+                    f'<span style="background:{bg};color:{color};border:1px solid '
+                    f'{\'#ef444455\' if is_risky else \'#374151\'};border-radius:4px;'
+                    f'padding:1px 5px;font-size:10px;white-space:nowrap">{j}</span>'
+                )
+            if len(jur_list) > 6:
+                badges_jur.append(
+                    '<span style="color:#6b7280;font-size:10px">'
+                    f'+{len(jur_list)-6} más</span>'
+                )
+            jur_html_block = (
+                '<div style="display:flex;gap:3px;flex-wrap:wrap;align-items:center;margin-top:5px">'
+                '<span style="color:#9ca3af;font-size:11px;margin-right:2px">🌍</span>'
+                + " ".join(badges_jur)
+                + '</div>'
+            )
+
         # Badges principales
         pip_pill   = _pill(estado_pip, _COLORES_PIPELINE.get(estado_pip, "#6b7280"))
         riesgo_pill = _pill(riesgo, _COLORES_RIESGO.get(riesgo, "#6b7280"))
@@ -590,7 +642,8 @@ def page_partners(user: dict) -> None:
             f'<span style="color:#9ca3af;font-size:11px;margin-right:4px">Capacidades:</span>'
             f'{caps_html}'
             f'</div>'
-            f'</div>'
+            + jur_html_block
+            + f'</div>'
             f'<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:80px">'
             f'<span style="color:#9ca3af;font-size:11px">Puntaje</span>'
             f'<span style="color:#5fe9d0;font-weight:700;font-size:18px">{int(puntaje)}</span>'
@@ -627,7 +680,7 @@ def _tab_alta_partner(user: dict) -> None:
     from db.repositories.partner_repo import PartnerRepository
     from db.repositories.audit_repo import AuditRepository
     from db.models import AliadoCreate
-    from config.settings import TiposAliado, NivelesRiesgo, Roles
+    from config.settings import TiposAliado, NivelesRiesgo, Roles, Jurisdicciones
 
     st.markdown(
         '<p style="color:#9ca3af;margin-bottom:18px">'
@@ -663,6 +716,15 @@ def _tab_alta_partner(user: dict) -> None:
         with cg3:
             est_paycop = st.selectbox("Estado en Paycop",
                                       ["Activo", "Inactivo", "Sin relación"], index=2)
+
+        jur_sel = st.multiselect(
+            "🌍 Jurisdicciones de Operación",
+            options=Jurisdicciones.ALL,
+            default=[],
+            key="alta_jur",
+            help="Países donde opera o tiene exposición el partner. "
+                 "Las jurisdicciones GAFI de alto riesgo incrementan el puntaje SARLAFT.",
+        )
 
         # ── SECCIÓN 3: PERFIL OPERATIVO ───────────────────────────────────────
         st.markdown('<p class="section-title">💳 Perfil Operativo y Capacidades</p>',
@@ -719,6 +781,7 @@ def _tab_alta_partner(user: dict) -> None:
                 fecha_inicio_relacion=fecha_ini_rel,
                 fecha_fin_relacion=fecha_fin_rel,
                 motivo_inactividad=motivo_inact,
+                jurisdicciones=jur_sel,
             )
             with next(get_session()) as session:
                 repo  = PartnerRepository(session)

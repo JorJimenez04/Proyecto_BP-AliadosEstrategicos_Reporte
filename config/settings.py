@@ -124,6 +124,8 @@ class Roles:
     CAN_CREATE_PARTNERS: frozenset[str] = frozenset(
         {"admin", "compliance", "comercial"}
     )
+    # Pueden editar jurisdicciones (campo que afecta scoring SARLAFT)
+    CAN_EDIT_JURISDICTIONS: frozenset[str] = frozenset({"admin", "compliance"})
 
 # ── Pipeline de estados de aliados ───────────────────────
 class EstadosAliado:
@@ -172,3 +174,71 @@ class EstadosSARLAFT:
     VENCIDO    = "Vencido"
 
     ALL = [AL_DIA, PENDIENTE, EN_REVISION, VENCIDO]
+
+# ── Jurisdicciones de Operación ──────────────────────────────────
+class Jurisdicciones:
+    """
+    Catálogo de países relevantes para Banking Partners latinoamericanos.
+    Incluye países de alto riesgo GAFI / SAGRILAFT para cálculo automático
+    del puntaje_riesgo.
+    """
+
+    ALL: list[str] = [
+        # ─ Latinoamérica ────────────────────────────────
+        "🇨🇴 Colombia",
+        "🇧🇷 Brasil",
+        "🇲🇽 México",
+        "🇦🇷 Argentina",
+        "🇨🇱 Chile",
+        "🇵🇪 Perú",
+        "🇪🇨 Ecuador",
+        "🇧🇴 Bolivia",
+        "🇵🇾 Paraguay",
+        "🇺🇾 Uruguay",
+        "🇻🇪 Venezuela",
+        "🇨🇷 Costa Rica",
+        "🇬🇹 Guatemala",
+        "🇭🇳 Honduras",
+        "🇸🇻 El Salvador",
+        "🇳🇮 Nicaragua",
+        "🇨🇺 Cuba",
+        "🇩🇴 República Dominicana",
+        "🇭🇹 Haití",
+        # ─ Centros financieros / Offshore ───────────────────
+        "🇵🇦 Panamá",
+        "🇰🇾 Islas Caimán",
+        "🇧🇸 Bahamas",
+        "🇧🇲 Bermuda",
+        "🇻🇬 Islas Vírgenes (UK)",
+        "🇦🇼 Aruba",
+        "🇵🇦 Panamá (ZLC)",
+        # ─ Norteamérica y Europa ────────────────────────
+        "🇺🇸 Estados Unidos",
+        "🇨🇦 Canadá",
+        "🇪🇸 España",
+        "🇬🇧 Reino Unido",
+        "🇵🇹 Portugal",
+        "🇩🇪 Alemania",
+        "🇳🇱 Países Bajos",
+        "🇨🇭 Suiza",
+        # ─ Alto riesgo GAFI / black list ───────────────────
+        "🇮🇷 Irán",
+        "🇰🇵 Corea del Norte",
+        "🇲🇲 Myanmar",
+    ]
+
+    # Países de alto riesgo según GAFI / SAGRILAFT.
+    # Cualquier partner con jurisdicción en esta lista incrementa
+    # su puntaje_riesgo automáticamente.
+    ALTO_RIESGO: frozenset[str] = frozenset({
+        "🇮🇷 Irán",
+        "🇰🇵 Corea del Norte",
+        "🇲🇲 Myanmar",
+        "🇭🇹 Haití",
+        "🇨🇺 Cuba",
+        "🇻🇪 Venezuela",
+        "🇰🇾 Islas Caimán",
+        "🇧🇸 Bahamas",
+        "🇧🇲 Bermuda",
+        "🇻🇬 Islas Vírgenes (UK)",
+    })

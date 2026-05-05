@@ -31,6 +31,10 @@ _RISK_WEIGHTS: dict[str, int] = {
     "sin_rut":                       5,   # RUT no recibido
     "sin_camara_comercio":           5,   # Cámara de comercio ausente
     "sin_due_diligence":            10,   # DD nunca iniciado
+    # ─ Jurisdicciones GAFI ──────────────────────────────────────
+    "jurisdiccion_alto_riesgo":     15,   # Al menos una jurisdicción GAFI de alto riesgo
+    "jurisdiccion_multiple_riesgo": 10,   # 2+ jurisdicciones GAFI (exposición acumulada)
+    "jurisdiccion_exposicion":       5,   # 5+ jurisdicciones en total (diversificación = exposición)
 }
 
 _NIVEL_POR_SCORE: list[tuple[int, str]] = [
@@ -48,6 +52,8 @@ def calcular_puntaje_riesgo(data: dict) -> tuple[float, str]:
 
     Retorna (puntaje: float, nivel: str)
     """
+    from config.settings import Jurisdicciones as _Jur
+
     score = 0
 
     if data.get("es_pep"):
@@ -82,6 +88,20 @@ def calcular_puntaje_riesgo(data: dict) -> tuple[float, str]:
         score += _RISK_WEIGHTS["sin_rut"]
     if not data.get("camara_comercio_recibida", False):
         score += _RISK_WEIGHTS["sin_camara_comercio"]
+
+    # ─ Scoring por jurisdicciones GAFI ───────────────────────────────────
+    jurisdicciones = data.get("jurisdicciones") or []
+    if isinstance(jurisdicciones, str):
+        # Defensivo: si viene como string serializado desde PG, tratar como lista vacía
+        jurisdicciones = []
+    riesgo_count = sum(1 for j in jurisdicciones if j in _Jur.ALTO_RIESGO)
+    if riesgo_count >= 2:
+        score += _RISK_WEIGHTS["jurisdiccion_alto_riesgo"]
+        score += _RISK_WEIGHTS["jurisdiccion_multiple_riesgo"]
+    elif riesgo_count == 1:
+        score += _RISK_WEIGHTS["jurisdiccion_alto_riesgo"]
+    if len(jurisdicciones) >= 5:
+        score += _RISK_WEIGHTS["jurisdiccion_exposicion"]
 
     score = min(score, 100)
 
@@ -151,7 +171,7 @@ class PartnerRepository:
             "es_pep", "crypto_friendly", "adult_friendly", "permite_monetizacion",
             "listas_verificadas", "lista_ofac_ok", "estado_due_diligence",
             "estado_sarlaft", "contrato_firmado", "rut_recibido",
-            "camara_comercio_recibida",
+            "camara_comercio_recibida", "jurisdicciones",
         }
         if _CAMPOS_RIESGO & payload.keys():
             # Obtener estado actual del aliado para combinar con los cambios entrantes
@@ -196,10 +216,11 @@ class PartnerRepository:
         query = """
             SELECT 
                 id, nombre_razon_social, nit, tipo_aliado, estado_pipeline, 
-                nivel_riesgo, puntaje_riesgo, estado_sarlaft,
+                nivel_riesgo, puntaje_riesgo, estado_sarlaft, es_pep,
                 estado_hbpocorp, estado_adamo, estado_paycop,
                 crypto_friendly, adult_friendly,
                 permite_monetizacion, permite_dispersion,
+                jurisdicciones,
                 fecha_proxima_revision
             FROM aliados 
             WHERE 1=1

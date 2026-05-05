@@ -5,7 +5,7 @@ Espejo tipado de las tablas definidas en Railway + Métricas de Gestión Corpora
 """
 
 from datetime import date, datetime
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
@@ -154,6 +154,10 @@ class AliadoBase(BaseModel):
     observaciones_compliance: Optional[str] = None
     motivo_suspension:        Optional[str] = None
 
+    # Jurisdicciones de Operación (países donde opera el partner)
+    # Impacta puntaje_riesgo si incluye jurisdicciones GAFI de alto riesgo.
+    jurisdicciones: List[str] = Field(default_factory=list)
+
 
     # ── Validadores de enumerados ─────────────────────────────
     @field_validator("tipo_aliado")
@@ -269,6 +273,9 @@ class AliadoUpdate(BaseModel):
     motivo_inactividad:   Optional[str] = None
     fecha_inicio_relacion: Optional[date] = None
     fecha_fin_relacion:    Optional[date] = None
+
+    # Jurisdicciones de operación
+    jurisdicciones: Optional[List[str]] = None
 
     actualizado_por:                 Optional[int]   = None
 
