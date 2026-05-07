@@ -291,6 +291,7 @@ def _form_editar(doc: dict, key_prefix: str = "") -> None:
         c1, c2 = st.columns(2)
         with c1:
             nuevo_nombre  = st.text_input("Título *",  value=(doc.get("nombre") or "").replace("}", "").strip())
+            nuevo_codigo  = st.text_input("Código", value=doc.get("codigo") or "", placeholder="ej. POL-001")
             nueva_carpeta = st.selectbox("Carpeta",    options=_CARPETAS_ORDEN, index=carp_idx)
             nuevo_estado  = st.selectbox("Estado",     options=_estado_opts,    index=est_idx)
         with c2:
@@ -321,7 +322,7 @@ def _form_editar(doc: dict, key_prefix: str = "") -> None:
             username = user.get("username") or user.get("usuario") or "sistema"
             data = {
                 "carpeta":           nueva_carpeta,
-                "codigo":            doc.get("codigo", ""),
+                "codigo":            nuevo_codigo.strip().upper(),
                 "nombre":            nuevo_nombre.replace("}", "").strip(),
                 "descripcion":       descripcion_cambio.strip() or doc.get("descripcion"),
                 "version":           nueva_version.strip() or doc.get("version", "1.0"),
@@ -344,6 +345,7 @@ def _form_editar(doc: dict, key_prefix: str = "") -> None:
                     descripcion=descripcion_cambio.strip() or f"Edición metadatos doc id={doc['id']}",
                     entidad_id=doc["id"],
                     valores_anteriores={
+                        "codigo":        doc.get("codigo"),
                         "nombre":        doc.get("nombre"),
                         "carpeta":       doc.get("carpeta"),
                         "empresa":       doc.get("empresa"),
