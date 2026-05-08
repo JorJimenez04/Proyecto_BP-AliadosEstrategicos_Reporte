@@ -176,16 +176,19 @@ class AliadoBase(BaseModel):
     nivel_criticidad:    str = "Estándar"
 
 
-    @field_validator("nivel_criticidad")
+    @field_validator("nivel_criticidad", mode="before")
     @classmethod
-    def _check_nivel_criticidad(cls, v: str) -> str:
+    def _check_nivel_criticidad(cls, v: object) -> str:
+        # Tolerante: None o valor desconocido → 'Estándar' (DB todavía sin migración)
+        if v is None:
+            return "Estándar"
         validos = {
             "DDI - Entidad Regulada", "DDI",
             "DDS-Alto", "DDS-Simplificado", "Estándar",
         }
-        if v not in validos:
-            raise ValueError(f"nivel_criticidad inválido. Opciones: {sorted(validos)}")
-        return v
+        if str(v) not in validos:
+            return "Estándar"
+        return str(v)
 
     # ── Validadores de enumerados ─────────────────────────────
     @field_validator("tipo_aliado")

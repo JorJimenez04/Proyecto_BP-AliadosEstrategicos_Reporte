@@ -290,7 +290,47 @@ class PartnerRepository:
             params["search"] = f"%{search_text}%"
 
         query += " ORDER BY updated_at DESC"
-        rows = self.session.execute(text(query), params).mappings().all()
+
+        # ── Fallback tolerante: si las columnas nuevas no existen en DB todavía ──
+        _NEW_COLS = (
+            "tipo_riel", "sla_garantizado", "es_entidad_regulada",
+            "nivel_criticidad", "numero_licencia", "certificaciones",
+            "partner_respaldo", "pct_concentracion",
+        )
+        _FALLBACK_DEFAULTS = (
+            "NULL::text             AS tipo_riel",
+            "NULL::text             AS sla_garantizado",
+            "FALSE                  AS es_entidad_regulada",
+            "'Estándar'::text       AS nivel_criticidad",
+            "NULL::text             AS numero_licencia",
+            "'{}'::text[]           AS certificaciones",
+            "NULL::text             AS partner_respaldo",
+            "NULL::numeric          AS pct_concentracion",
+        )
+
+        try:
+            rows = self.session.execute(text(query), params).mappings().all()
+        except Exception as exc:
+            err = str(exc).lower()
+            if any(col in err for col in _NEW_COLS) or "undefinedcolumn" in type(exc).__name__.lower():
+                import logging
+                logging.warning(
+                    "[partner_repo] Columnas ficha-riel ausentes en DB — "
+                    "ejecuta migración 018. Usando query reducida. Detalle: %s", exc
+                )
+                # Rollback obligatorio tras error de SQL en psycopg2
+                self.session.rollback()
+                # Sustituir columnas nuevas por literales por defecto
+                fallback_query = query
+                for col, default in zip(_NEW_COLS, _FALLBACK_DEFAULTS):
+                    fallback_query = fallback_query.replace(col + ",", default + ",")
+                    fallback_query = fallback_query.replace(
+                        col + "\n", default + "\n"
+                    )
+                rows = self.session.execute(text(fallback_query), params).mappings().all()
+            else:
+                raise
+
         return [dict(r) for r in rows]
 
     # ── Métricas para Dashboard ───────────────────────────
