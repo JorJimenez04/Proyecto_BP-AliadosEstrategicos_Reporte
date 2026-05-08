@@ -158,6 +158,34 @@ class AliadoBase(BaseModel):
     # Impacta puntaje_riesgo si incluye jurisdicciones GAFI de alto riesgo.
     jurisdicciones: List[str] = Field(default_factory=list)
 
+    # ── Ficha Técnica del Riel ────────────────────────────────
+    tipo_riel:          Optional[str]  = None   # Dispersión, Recaudo, Crypto, Mixto, N/A
+    sla_garantizado:    Optional[str]  = None   # Ej: "99.9% uptime / 4h resolución"
+
+    # ── Cumplimiento ISO ──────────────────────────────────────
+    numero_licencia:          Optional[str]  = None   # Licencia SFC u otro ente regulador
+    fecha_ultima_auditoria:   Optional[date] = None   # Última auditoría externa
+    certificaciones:          List[str]      = Field(default_factory=list)  # ISO 27001, PCI-DSS…
+    es_entidad_regulada:      bool           = False  # Posee licencia financiera formal
+
+    # ── Gobernanza / Plan de Continuidad ─────────────────────
+    partner_respaldo:    Optional[str]   = None          # Partner de backup operativo
+    pct_concentracion:   Optional[float] = Field(default=None, ge=0.0, le=100.0)
+
+    # ── Nivel de Criticidad Operativa (derivado de nivel_riesgo + regulación) ──
+    nivel_criticidad:    str = "Estándar"
+
+
+    @field_validator("nivel_criticidad")
+    @classmethod
+    def _check_nivel_criticidad(cls, v: str) -> str:
+        validos = {
+            "DDI - Entidad Regulada", "DDI",
+            "DDS-Alto", "DDS-Simplificado", "Estándar",
+        }
+        if v not in validos:
+            raise ValueError(f"nivel_criticidad inválido. Opciones: {sorted(validos)}")
+        return v
 
     # ── Validadores de enumerados ─────────────────────────────
     @field_validator("tipo_aliado")
@@ -176,7 +204,6 @@ class AliadoBase(BaseModel):
         if v not in validos:
             raise ValueError(f"nivel_riesgo inválido. Opciones: {sorted(validos)}")
         return v
-
     @field_validator("estado_sarlaft")
     @classmethod
     def _check_estado_sarlaft(cls, v: str) -> str:
@@ -276,6 +303,23 @@ class AliadoUpdate(BaseModel):
 
     # Jurisdicciones de operación
     jurisdicciones: Optional[List[str]] = None
+
+    # Ficha Técnica del Riel
+    tipo_riel:             Optional[str]   = None
+    sla_garantizado:       Optional[str]   = None
+
+    # Cumplimiento ISO
+    numero_licencia:         Optional[str]   = None
+    fecha_ultima_auditoria:  Optional[date]  = None
+    certificaciones:         Optional[List[str]] = None
+    es_entidad_regulada:     Optional[bool]  = None
+
+    # Gobernanza
+    partner_respaldo:    Optional[str]   = None
+    pct_concentracion:   Optional[float] = None
+
+    # Criticidad operativa (se recalcula automáticamente en repo, pero permite override)
+    nivel_criticidad:    Optional[str]   = None
 
     actualizado_por:                 Optional[int]   = None
 

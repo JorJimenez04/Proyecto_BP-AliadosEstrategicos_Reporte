@@ -45,6 +45,29 @@ _NIVEL_POR_SCORE: list[tuple[int, str]] = [
 ]
 
 
+def calcular_nivel_criticidad(nivel_riesgo: str, es_entidad_regulada: bool) -> str:
+    """
+    Convierte el nivel_riesgo SARLAFT en Nivel de Criticidad Operativa
+    conforme al estándar ISO / GAFI de Debida Diligencia.
+
+    - Partner regulado con score técnico alto → 'DDI - Entidad Regulada'
+      (la complejidad es esperada; no implica peligro).
+    - Muy Alto sin regulación     → 'DDI'             (rojo)
+    - Alto sin regulación         → 'DDS-Alto'         (naranja)
+    - Medio                       → 'DDS-Simplificado' (amarillo)
+    - Bajo                        → 'Estándar'          (verde)
+    """
+    if es_entidad_regulada and nivel_riesgo in ("Alto", "Muy Alto"):
+        return "DDI - Entidad Regulada"
+    _MAP = {
+        "Muy Alto": "DDI",
+        "Alto":     "DDS-Alto",
+        "Medio":    "DDS-Simplificado",
+        "Bajo":     "Estándar",
+    }
+    return _MAP.get(nivel_riesgo, "Estándar")
+
+
 def calcular_puntaje_riesgo(data: dict) -> tuple[float, str]:
     """
     Calcula el puntaje de riesgo (0-100) y el nivel correspondiente
@@ -138,6 +161,12 @@ class PartnerRepository:
         if _escala.index(nivel) > _escala.index(payload.get("nivel_riesgo", "Medio")):
             payload["nivel_riesgo"] = nivel
 
+        # Calcular Nivel de Criticidad Operativa (ISO / GAFI)
+        payload["nivel_criticidad"] = calcular_nivel_criticidad(
+            payload["nivel_riesgo"],
+            bool(payload.get("es_entidad_regulada", False)),
+        )
+
         cols = ", ".join(payload.keys())
         placeholders = ", ".join(f":{k}" for k in payload.keys())
 
@@ -184,6 +213,17 @@ class PartnerRepository:
             if nivel_actual in _escala and _escala.index(nivel) > _escala.index(nivel_actual):
                 payload["nivel_riesgo"] = nivel
 
+        # Recalcular Nivel de Criticidad si cambian campos relevantes
+        _CAMPOS_CRITICIDAD = _CAMPOS_RIESGO | {"nivel_riesgo", "es_entidad_regulada"}
+        if _CAMPOS_CRITICIDAD & payload.keys():
+            fila_base = self.get_by_id(aliado_id) or {}
+            nivel_final = payload.get("nivel_riesgo", fila_base.get("nivel_riesgo", "Medio"))
+            regulada_final = payload.get(
+                "es_entidad_regulada",
+                bool(fila_base.get("es_entidad_regulada", False)),
+            )
+            payload["nivel_criticidad"] = calcular_nivel_criticidad(nivel_final, regulada_final)
+
         set_clause = ", ".join(f"{k} = :{k}" for k in payload.keys())
         payload["id"] = aliado_id
 
@@ -221,7 +261,11 @@ class PartnerRepository:
                 crypto_friendly, adult_friendly,
                 permite_monetizacion, permite_dispersion,
                 jurisdicciones,
-                fecha_proxima_revision
+                fecha_proxima_revision,
+                tipo_riel, sla_garantizado,
+                es_entidad_regulada, nivel_criticidad,
+                numero_licencia, certificaciones,
+                partner_respaldo, pct_concentracion
             FROM aliados 
             WHERE 1=1
         """
@@ -302,15 +346,17 @@ class PartnerRepository:
         if not row:
             return 0.0, "Medio"
         score, nivel = calcular_puntaje_riesgo(row)
+        criticidad = calcular_nivel_criticidad(nivel, bool(row.get("es_entidad_regulada", False)))
         id_final = actualizado_por if actualizado_por > 0 else 1
         self.session.execute(
             text("""
                 UPDATE aliados
                 SET puntaje_riesgo = :score, nivel_riesgo = :nivel,
-                    actualizado_por = :uid
+                    nivel_criticidad = :criticidad, actualizado_por = :uid
                 WHERE id = :id
             """),
-            {"score": score, "nivel": nivel, "uid": id_final, "id": aliado_id},
+            {"score": score, "nivel": nivel, "criticidad": criticidad,
+             "uid": id_final, "id": aliado_id},
         )
         self.session.commit()
         return score, nivel

@@ -126,6 +126,8 @@ class Roles:
     )
     # Pueden editar jurisdicciones (campo que afecta scoring SARLAFT)
     CAN_EDIT_JURISDICTIONS: frozenset[str] = frozenset({"admin", "compliance"})
+    # Pueden editar campos de Criticidad y Cumplimiento ISO (licencias, certificaciones)
+    CAN_EDIT_COMPLIANCE: frozenset[str] = frozenset({"admin", "compliance"})
 
 # ── Pipeline de estados de aliados ───────────────────────
 class EstadosAliado:
@@ -242,3 +244,45 @@ class Jurisdicciones:
         "🇧🇲 Bermuda",
         "🇻🇬 Islas Vírgenes (UK)",
     })
+
+
+# ── Tipos de Riel de Pago ─────────────────────────────────────
+class TiposRiel:
+    DISPERSION = "Dispersión"
+    RECAUDO    = "Recaudo"
+    CRYPTO     = "Crypto"
+    MIXTO      = "Mixto"
+    NA         = "N/A"
+
+    ALL = [DISPERSION, RECAUDO, CRYPTO, MIXTO, NA]
+
+
+# ── Niveles de Criticidad Operativa (ISO / SARLAFT) ───────────
+class NivelesCriticidad:
+    """
+    Etiqueta de Debida Diligencia conforme a GAFI / ISO 31000.
+
+    DDI  — Debida Diligencia Intensificada (monitoreo constante)
+    DDS  — Debida Diligencia Simplificada
+    DDI - Entidad Regulada — Partner con licencia financiera y score técnico alto:
+          la complejidad es esperada, no es señal de peligro.
+    Estándar — Bajo riesgo residual.
+    """
+    DDI_REGULADA    = "DDI - Entidad Regulada"
+    DDI             = "DDI"
+    DDS_ALTO        = "DDS-Alto"
+    DDS_SIMPLIFICADO = "DDS-Simplificado"
+    ESTANDAR        = "Estándar"
+
+    ALL = [DDI_REGULADA, DDI, DDS_ALTO, DDS_SIMPLIFICADO, ESTANDAR]
+
+
+# ── Certificaciones ISO y de Seguridad ────────────────────────
+class CertificacionesISO:
+    ISO_27001 = "ISO 27001"
+    PCI_DSS   = "PCI-DSS"
+    ISO_9001  = "ISO 9001"
+    SOC2      = "SOC 2"
+    ISO_20000 = "ISO 20000"
+
+    ALL = [ISO_27001, PCI_DSS, ISO_9001, SOC2, ISO_20000]
