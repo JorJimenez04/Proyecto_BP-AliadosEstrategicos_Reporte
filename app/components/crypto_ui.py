@@ -281,36 +281,33 @@ def _tab_clientes(user: dict) -> None:
     else:
         st.caption(f"{len(clientes)} cliente{'s' if len(clientes) != 1 else ''} registrado{'s' if len(clientes) != 1 else ''}")
         for cl in clientes:
-            total_wallets = int(cl.get("total_wallets") or 0)
+            total_wallets  = int(cl.get("total_wallets") or 0)
             exposure_total = float(cl.get("exposure_total") or 0)
-            nivel_badge = ""
-            if total_wallets > 0:
-                nivel_badge = f"<span style='color:#5fe9d0;font-size:0.75rem;'>{total_wallets} wallet{'s' if total_wallets != 1 else ''}</span>"
+            wallets_txt    = f"{total_wallets} wallet{'s' if total_wallets != 1 else ''}" if total_wallets > 0 else ""
+            wallets_html   = f"<span style=\"color:#5fe9d0;font-size:0.75rem;\">{wallets_txt}</span>" if wallets_txt else ""
 
-            st.markdown(
-                f"""<div style='border:1px solid #374151;border-radius:10px;
-                padding:14px 18px;background:#111827;margin-bottom:10px;'>
-                <div style='display:flex;justify-content:space-between;align-items:flex-start;'>
-                    <div>
-                        <div style='color:#f9fafb;font-weight:700;font-size:1rem;'>
-                            🏢 {cl['razon_social']}
-                        </div>
-                        <div style='color:#9ca3af;font-size:0.8rem;margin-top:4px;'>
-                            NIT: {cl.get('nit') or '—'} &nbsp;·&nbsp;
-                            Rep: {cl.get('representante_legal') or '—'} &nbsp;·&nbsp;
-                            {cl.get('correo_corporativo') or '—'}
-                        </div>
-                    </div>
-                    <div style='text-align:right;'>
-                        {nivel_badge}
-                        <div style='color:#f59e0b;font-size:0.85rem;font-weight:700;margin-top:4px;'>
-                            💰 ${exposure_total:,.0f} USD
-                        </div>
-                    </div>
-                </div>
-                </div>""",
-                unsafe_allow_html=True,
+            html = (
+                "<div style=\"border:1px solid #374151;border-radius:10px;"
+                "padding:14px 18px;background:#111827;margin-bottom:10px;\">"
+                "<div style=\"display:flex;justify-content:space-between;align-items:flex-start;\">"
+                "<div>"
+                f"<div style=\"color:#f9fafb;font-weight:700;font-size:1rem;\">🏢 {cl['razon_social']}</div>"
+                f"<div style=\"color:#9ca3af;font-size:0.8rem;margin-top:4px;\">"
+                f"NIT: {cl.get('nit') or '—'} &nbsp;&middot;&nbsp;"
+                f"Rep: {cl.get('representante_legal') or '—'} &nbsp;&middot;&nbsp;"
+                f"{cl.get('correo_corporativo') or '—'}"
+                "</div>"
+                "</div>"
+                "<div style=\"text-align:right;\">"
+                f"{wallets_html}"
+                f"<div style=\"color:#f59e0b;font-size:0.85rem;font-weight:700;margin-top:4px;\">"
+                f"💰 ${exposure_total:,.0f} USD"
+                "</div>"
+                "</div>"
+                "</div>"
+                "</div>"
             )
+            st.markdown(html, unsafe_allow_html=True)
             col_ver, col_esp = st.columns([1, 5])
             with col_ver:
                 if st.button("📋 Ver Wallets", key=f"ver_cl_{cl['id']}"):
