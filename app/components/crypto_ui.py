@@ -217,6 +217,11 @@ def _ficha_wallet(wallet: dict, user: dict) -> None:
                 desc       = ind.get("descripcion") or ""
                 flag_icon  = "🔴" if nivel_ind == "Crítico" else ("🟠" if nivel_ind == "Alto" else ("🟡" if nivel_ind == "Medio" else "🟢"))
 
+                pct_html    = f'<span style="color:#9ca3af;font-size:0.78rem;">📊 Exp: {round(pct, 1)}%</span>' if pct else ""
+                flujo_html  = f'<span style="color:#9ca3af;font-size:0.78rem;">🏷️ {flujo}</span>' if flujo else ""
+                source_html = f'<span style="color:#9ca3af;font-size:0.78rem;">📌 {source}</span>' if source else ""
+                desc_html   = f'<div style="color:#6b7280;font-size:0.75rem;margin-top:4px;">{desc}</div>' if desc else ""
+
                 st.markdown(
                     f"<div style='background:#1f2937;border-left:3px solid {flag_color};"
                     f"padding:10px 14px;border-radius:6px;margin-bottom:8px;'>"
@@ -229,11 +234,9 @@ def _ficha_wallet(wallet: dict, user: dict) -> None:
                     f"<span style='color:{flag_color};font-size:0.78rem;font-weight:700;"
                     f"background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:10px;'>"
                     f"{nivel_badge}</span>"
-                    f"{'<span style=\"color:#9ca3af;font-size:0.78rem;\">📊 Exp: ' + str(round(pct,1)) + '%</span>' if pct else ''}"
-                    f"{'<span style=\"color:#9ca3af;font-size:0.78rem;\">🏷️ ' + flujo + '</span>' if flujo else ''}"
-                    f"{'<span style=\"color:#9ca3af;font-size:0.78rem;\">📌 ' + source + '</span>' if source else ''}"
+                    f"{pct_html}{flujo_html}{source_html}"
                     f"</div>"
-                    f"{'<div style=\"color:#6b7280;font-size:0.75rem;margin-top:4px;\">' + desc + '</div>' if desc else ''}"
+                    f"{desc_html}"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
