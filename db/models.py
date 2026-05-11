@@ -405,6 +405,27 @@ class CryptoClienteCreate(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CryptoClienteOut(BaseModel):
+    """Modelo de salida para un cliente corporativo (incluye métricas calculadas)."""
+    id:                  int
+    razon_social:        str
+    nit:                 Optional[str]  = None
+    representante_legal: Optional[str]  = None
+    correo_corporativo:  Optional[str]  = None
+    telefono:            Optional[str]  = None
+    direccion:           Optional[str]  = None
+    fecha_onboarding:    Optional[date] = None
+    notas:               Optional[str]  = None
+    creado_por:          Optional[str]  = None
+    created_at:          Optional[datetime] = None
+    updated_at:          Optional[datetime] = None
+    # Métricas calculadas via JOIN
+    total_wallets:       int            = 0
+    exposure_total:      float          = 0.0
+
+    model_config = {"from_attributes": True}
+
+
 class WalletMonitorCreate(BaseModel):
     """
     Modelo para registrar o actualizar una wallet desde la respuesta

@@ -105,30 +105,39 @@ Proyecto_PartnersStatus/
 │   │   │                              # Cards próximas revisiones 30 días · DDI (GAFI R.1/R.12)
 │   │   ├── 📄 crypto_ui.py            # 🛡️ Cripto Compliance — VASP Monitor (Global Ledger)
 │   │   │                              # Acceso: solo admin y compliance (RBAC)
-│   │   │                              # page_crypto_compliance(user): 3 tabs principales
-│   │   │                              #   📋 Monitor de Wallets:
+│   │   │                              # page_crypto_compliance(user): 4 tabs
+│   │   │                              #   👥 Clientes (tab_clientes):
+│   │   │                              #     Registro de clientes corporativos (crypto_clientes)
+│   │   │                              #     Cards HTML con razon_social · NIT · representante
+│   │   │                              #     Expander por cliente: wallets vinculadas + exposure
+│   │   │                              #     Formulario crear cliente (CryptoClienteCreate)
+│   │   │                              #   📋 Monitor de Wallets (tab_monitor):
 │   │   │                              #     filtros: nivel riesgo · blockchain · solo_criticos · texto
-│   │   │                              #     _card_wallet(): tarjeta con score-bar GL, pill nivel,
-│   │   │                              #       badge labels críticas, exposure USD, botón 📋 Ver Ficha
+│   │   │                              #     búsqueda textual incluye razon_social via JOIN
+│   │   │                              #     _card_wallet(): score-bar GL, pill nivel, badge labels,
+│   │   │                              #       exposure USD, botón 📋 Ver Ficha
 │   │   │                              #     _ficha_wallet(): panel detalle 3 tabs
 │   │   │                              #       📊 Resumen: score-bar, exposure, cliente, metadatos
-│   │   │                              #       🚩 Risk Labels: lista con color rojo/amarillo por label
+│   │   │                              #       🚩 Risk Labels: lista con color por severidad
 │   │   │                              #         labels críticos: Sanctioned Exchange, OFAC, Darknet,
 │   │   │                              #         Ransomware, Scam, Terrorism Financing, Mixer, etc.
 │   │   │                              #       📝 Notas & Reporte: link_button PDF · notas internas
-│   │   │                              #   📊 Reporte Gerencial:
+│   │   │                              #   📊 Reporte Gerencial (tab_gerencial):
 │   │   │                              #     render_gerencial_crypto(session):
+│   │   │                              #       selectbox filtro por cliente (todos o específico)
 │   │   │                              #       4 KPI cards: total · exposure USD · atención · críticas
 │   │   │                              #       Pie chart distribución riesgo (Plotly)
 │   │   │                              #       Bar chart distribución por blockchain
 │   │   │                              #       Tabla atención prioritaria (score<30 o Crítico/Alto)
-│   │   │                              #   ➕ Registrar Wallet:
-│   │   │                              #     _form_nueva_wallet(user): address · blockchain · cliente
+│   │   │                              #   ➕ Vincular Wallet (tab_wallet):
+│   │   │                              #     selectbox obligatorio: elegir cliente corporativo
+│   │   │                              #     _form_nueva_wallet(user): address · blockchain
 │   │   │                              #     GL Score · nivel manual · exposure USD
 │   │   │                              #     Risk Labels JSON raw (pegar respuesta GL)
 │   │   │                              #     URL PDF · fecha reporte · notas
 │   │   │                              #     upsert: si wallet existe la actualiza (ON CONFLICT)
 │   │   │                              # Helpers: _pill() · _score_bar() · _parse_labels()
+│   │   │                              # Cache: _get_clientes_cached(ttl=300) · _get_wallets_cached()
 │   │   │                              # Paleta: Crítico=#ef4444 · Alto=#f97316 · Medio=#f59e0b
 │   │   │                              #   Bajo=#22c55e · Sin Datos=#6b7280
 │   │   │                              # Iconos blockchain: ⟠ETH · ₿BTC · 🔶BNB · 🔴TRX · ◎SOL
@@ -271,10 +280,16 @@ Proyecto_PartnersStatus/
 │   │                                  # — Cripto Compliance (migración 019) —
 │   │                                  # RiskLabel: label · exposure_pct · source
 │   │                                  # WalletMonitorCreate: wallet_address · blockchain · client_id
-│   │                                  #   gl_score(0-100) · riesgo_nivel · risk_labels[RiskLabel]
-│   │                                  #   total_exposure · pdf_report_url · last_report_date
-│   │                                  #   validator: normaliza address, calcula nivel desde score
+│   │                                  #   crypto_cliente_id (FK) · gl_score(0-100) · riesgo_nivel
+│   │                                  #   risk_labels[RiskLabel] · total_exposure · pdf_report_url
+│   │                                  #   last_report_date · validator: normaliza address, calcula nivel
 │   │                                  # WalletMonitorOut: modelo completo de salida
+│   │                                  # — Clientes Corporativos Cripto (migración 020) —
+│   │                                  # CryptoClienteCreate: razon_social · nit · representante_legal
+│   │                                  #   correo_corporativo · telefono · direccion
+│   │                                  #   fecha_onboarding · notas · creado_por
+│   │                                  # CryptoClienteOut: todos los campos de Create + id
+│   │                                  #   created_at · updated_at · total_wallets=0 · exposure_total=0.0
 │   │
 │   ├── 📂 migrations/                 # Scripts SQL versionados (PostgreSQL · idempotentes)
 │   │   ├── 📄 001_initial_schema_pg.sql          # Esquema inicial: tablas, índices y triggers
@@ -319,15 +334,27 @@ Proyecto_PartnersStatus/
 │   │   │                                        #   índices: nivel_criticidad · entidad_regulada · GIN certs
 │   │   │                                        #   backfill nivel_criticidad en registros existentes
 │   │   └── 📄 019_create_crypto_compliance_schema.sql  # Módulo Cripto Compliance (VASP Monitor)
-│                                                       #   tabla crypto_monitoreo:
-│                                                       #     wallet_address (UNIQUE) · blockchain
-│                                                       #     client_id (FK aliados ON DELETE SET NULL)
-│                                                       #     gl_score INT (0-100) · riesgo_nivel TEXT
-│                                                       #     risk_labels JSONB DEFAULT '[]'
-│                                                       #     total_exposure NUMERIC · pdf_report_url
-│                                                       #     last_report_date · registrado_por · notas
-│                                                       #   índices: client_id · riesgo_nivel · gl_score
-│                                                       #     GIN risk_labels · trigger updated_at
+│       │                                               #   tabla crypto_monitoreo:
+│       │                                               #     wallet_address (UNIQUE) · blockchain
+│       │                                               #     client_id (FK aliados ON DELETE SET NULL)
+│       │                                               #     gl_score INT (0-100) · riesgo_nivel TEXT
+│       │                                               #     risk_labels JSONB DEFAULT '[]'
+│       │                                               #     total_exposure NUMERIC · pdf_report_url
+│       │                                               #     last_report_date · registrado_por · notas
+│       │                                               #   índices: client_id · riesgo_nivel · gl_score
+│       │                                               #     GIN risk_labels · trigger updated_at
+│       └── 📄 020_create_crypto_clients_table.sql    # Clientes Corporativos para VASP
+│                                                       #   tabla crypto_clientes:
+│                                                       #     id SERIAL PK · razon_social (NOT NULL)
+│                                                       #     nit (UNIQUE) · representante_legal
+│                                                       #     correo_corporativo · telefono · direccion
+│                                                       #     fecha_onboarding DATE · notas
+│                                                       #     creado_por · created_at · updated_at
+│                                                       #   ALTER TABLE crypto_monitoreo:
+│                                                       #     ADD COLUMN crypto_cliente_id INTEGER
+│                                                       #       REFERENCES crypto_clientes(id)
+│                                                       #       ON DELETE SET NULL
+│                                                       #   índice: crypto_cliente_id · trigger updated_at
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
@@ -354,18 +381,34 @@ Proyecto_PartnersStatus/
 │       │                              #   acepta valores_anteriores/nuevos como dict (no str)
 │       │                              #   usuario_id=0 → NULL (FK safe)
 │       │                              # list_log() · get_actividad_usuario()
-│       ├── 📄 crypto_repo.py          # Repositorio Cripto Compliance (VASP Monitor)
+│       ├── 📄 crypto_repo.py          # Repositorio Cripto Compliance — Clientes + VASP Monitor
 │       │                              # CryptoRepository(session):
-│       │                              # upsert_from_gl(WalletMonitorCreate) — ON CONFLICT wallet_address
-│       │                              #   calcula nivel automático si riesgo_nivel='Sin Datos'
-│       │                              # get_by_address(addr) · get_by_id(id)
-│       │                              # get_lista(client_id, riesgo_nivel, blockchain,
-│       │                              #   solo_criticos, search_text) — score<30 o Crítico/Alto
-│       │                              # get_stats_gerencial() — conteos por nivel + por_blockchain
-│       │                              # get_atencion_prioritaria() — score<30 o nivel Crítico/Alto
-│       │                              # delete(wallet_id) → bool
-│       │                              # score_a_nivel_riesgo(score) — helper: ≥70=Bajo, 40-70=Medio,
-│       │                              #   20-40=Alto, <20=Crítico
+│       │                              # — Clientes Corporativos:
+│       │                              #   crear_cliente(CryptoClienteCreate) → dict
+│       │                              #   get_clientes(search='') → list[dict]
+│       │                              #     LEFT JOIN con crypto_monitoreo si FK existe
+│       │                              #     fallback via information_schema.columns
+│       │                              #   get_cliente_by_id(id) → Optional[dict]
+│       │                              #   get_wallets_by_cliente(cliente_id) → list[dict]
+│       │                              #   get_stats_by_cliente(cliente_id) → dict
+│       │                              #     exposure_total · distribución por nivel
+│       │                              # — Wallets VASP:
+│       │                              #   upsert_from_gl(WalletMonitorCreate) — ON CONFLICT wallet_address
+│       │                              #     persiste crypto_cliente_id · calcula nivel si 'Sin Datos'
+│       │                              #   get_by_address(addr) · get_by_id(id)
+│       │                              #   get_lista(client_id, riesgo_nivel, blockchain,
+│       │                              #     solo_criticos, search_text):
+│       │                              #     LEFT JOIN crypto_clientes → razon_social via COALESCE
+│       │                              #     búsqueda textual incluye razon_social
+│       │                              #     fallback sin JOIN si columna FK no existe aún
+│       │                              #   get_stats_gerencial() — information_schema check primero
+│       │                              #     conteos por nivel · exposure total · por_blockchain
+│       │                              #   get_atencion_prioritaria() — score<30 o Crítico/Alto
+│       │                              #   delete(wallet_id) → bool
+│       │                              # — Helpers:
+│       │                              #   score_a_nivel_riesgo(score) — ≥70=Bajo, 40-70=Medio,
+│       │                              #     20-40=Alto, <20=Crítico
+│       │                              #   _columna_existe(tabla, columna) → bool (info_schema)
 │       │                              # _LABELS_CRITICOS: Sanctioned Exchange · OFAC · Darknet
 │       │                              #   Ransomware · Scam · Terrorism Financing · Mixer
 │       ├── 📄 compliance_repo.py      # CRUD de compliance_documentos

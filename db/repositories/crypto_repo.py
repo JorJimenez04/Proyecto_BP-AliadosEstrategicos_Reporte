@@ -323,40 +323,59 @@ class CryptoRepository:
         search_text: Optional[str] = None,
     ) -> list[dict]:
         """
-        Devuelve la lista de wallets con filtros opcionales.
-        solo_criticos = True → score < 30 O contiene label sancionada.
-        Retorna [] si la tabla aún no existe (migración pendiente).
+        Devuelve wallets enriquecidas con JOIN a crypto_clientes.
+        razon_social sobreescribe client_nombre si el cliente está vinculado.
+        solo_criticos = True → score < 30 O nivel Crítico/Alto.
         """
-        # Columnas en el SELECT deben coincidir 1:1 con el esquema de crypto_monitoreo
-        # y con los campos que consume la UI (client_nombre, exposure_currency incluidos).
-        query = """
-            SELECT id, wallet_address, blockchain,
-                   crypto_cliente_id, client_id, client_nombre,
-                   gl_score, riesgo_nivel, risk_labels,
-                   total_exposure, exposure_currency,
-                   pdf_report_url, last_report_date,
-                   registrado_por, notas, created_at, updated_at
-            FROM crypto_monitoreo
-            WHERE 1=1
-        """
+        # Verificar si la columna FK existe para el LEFT JOIN
+        col_fk_existe = self._columna_existe("crypto_monitoreo", "crypto_cliente_id")
+
+        if col_fk_existe:
+            query = """
+                SELECT cm.id, cm.wallet_address, cm.blockchain,
+                       cm.crypto_cliente_id, cm.client_id,
+                       COALESCE(cc.razon_social, cm.client_nombre) AS client_nombre,
+                       cm.gl_score, cm.riesgo_nivel, cm.risk_labels,
+                       cm.total_exposure, cm.exposure_currency,
+                       cm.pdf_report_url, cm.last_report_date,
+                       cm.registrado_por, cm.notas, cm.created_at, cm.updated_at
+                FROM crypto_monitoreo cm
+                LEFT JOIN crypto_clientes cc ON cc.id = cm.crypto_cliente_id
+                WHERE 1=1
+            """
+        else:
+            query = """
+                SELECT id, wallet_address, blockchain,
+                       NULL AS crypto_cliente_id, client_id, client_nombre,
+                       gl_score, riesgo_nivel, risk_labels,
+                       total_exposure, exposure_currency,
+                       pdf_report_url, last_report_date,
+                       registrado_por, notas, created_at, updated_at
+                FROM crypto_monitoreo
+                WHERE 1=1
+            """
         params: dict = {}
+        alias = "cm." if col_fk_existe else ""
 
         if client_id:
-            query += " AND client_id = :client_id"
+            query += f" AND {alias}client_id = :client_id"
             params["client_id"] = client_id
         if riesgo_nivel:
-            query += " AND riesgo_nivel = :riesgo_nivel"
+            query += f" AND {alias}riesgo_nivel = :riesgo_nivel"
             params["riesgo_nivel"] = riesgo_nivel
         if blockchain:
-            query += " AND blockchain = :blockchain"
+            query += f" AND {alias}blockchain = :blockchain"
             params["blockchain"] = blockchain
         if solo_criticos:
-            query += " AND (gl_score < 30 OR riesgo_nivel IN ('Crítico','Alto'))"
+            query += f" AND ({alias}gl_score < 30 OR {alias}riesgo_nivel IN ('Crítico','Alto'))"
         if search_text:
-            query += " AND (wallet_address ILIKE :search OR client_nombre ILIKE :search)"
+            if col_fk_existe:
+                query += " AND (cm.wallet_address ILIKE :search OR cm.client_nombre ILIKE :search OR cc.razon_social ILIKE :search)"
+            else:
+                query += " AND (wallet_address ILIKE :search OR client_nombre ILIKE :search)"
             params["search"] = f"%{search_text}%"
 
-        query += " ORDER BY gl_score ASC NULLS LAST, updated_at DESC"
+        query += f" ORDER BY {alias}gl_score ASC NULLS LAST, {alias}updated_at DESC"
 
         try:
             rows = self.session.execute(text(query), params).mappings().all()
@@ -365,6 +384,21 @@ class CryptoRepository:
             self.session.rollback()
             logger.warning("get_lista error: %s", exc)
             return []
+
+    def _columna_existe(self, tabla: str, columna: str) -> bool:
+        """Verifica si una columna existe en una tabla via information_schema."""
+        try:
+            return bool(self.session.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name   = :tabla
+                      AND column_name  = :columna
+                )
+            """), {"tabla": tabla, "columna": columna}).scalar())
+        except Exception:
+            return False
+
 
     # ── Métricas para reporte gerencial ──────────────────────
     def get_stats_gerencial(self) -> dict:
