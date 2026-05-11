@@ -1,0 +1,26 @@
+# Forzar LF y UTF-8 sin BOM en todos los archivos de texto
+# Evita que Windows/PowerShell introduzca CRLF o BOM en archivos Python/SQL
+
+* text=auto
+
+# Python — crítico: BOM rompe el parser de CPython
+*.py text eol=lf
+
+# SQL — Railway Query editor es sensible a encoding
+*.sql text eol=lf
+
+# Otros archivos de texto
+*.md text eol=lf
+*.toml text eol=lf
+*.sh text eol=lf
+*.env text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binarios — no tocar
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
