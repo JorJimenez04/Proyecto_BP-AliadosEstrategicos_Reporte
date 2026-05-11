@@ -226,6 +226,23 @@ class CryptoRepository:
         Si la tabla no existe (migración pendiente), retorna _STATS_VACIAS
         con '_tabla_no_existe': True para que la UI muestre el aviso correcto.
         """
+        # Verificar existencia con information_schema antes de consultar
+        # (evita ProgrammingError y estados de conexión corruptos en el pool)
+        try:
+            tabla_existe = self.session.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name   = 'crypto_monitoreo'
+                )
+            """)).scalar()
+        except Exception:
+            return dict(_STATS_VACIAS)
+
+        if not tabla_existe:
+            logger.warning(_MSG_TABLA_NO_INIT)
+            return dict(_STATS_VACIAS)
+
         try:
             stats = self.session.execute(text("""
                 SELECT
