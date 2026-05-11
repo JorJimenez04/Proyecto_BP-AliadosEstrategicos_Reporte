@@ -483,6 +483,7 @@ def render_gerencial_crypto(session) -> None:
 # ── Página principal del módulo ──────────────────────────────
 def page_crypto_compliance(user: dict) -> None:
     """Punto de entrada del módulo Cripto Compliance."""
+    st.cache_data.clear()  # TODO: eliminar tras confirmar que crypto_monitoreo existe en BD
     try:
         _page_crypto_compliance_inner(user)
     except Exception as exc:
