@@ -18,6 +18,9 @@ ENV/
 # Variables de entorno (¡NUNCA subir al repo!)
 .env
 
+# Scripts de migración one-shot con credenciales hardcodeadas
+apply_*.py
+
 # Base de datos local SQLite
 data/*.db
 data/*.sqlite
