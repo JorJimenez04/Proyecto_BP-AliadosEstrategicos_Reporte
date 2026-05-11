@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-05-09 (rev. 13)
+> Última actualización: 2026-05-11 (rev. 14)
 
 ---
 
@@ -35,12 +35,15 @@ Proyecto_PartnersStatus/
 │   │                                  #     admin/compliance               → 📋 Log de Auditoría
 │   │                                  #     CAN_VIEW_AGENTES               → 👥 Gestión de Agentes
 │   │                                  #     admin/compliance/comercial/consulta → 📚 Centro Documental
-│   │                                  #   Expander "🏢 Equipos Operativos": carga agentes desde BD
-│   │                                  #   nav_agente en session_state — nunca toca la clave del widget
-│   │                                  # main() router — gatekeepers server-side antes de cada page_*()
-│   │                                  #   🤝 Gestión de Alianzas → page_alianzas(user) (lazy import)
-│   │                                  #   bloquea Auditoría y Gestión de Agentes si rol insuficiente
-│   │                                  #   📚 Centro Documental → page_compliance(user) (lazy import)
+│                                      #     CAN_VIEW_CRYPTO (admin/compliance) → 🛡️ Cripto Compliance
+│                                      #   Expander "🏢 Equipos Operativos": carga agentes desde BD
+│                                      #   nav_agente en session_state — nunca toca la clave del widget
+│                                      # main() router — gatekeepers server-side antes de cada page_*()
+│                                      #   🤝 Gestión de Alianzas → page_alianzas(user) (lazy import)
+│                                      #   bloquea Auditoría y Gestión de Agentes si rol insuficiente
+│                                      #   📚 Centro Documental → page_compliance(user) (lazy import)
+│                                      #   🛡️ Cripto Compliance → page_crypto_compliance(user) (lazy import)
+│                                      #     RBAC: CAN_VIEW_CRYPTO = {admin, compliance}
 │   │
 │   ├── 📂 auth/                       # Sistema de autenticación y control de acceso
 │   │   ├── 📄 __init__.py
@@ -100,6 +103,35 @@ Proyecto_PartnersStatus/
 │   │   │                              # render_centro_notificaciones() — SARLAFT vencidas
 │   │   │                              # Cards con botón ⚡ Acción Rápida (re-calificación)
 │   │   │                              # Cards próximas revisiones 30 días · DDI (GAFI R.1/R.12)
+│   │   ├── 📄 crypto_ui.py            # 🛡️ Cripto Compliance — VASP Monitor (Global Ledger)
+│   │   │                              # Acceso: solo admin y compliance (RBAC)
+│   │   │                              # page_crypto_compliance(user): 3 tabs principales
+│   │   │                              #   📋 Monitor de Wallets:
+│   │   │                              #     filtros: nivel riesgo · blockchain · solo_criticos · texto
+│   │   │                              #     _card_wallet(): tarjeta con score-bar GL, pill nivel,
+│   │   │                              #       badge labels críticas, exposure USD, botón 📋 Ver Ficha
+│   │   │                              #     _ficha_wallet(): panel detalle 3 tabs
+│   │   │                              #       📊 Resumen: score-bar, exposure, cliente, metadatos
+│   │   │                              #       🚩 Risk Labels: lista con color rojo/amarillo por label
+│   │   │                              #         labels críticos: Sanctioned Exchange, OFAC, Darknet,
+│   │   │                              #         Ransomware, Scam, Terrorism Financing, Mixer, etc.
+│   │   │                              #       📝 Notas & Reporte: link_button PDF · notas internas
+│   │   │                              #   📊 Reporte Gerencial:
+│   │   │                              #     render_gerencial_crypto(session):
+│   │   │                              #       4 KPI cards: total · exposure USD · atención · críticas
+│   │   │                              #       Pie chart distribución riesgo (Plotly)
+│   │   │                              #       Bar chart distribución por blockchain
+│   │   │                              #       Tabla atención prioritaria (score<30 o Crítico/Alto)
+│   │   │                              #   ➕ Registrar Wallet:
+│   │   │                              #     _form_nueva_wallet(user): address · blockchain · cliente
+│   │   │                              #     GL Score · nivel manual · exposure USD
+│   │   │                              #     Risk Labels JSON raw (pegar respuesta GL)
+│   │   │                              #     URL PDF · fecha reporte · notas
+│   │   │                              #     upsert: si wallet existe la actualiza (ON CONFLICT)
+│   │   │                              # Helpers: _pill() · _score_bar() · _parse_labels()
+│   │   │                              # Paleta: Crítico=#ef4444 · Alto=#f97316 · Medio=#f59e0b
+│   │   │                              #   Bajo=#22c55e · Sin Datos=#6b7280
+│   │   │                              # Iconos blockchain: ⟠ETH · ₿BTC · 🔶BNB · 🔴TRX · ◎SOL
 │   │   ├── 📄 compliance_ui.py        # Centro Documental de Cumplimiento — page_compliance(user)
 │   │   │                              # Accesible para roles: admin · compliance · comercial · consulta
 │   │   │                              # Filtro empresa: Todas · Holdings BPO · PayCOP · Adamo Services
@@ -209,6 +241,12 @@ Proyecto_PartnersStatus/
 │                                      # Jurisdicciones.ALL (~45 países con emoji) · Jurisdicciones.ALTO_RIESGO
 │                                      #   (GAFI blacklist: Irán · Corea del Norte · Cuba · Venezuela · offshore)
 │                                      # Roles.CAN_EDIT_JURISDICTIONS = frozenset({"admin","compliance"})
+│                                      # Roles.CAN_EDIT_COMPLIANCE    = frozenset({"admin","compliance"})
+│                                      # Roles.CAN_VIEW_CRYPTO        = frozenset({"admin","compliance"})
+│                                      # TiposRiel: Dispersión · Recaudo · Crypto · Mixto · N/A
+│                                      # NivelesCriticidad: DDI - Entidad Regulada · DDI · DDS-Alto
+│                                      #   DDS-Simplificado · Estándar (ISO/GAFI operativo)
+│                                      # CertificacionesISO: ISO 27001 · PCI-DSS · SOC 2 · ISO 9001 · ISO 20000
 │
 ├── 📂 db/                             # Capa de datos
 │   ├── 📄 __init__.py
@@ -225,6 +263,18 @@ Proyecto_PartnersStatus/
 │   │                                  # UsuarioBase · UsuarioCreate · UsuarioUpdate · UsuarioOut
 │   │                                  # AliadoBase.jurisdicciones: List[str] = [] (campo de dominio)
 │   │                                  # AliadoUpdate.jurisdicciones: Optional[List[str]] = None
+│   │                                  # — Ficha Técnica del Riel (migración 018) —
+│   │                                  # AliadoBase: tipo_riel · sla_garantizado · numero_licencia
+│   │                                  #   fecha_ultima_auditoria · certificaciones[] · es_entidad_regulada
+│   │                                  #   partner_respaldo · pct_concentracion · nivel_criticidad
+│   │                                  #   validator nivel_criticidad tolerante (None → 'Estándar')
+│   │                                  # — Cripto Compliance (migración 019) —
+│   │                                  # RiskLabel: label · exposure_pct · source
+│   │                                  # WalletMonitorCreate: wallet_address · blockchain · client_id
+│   │                                  #   gl_score(0-100) · riesgo_nivel · risk_labels[RiskLabel]
+│   │                                  #   total_exposure · pdf_report_url · last_report_date
+│   │                                  #   validator: normaliza address, calcula nivel desde score
+│   │                                  # WalletMonitorOut: modelo completo de salida
 │   │
 │   ├── 📂 migrations/                 # Scripts SQL versionados (PostgreSQL · idempotentes)
 │   │   ├── 📄 001_initial_schema_pg.sql          # Esquema inicial: tablas, índices y triggers
@@ -259,8 +309,25 @@ Proyecto_PartnersStatus/
 │   │   │                                        #   UPDATE filas + DROP/ADD CHECK constraint
 │   │   ├── 📄 016_add_nuevas_carpetas.sql        # Amplía CHECK constraint con 4 nuevas carpetas
 │   │   │                                        #   Contratos · Actas y Formatos · Matrices · Tecnologia
-│   │   └── 📄 017_add_partner_jurisdictions.sql  # Columna jurisdicciones TEXT[] NOT NULL DEFAULT '{}'
-│                                                #   índice GIN para búsquedas array eficientes
+│   │   ├── 📄 017_add_partner_jurisdictions.sql  # Columna jurisdicciones TEXT[] NOT NULL DEFAULT '{}'
+│   │   │                                        #   índice GIN para búsquedas array eficientes
+│   │   ├── 📄 018_ficha_tecnica_riel.sql         # Ficha Técnica del Riel y Criticidad Operativa
+│   │   │                                        #   tipo_riel · sla_garantizado · numero_licencia
+│   │   │                                        #   fecha_ultima_auditoria · certificaciones TEXT[]
+│   │   │                                        #   es_entidad_regulada · partner_respaldo
+│   │   │                                        #   pct_concentracion · nivel_criticidad
+│   │   │                                        #   índices: nivel_criticidad · entidad_regulada · GIN certs
+│   │   │                                        #   backfill nivel_criticidad en registros existentes
+│   │   └── 📄 019_create_crypto_compliance_schema.sql  # Módulo Cripto Compliance (VASP Monitor)
+│                                                       #   tabla crypto_monitoreo:
+│                                                       #     wallet_address (UNIQUE) · blockchain
+│                                                       #     client_id (FK aliados ON DELETE SET NULL)
+│                                                       #     gl_score INT (0-100) · riesgo_nivel TEXT
+│                                                       #     risk_labels JSONB DEFAULT '[]'
+│                                                       #     total_exposure NUMERIC · pdf_report_url
+│                                                       #     last_report_date · registrado_por · notas
+│                                                       #   índices: client_id · riesgo_nivel · gl_score
+│                                                       #     GIN risk_labels · trigger updated_at
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
@@ -287,6 +354,20 @@ Proyecto_PartnersStatus/
 │       │                              #   acepta valores_anteriores/nuevos como dict (no str)
 │       │                              #   usuario_id=0 → NULL (FK safe)
 │       │                              # list_log() · get_actividad_usuario()
+│       ├── 📄 crypto_repo.py          # Repositorio Cripto Compliance (VASP Monitor)
+│       │                              # CryptoRepository(session):
+│       │                              # upsert_from_gl(WalletMonitorCreate) — ON CONFLICT wallet_address
+│       │                              #   calcula nivel automático si riesgo_nivel='Sin Datos'
+│       │                              # get_by_address(addr) · get_by_id(id)
+│       │                              # get_lista(client_id, riesgo_nivel, blockchain,
+│       │                              #   solo_criticos, search_text) — score<30 o Crítico/Alto
+│       │                              # get_stats_gerencial() — conteos por nivel + por_blockchain
+│       │                              # get_atencion_prioritaria() — score<30 o nivel Crítico/Alto
+│       │                              # delete(wallet_id) → bool
+│       │                              # score_a_nivel_riesgo(score) — helper: ≥70=Bajo, 40-70=Medio,
+│       │                              #   20-40=Alto, <20=Crítico
+│       │                              # _LABELS_CRITICOS: Sanctioned Exchange · OFAC · Darknet
+│       │                              #   Ransomware · Scam · Terrorism Financing · Mixer
 │       ├── 📄 compliance_repo.py      # CRUD de compliance_documentos
 │       │                              # get_stats(empresa=None) — totales por estado + por_carpeta
 │       │                              #   por_carpeta incluye: total · vigentes · pendientes · vencidos
