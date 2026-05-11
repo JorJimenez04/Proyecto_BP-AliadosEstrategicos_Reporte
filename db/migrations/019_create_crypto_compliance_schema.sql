@@ -30,12 +30,12 @@ CREATE INDEX IF NOT EXISTS idx_crypto_gl_score ON crypto_monitoreo (gl_score);
 CREATE INDEX IF NOT EXISTS idx_crypto_risk_labels ON crypto_monitoreo USING GIN (risk_labels);
 
 CREATE OR REPLACE FUNCTION fn_update_crypto_updated_at()
-RETURNS TRIGGER AS main
+RETURNS TRIGGER AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-main LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_crypto_updated_at ON crypto_monitoreo;
 CREATE TRIGGER trg_crypto_updated_at
