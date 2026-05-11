@@ -282,36 +282,74 @@ def _tab_clientes(user: dict) -> None:
         for cl in clientes:
             total_wallets  = int(cl.get("total_wallets") or 0)
             exposure_total = float(cl.get("exposure_total") or 0)
-            wallets_txt    = f"{total_wallets} wallet{'s' if total_wallets != 1 else ''}" if total_wallets > 0 else ""
-            wallets_html   = f"<span style=\"color:#5fe9d0;font-size:0.75rem;\">{wallets_txt}</span>" if wallets_txt else ""
+            wallets_badge  = f"🔗 {total_wallets} wallet{'s' if total_wallets != 1 else ''}" if total_wallets > 0 else "Sin wallets"
+            # Determinar color de riesgo de exposición
+            if exposure_total >= 1_000_000:
+                exp_color = "#ef4444"
+            elif exposure_total >= 100_000:
+                exp_color = "#f97316"
+            else:
+                exp_color = "#f59e0b"
 
-            html = (
-                "<div style=\"border:1px solid #374151;border-radius:10px;"
-                "padding:14px 18px;background:#111827;margin-bottom:10px;\">"
-                "<div style=\"display:flex;justify-content:space-between;align-items:flex-start;\">"
-                "<div>"
-                f"<div style=\"color:#f9fafb;font-weight:700;font-size:1rem;\">🏢 {cl['razon_social']}</div>"
-                f"<div style=\"color:#9ca3af;font-size:0.8rem;margin-top:4px;\">"
-                f"NIT: {cl.get('nit') or '—'} &nbsp;&middot;&nbsp;"
-                f"Rep: {cl.get('representante_legal') or '—'} &nbsp;&middot;&nbsp;"
-                f"{cl.get('correo_corporativo') or '—'}"
-                "</div>"
-                "</div>"
-                "<div style=\"text-align:right;\">"
-                f"{wallets_html}"
-                f"<div style=\"color:#f59e0b;font-size:0.85rem;font-weight:700;margin-top:4px;\">"
-                f"💰 ${exposure_total:,.0f} USD"
-                "</div>"
-                "</div>"
-                "</div>"
-                "</div>"
-            )
-            st.markdown(html, unsafe_allow_html=True)
-            col_ver, col_esp = st.columns([1, 5])
-            with col_ver:
-                if st.button("📋 Ver Wallets", key=f"ver_cl_{cl['id']}"):
+            razon_social   = cl["razon_social"]
+            nit_val        = cl.get("nit") or "—"
+            rep_val        = cl.get("representante_legal") or "—"
+            correo_val     = cl.get("correo_corporativo") or "—"
+            exp_fmt        = f"${exposure_total:,.0f} USD"
+
+            expander_label = f"🏢 {razon_social}  ·  {wallets_badge}  ·  💰 {exp_fmt}"
+            with st.expander(expander_label, expanded=False):
+                # Cabecera con info corporativa
+                st.markdown(
+                    f"<div style='background:#111827;border-radius:8px;padding:12px 16px;"
+                    f"border:1px solid #374151;margin-bottom:12px;'>"
+                    f"<div style='color:#9ca3af;font-size:0.82rem;'>"
+                    f"<b style='color:#d1d5db;'>NIT:</b> {nit_val} &nbsp;&nbsp;"
+                    f"<b style='color:#d1d5db;'>Rep. Legal:</b> {rep_val} &nbsp;&nbsp;"
+                    f"<b style='color:#d1d5db;'>Correo:</b> {correo_val}"
+                    f"</div>"
+                    f"<div style='margin-top:8px;color:{exp_color};font-weight:700;font-size:1rem;'>"
+                    f"💰 Exposición Total: {exp_fmt}"
+                    f"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+                # Wallets vinculadas
+                if total_wallets == 0:
+                    st.caption("Sin wallets vinculadas. Ve a ➕ Vincular Wallet para agregar la primera.")
+                else:
+                    try:
+                        w_session = next(get_session())
+                        wallets_cl = CryptoRepository(w_session).get_wallets_by_cliente(cl["id"])
+                        w_session.close()
+                    except Exception:
+                        wallets_cl = []
+                    for w in wallets_cl:
+                        nivel   = w.get("riesgo_nivel", "Sin Datos")
+                        color   = _COLOR_NIVEL.get(nivel, "#6b7280")
+                        score   = w.get("gl_score")
+                        chain   = w.get("blockchain", "ETH")
+                        icon    = _BLOCKCHAIN_ICONS.get(chain, "🔗")
+                        w_exp   = float(w.get("total_exposure") or 0)
+                        s_txt   = str(score) if score is not None else "N/A"
+                        addr    = w["wallet_address"]
+                        addr_sh = f"{addr[:16]}…{addr[-8:]}"
+                        st.markdown(
+                            f"<div style='background:#1f2937;border-left:3px solid {color};"
+                            f"padding:8px 14px;border-radius:6px;margin-bottom:6px;"
+                            f"display:flex;justify-content:space-between;'>"
+                            f"<span style='color:#5fe9d0;font-size:0.78rem;font-family:monospace;'>"
+                            f"{icon} {addr_sh}</span>"
+                            f"<span style='color:{color};font-size:0.78rem;font-weight:700;'>{nivel}</span>"
+                            f"<span style='color:#9ca3af;font-size:0.78rem;'>Score: {s_txt}</span>"
+                            f"<span style='color:#9ca3af;font-size:0.78rem;'>${w_exp:,.0f} USD</span>"
+                            f"</div>",
+                            unsafe_allow_html=True,
+                        )
+                # Botón ir al monitor con filtro activo
+                if st.button("📋 Ver en Monitor", key=f"ver_mon_{cl['id']}", use_container_width=False):
                     st.session_state["crypto_cliente_filtro"] = cl["id"]
-                    st.session_state["crypto_cliente_nombre"] = cl["razon_social"]
+                    st.session_state["crypto_cliente_nombre"] = razon_social
                     st.rerun()
 
     st.markdown("---")
@@ -357,6 +395,136 @@ def _tab_clientes(user: dict) -> None:
                     st.error(f"Error al registrar cliente: {exc}")
 
 
+# ── Parser de reporte Global Ledger ─────────────────────────
+def _parse_gl_report(texto: str) -> dict:
+    """
+    Extrae campos clave de un texto/JSON pegado desde Global Ledger.
+    Retorna dict con claves: wallet_address, blockchain, gl_score,
+    riesgo_nivel, total_exposure, risk_labels (lista de dicts).
+    Los campos no encontrados quedan en None o [].
+    """
+    import re
+
+    result: dict = {
+        "wallet_address": None,
+        "blockchain":     None,
+        "gl_score":       None,
+        "riesgo_nivel":   None,
+        "total_exposure": None,
+        "risk_labels":    [],
+    }
+
+    # ── Intentar parseo JSON primero ──────────────────────────
+    stripped = texto.strip()
+    if stripped.startswith("{"):
+        try:
+            data = json.loads(stripped)
+            result["wallet_address"] = (
+                data.get("address") or data.get("wallet_address") or data.get("wallet")
+            )
+            result["blockchain"] = (
+                data.get("blockchain") or data.get("chain") or data.get("network")
+            )
+            score_raw = data.get("score") or data.get("gl_score") or data.get("risk_score")
+            if score_raw is not None:
+                result["gl_score"] = int(float(score_raw))
+            exp_raw = (
+                data.get("total_exposure") or data.get("exposure") or
+                data.get("totalExposure") or data.get("volume")
+            )
+            if exp_raw is not None:
+                result["total_exposure"] = float(str(exp_raw).replace(",", ""))
+            risk_raw = data.get("labels") or data.get("risk_labels") or data.get("riskLabels") or []
+            if isinstance(risk_raw, list):
+                for item in risk_raw:
+                    if isinstance(item, dict):
+                        result["risk_labels"].append({
+                            "label":        item.get("name") or item.get("label") or "",
+                            "exposure_pct": float(item.get("exposure_pct") or item.get("exposurePct") or 0),
+                            "source":       item.get("source") or "",
+                        })
+                    elif isinstance(item, str):
+                        result["risk_labels"].append({"label": item, "exposure_pct": 0.0, "source": ""})
+        except Exception:
+            pass  # Fallback a regex
+
+    # ── Regex sobre texto plano (cubre PDFs copiados) ─────────
+    # Wallet address — TRX (34 chars base58), ETH (0x...), BTC (bc1/1/3...)
+    if not result["wallet_address"]:
+        m = re.search(r'\b(T[A-HJ-NP-Za-km-z1-9]{33})\b', texto)  # TRX
+        if not m:
+            m = re.search(r'\b(0x[0-9a-fA-F]{40})\b', texto)       # ETH/BNB
+        if not m:
+            m = re.search(r'\b(bc1[a-zA-HJ-NP-Z0-9]{6,87})\b', texto)  # BTC bech32
+        if m:
+            result["wallet_address"] = m.group(1)
+
+    # Blockchain
+    if not result["blockchain"]:
+        bc_map = {
+            r'\bTRON\b|\bTRX\b': "TRX",
+            r'\bEthereum\b|\bETH\b': "ETH",
+            r'\bBitcoin\b|\bBTC\b': "BTC",
+            r'\bBNB\b|\bBinance Smart Chain\b|\bBSC\b': "BNB",
+            r'\bSolana\b|\bSOL\b': "SOL",
+            r'\bPolygon\b|\bMATIC\b': "MATIC",
+        }
+        for pattern, chain in bc_map.items():
+            if re.search(pattern, texto, re.IGNORECASE):
+                result["blockchain"] = chain
+                break
+
+    # Score — busca "Score: 47", "GL Score 47", "Risk Score: 47"
+    if result["gl_score"] is None:
+        m = re.search(r'(?:gl[- ]?score|risk[- ]?score|score)[:\s]+(\d{1,3})', texto, re.IGNORECASE)
+        if m:
+            result["gl_score"] = int(m.group(1))
+
+    # Nivel de riesgo — HIGH, MEDIUM, LOW, CRITICAL
+    if not result["riesgo_nivel"]:
+        nivel_map = {
+            r'\bCRITICAL\b|\bCRITICO\b': "Crítico",
+            r'\bHIGH\b|\bALTO\b': "Alto",
+            r'\bMEDIUM\b|\bMODERATE\b|\bMEDIO\b': "Medio",
+            r'\bLOW\b|\bBAJO\b': "Bajo",
+        }
+        for pattern, nivel in nivel_map.items():
+            if re.search(pattern, texto, re.IGNORECASE):
+                result["riesgo_nivel"] = nivel
+                break
+
+    # Exposure total — busca "2,340,897.66 USD" o "Total Exposure: 2340897.66"
+    if result["total_exposure"] is None:
+        m = re.search(
+            r'(?:total[_ ]?exposure|exposure|volume)[:\s]+\$?([\d,]+\.?\d*)',
+            texto, re.IGNORECASE,
+        )
+        if not m:
+            # Formato numérico grande standalone con USD nearby
+            m = re.search(r'\$?([\d]{1,3}(?:,\d{3})+(?:\.\d+)?)\s*USD', texto, re.IGNORECASE)
+        if m:
+            result["total_exposure"] = float(m.group(1).replace(",", ""))
+
+    # Risk labels en texto libre — busca nombres conocidos
+    if not result["risk_labels"]:
+        known_labels = [
+            "Sanctioned Exchange", "OFAC Sanctioned", "Blacklisted Wallet",
+            "High-Risk Exchange", "Darknet Market", "Ransomware",
+            "Scam", "Terrorism Financing", "Mixer", "Child Abuse Material",
+        ]
+        found = []
+        for lbl in known_labels:
+            if lbl.lower() in texto.lower():
+                found.append({"label": lbl, "exposure_pct": 0.0, "source": ""})
+        result["risk_labels"] = found
+
+    # Política interna: score < 30 → CRÍTICO siempre
+    if result["gl_score"] is not None and result["gl_score"] < 30:
+        result["riesgo_nivel"] = "Crítico"
+
+    return result
+
+
 # ── Tab Vincular Wallet ──────────────────────────────────────
 def _tab_vincular_wallet(user: dict) -> None:
     """Formulario de registro de wallet vinculada a cliente corporativo."""
@@ -371,6 +539,54 @@ def _tab_vincular_wallet(user: dict) -> None:
     opciones_cl = {f"{cl['razon_social']} (NIT: {cl.get('nit') or '—'})": cl["id"] for cl in clientes}
     opciones_labels = list(opciones_cl.keys())
 
+    # ── Paso 1: Pegar reporte GL para prellenado ─────────────
+    st.markdown("#### 📄 Paso 1 — Pegar Reporte Global Ledger *(opcional)*")
+    st.caption("Pega aquí el texto o JSON del reporte. El formulario se pre-llenará automáticamente.")
+    gl_raw = st.text_area(
+        "Reporte Global Ledger",
+        height=130,
+        placeholder='Pega el JSON o texto del reporte GL aquí...\nEj: {"address":"TAHQWz...","score":47,"labels":[...]}',
+        key="gl_raw_report",
+    )
+
+    parsed: dict = {}
+    if gl_raw.strip():
+        parsed = _parse_gl_report(gl_raw)
+        if any(v for v in parsed.values() if v not in (None, [], "")):
+            st.success("✅ Datos extraídos del reporte. Revisa y ajusta si es necesario.")
+            det_cols = st.columns(4)
+            with det_cols[0]:
+                st.markdown(f"**Wallet:** `{(parsed.get('wallet_address') or '—')[:20]}`")
+            with det_cols[1]:
+                st.markdown(f"**Blockchain:** {parsed.get('blockchain') or '—'}")
+            with det_cols[2]:
+                score_p = parsed.get("gl_score")
+                st.markdown(f"**Score:** {score_p if score_p is not None else '—'}")
+            with det_cols[3]:
+                st.markdown(f"**Nivel:** {parsed.get('riesgo_nivel') or '—'}")
+            if parsed.get("risk_labels"):
+                labels_preview = ", ".join(l["label"] for l in parsed["risk_labels"][:5])
+                st.markdown(f"**Labels detectadas:** {labels_preview}")
+        else:
+            st.warning("No se pudo extraer información del texto pegado. Completa el formulario manualmente.")
+
+    st.markdown("#### 📝 Paso 2 — Confirmar y Registrar")
+
+    # Valores iniciales desde parsed o defaults
+    init_address    = parsed.get("wallet_address") or ""
+    init_chain      = parsed.get("blockchain") or "ETH"
+    init_score      = parsed.get("gl_score")
+    init_nivel      = parsed.get("riesgo_nivel") or "Sin Datos"
+    init_exposure   = parsed.get("total_exposure") or 0.0
+    init_labels_raw = json.dumps(parsed.get("risk_labels") or [], ensure_ascii=False)
+
+    # El selectbox de blockchain debe ser un índice válido
+    chain_opts = ["ETH", "BTC", "BNB", "TRX", "SOL", "MATIC", "Otro"]
+    chain_idx  = chain_opts.index(init_chain) if init_chain in chain_opts else 0
+
+    niveles    = ["Sin Datos", "Bajo", "Medio", "Alto", "Crítico"]
+    nivel_idx  = niveles.index(init_nivel) if init_nivel in niveles else 0
+
     with st.form("form_nueva_wallet", clear_on_submit=True):
         st.markdown("**Cliente Corporativo** *(obligatorio)*")
         cliente_seleccionado = st.selectbox("Seleccionar Cliente", opciones_labels)
@@ -378,29 +594,33 @@ def _tab_vincular_wallet(user: dict) -> None:
         st.markdown("**Identificación de la Wallet**")
         col1, col2 = st.columns([3, 1])
         with col1:
-            wallet_address = st.text_input("Dirección de Wallet *", placeholder="0x... o bc1q...")
+            wallet_address = st.text_input(
+                "Dirección de Wallet *",
+                value=init_address,
+                placeholder="0x... o T... o bc1q...",
+            )
         with col2:
-            blockchain = st.selectbox("Blockchain", ["ETH", "BTC", "BNB", "TRX", "SOL", "MATIC", "Otro"])
+            blockchain = st.selectbox("Blockchain", chain_opts, index=chain_idx)
 
         st.markdown("**Datos Global Ledger**")
-        st.caption("💡 Pega los datos del reporte Global Ledger (GL Score, Exposición, Risk Labels)")
         col_a, col_b, col_c = st.columns(3)
         with col_a:
             gl_score_val = st.number_input(
                 "GL Score (0-100)", min_value=0, max_value=100,
-                value=None, placeholder="Ej: 47",
+                value=init_score, placeholder="Ej: 47",
             )
         with col_b:
-            niveles = ["Sin Datos", "Bajo", "Medio", "Alto", "Crítico"]
-            riesgo_manual = st.selectbox("Nivel de Riesgo", niveles)
+            riesgo_manual = st.selectbox("Nivel de Riesgo", niveles, index=nivel_idx)
         with col_c:
-            exposure = st.number_input("Exposición Total", min_value=0.0, value=0.0, step=1000.0,
-                                       placeholder="Ej: 2340897.66")
+            exposure = st.number_input(
+                "Exposición Total", min_value=0.0,
+                value=float(init_exposure), step=1000.0,
+            )
             exposure_currency = st.selectbox("Moneda", ["USD", "EUR", "USDT", "USDC"])
 
         st.markdown("**Risk Labels** *(JSON de Global Ledger)*")
-        st.caption('Ej: `[{"label": "Blacklisted", "exposure_pct": 45.2, "source": "OFAC"}, {"label": "Sanctioned Exchange", "exposure_pct": 12.5, "source": "EU"}]`')
-        labels_raw = st.text_area("Risk Labels JSON", value="[]", height=100)
+        st.caption('Ej: `[{"label": "Blacklisted Wallet", "exposure_pct": 45.2, "source": "OFAC"}]`')
+        labels_raw = st.text_area("Risk Labels JSON", value=init_labels_raw, height=90)
 
         st.markdown("**Reporte**")
         col_p, col_f = st.columns(2)
@@ -409,7 +629,7 @@ def _tab_vincular_wallet(user: dict) -> None:
         with col_f:
             report_date = st.date_input("Fecha del reporte", value=None)
 
-        notas = st.text_area("Notas internas", height=80)
+        notas = st.text_area("Notas internas", height=60)
         submitted = st.form_submit_button("💾 Vincular Wallet", type="primary", use_container_width=True)
 
     if submitted:
@@ -426,9 +646,14 @@ def _tab_vincular_wallet(user: dict) -> None:
             st.error(f"JSON de Risk Labels inválido: {exc}")
             return
 
-        nivel_final = riesgo_manual
-        if nivel_final == "Sin Datos" and gl_score_val is not None:
-            nivel_final = score_a_nivel_riesgo(int(gl_score_val))
+        # Nivel final: política score < 30 → CRÍTICO
+        gl_score_int = int(gl_score_val) if gl_score_val is not None else None
+        if gl_score_int is not None and gl_score_int < 30:
+            nivel_final = "Crítico"
+        elif riesgo_manual == "Sin Datos" and gl_score_int is not None:
+            nivel_final = score_a_nivel_riesgo(gl_score_int)
+        else:
+            nivel_final = riesgo_manual
 
         # Nombre del cliente para desnormalizar
         cliente_nombre = clientes[[cl["id"] for cl in clientes].index(crypto_cliente_id)]["razon_social"]
@@ -438,7 +663,7 @@ def _tab_vincular_wallet(user: dict) -> None:
             blockchain         = blockchain,
             crypto_cliente_id  = crypto_cliente_id,
             client_nombre      = cliente_nombre,
-            gl_score           = int(gl_score_val) if gl_score_val is not None else None,
+            gl_score           = gl_score_int,
             riesgo_nivel       = nivel_final,
             risk_labels        = risk_labels,
             total_exposure     = float(exposure),
@@ -450,8 +675,9 @@ def _tab_vincular_wallet(user: dict) -> None:
         )
 
         try:
-            with next(get_session()) as session:
-                result = CryptoRepository(session).upsert_from_gl(payload)
+            session = next(get_session())
+            result  = CryptoRepository(session).upsert_from_gl(payload)
+            session.close()
 
             _get_wallets_cached.clear()
             _get_clientes_cached.clear()
@@ -459,7 +685,8 @@ def _tab_vincular_wallet(user: dict) -> None:
             color_r = _COLOR_NIVEL.get(nivel_r, "#6b7280")
             st.success(
                 f"✅ Wallet vinculada a **{cliente_nombre}** — "
-                f"Score: **{result.get('gl_score', 'N/A')}** · Nivel: **{nivel_r}**"
+                f"Score: **{result.get('gl_score', 'N/A')}** · Nivel: **{nivel_r}** · "
+                f"Exposición: **${float(result.get('total_exposure') or 0):,.2f} {exposure_currency}**"
             )
             st.rerun()
         except Exception as exc:
@@ -485,30 +712,43 @@ def render_gerencial_crypto(session) -> None:
     filtro_cliente_label = st.selectbox("🏢 Filtrar por Cliente", list(opciones_cl.keys()))
     filtro_cliente_id    = opciones_cl[filtro_cliente_label]
 
-    # Stats específicas por cliente o globales
+    # Stats filtradas por cliente o globales usando get_stats_gerencial
+    stats_filtradas = repo.get_stats_gerencial(cliente_id=filtro_cliente_id) if filtro_cliente_id else stats
+
+    total_wallets = int(stats_filtradas.get("total_wallets") or 0)
+    total_exp     = float(stats_filtradas.get("total_exposure_usd") or 0)
+    nivel_critico = int(stats_filtradas.get("nivel_critico") or 0)
+    nivel_alto    = int(stats_filtradas.get("nivel_alto") or 0)
+    nivel_medio   = int(stats_filtradas.get("nivel_medio") or 0)
+    nivel_bajo    = int(stats_filtradas.get("nivel_bajo") or 0)
+    sin_datos     = int(stats_filtradas.get("sin_datos") or 0)
+    atencion      = int(stats_filtradas.get("atencion_prioritaria") or 0)
+
+    # Wallets prioritarias según filtro
     if filtro_cliente_id:
-        stats_cl = repo.get_stats_by_cliente(filtro_cliente_id)
-        total_wallets = int(stats_cl.get("total_wallets") or 0)
-        total_exp     = float(stats_cl.get("exposure_total") or 0)
-        nivel_critico = int(stats_cl.get("nivel_critico") or 0)
-        nivel_alto    = int(stats_cl.get("nivel_alto") or 0)
-        nivel_medio   = int(stats_cl.get("nivel_medio") or 0)
-        nivel_bajo    = int(stats_cl.get("nivel_bajo") or 0)
-        sin_datos     = int(stats_cl.get("sin_datos") or 0)
-        atencion      = nivel_critico + nivel_alto
-        criticos      = repo.get_wallets_by_cliente(filtro_cliente_id)
-        criticos      = [w for w in criticos if (w.get("gl_score") or 100) < 30
-                         or w.get("riesgo_nivel") in ("Crítico", "Alto")]
+        criticos = repo.get_wallets_by_cliente(filtro_cliente_id)
+        criticos = [w for w in criticos if (w.get("gl_score") or 100) < 30
+                    or w.get("riesgo_nivel") in ("Crítico", "Alto")]
+        # Banner resumen ejecutivo del cliente
+        if total_wallets > 0:
+            nivel_predominante = max(
+                [("Crítico", nivel_critico), ("Alto", nivel_alto), ("Medio", nivel_medio), ("Bajo", nivel_bajo)],
+                key=lambda x: x[1],
+            )[0]
+            color_pred = _COLOR_NIVEL.get(nivel_predominante, "#6b7280")
+            st.markdown(
+                f"<div style='background:#1f2937;border-left:4px solid {color_pred};"
+                f"padding:12px 16px;border-radius:8px;margin-bottom:12px;'>"
+                f"<b style='color:#f9fafb;'>Resumen — {filtro_cliente_label}</b><br>"
+                f"<span style='color:#9ca3af;font-size:0.85rem;'>"
+                f"El cliente tiene <b style='color:#5fe9d0;'>{total_wallets} wallet{'s' if total_wallets != 1 else ''}</b> "
+                f"con riesgo predominante <b style='color:{color_pred};'>{nivel_predominante}</b> "
+                f"y una exposición total de <b style='color:#f59e0b;'>${total_exp:,.2f} USD</b>."
+                f"</span></div>",
+                unsafe_allow_html=True,
+            )
     else:
-        total_wallets = int(stats.get("total_wallets") or 0)
-        total_exp     = float(stats.get("total_exposure_usd") or 0)
-        nivel_critico = int(stats.get("nivel_critico") or 0)
-        nivel_alto    = int(stats.get("nivel_alto") or 0)
-        nivel_medio   = int(stats.get("nivel_medio") or 0)
-        nivel_bajo    = int(stats.get("nivel_bajo") or 0)
-        sin_datos     = int(stats.get("sin_datos") or 0)
-        atencion      = int(stats.get("atencion_prioritaria") or 0)
-        criticos      = repo.get_atencion_prioritaria()
+        criticos = repo.get_atencion_prioritaria()
 
     # KPI cards
     k1, k2, k3, k4 = st.columns(4)

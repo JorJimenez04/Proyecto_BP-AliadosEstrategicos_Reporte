@@ -229,6 +229,10 @@ class CryptoRepository:
         if nivel == "Sin Datos" and data.gl_score is not None:
             nivel = score_a_nivel_riesgo(data.gl_score)
 
+        # Política interna AdamoServices: score < 30 → CRÍTICO siempre
+        if data.gl_score is not None and data.gl_score < 30:
+            nivel = "Crítico"
+
         risk_labels_json = json.dumps(
             [lbl.model_dump() for lbl in data.risk_labels]
         )
@@ -401,9 +405,10 @@ class CryptoRepository:
 
 
     # ── Métricas para reporte gerencial ──────────────────────
-    def get_stats_gerencial(self) -> dict:
+    def get_stats_gerencial(self, cliente_id: Optional[int] = None) -> dict:
         """
         Retorna métricas consolidadas para el dashboard gerencial.
+        Si cliente_id se especifica, filtra sólo las wallets de ese cliente.
         Si la tabla no existe (migración pendiente), retorna _STATS_VACIAS
         con '_tabla_no_existe': True para que la UI muestre el aviso correcto.
         """
@@ -423,8 +428,11 @@ class CryptoRepository:
             logger.warning(_MSG_TABLA_NO_INIT)
             return dict(_STATS_VACIAS)
 
+        where_clause = "WHERE crypto_cliente_id = :cid" if cliente_id else ""
+        params: dict = {"cid": cliente_id} if cliente_id else {}
+
         try:
-            stats = self.session.execute(text("""
+            stats = self.session.execute(text(f"""
                 SELECT
                     COUNT(*)                                            AS total_wallets,
                     COALESCE(SUM(total_exposure), 0)                   AS total_exposure_usd,
@@ -436,22 +444,22 @@ class CryptoRepository:
                     COUNT(*) FILTER (WHERE riesgo_nivel = 'Bajo')      AS nivel_bajo,
                     COUNT(*) FILTER (WHERE riesgo_nivel = 'Sin Datos') AS sin_datos
                 FROM crypto_monitoreo
-            """)).mappings().first()
+                {where_clause}
+            """), params).mappings().first()
         except Exception as exc:
             self.session.rollback()
             logger.warning("get_stats_gerencial error: %s", exc)
             return dict(_STATS_VACIAS)
 
-        # COUNT(*) nunca devuelve NULL, pero si la tabla estuviera vacía
-        # first() puede ser None en algunos drivers — garantizamos un dict seguro.
         stats_dict: dict = dict(stats) if stats else {}
 
         try:
-            por_blockchain = self.session.execute(text("""
+            por_blockchain = self.session.execute(text(f"""
                 SELECT blockchain, COUNT(*) AS total
                 FROM crypto_monitoreo
+                {where_clause}
                 GROUP BY blockchain ORDER BY total DESC
-            """)).mappings().all()
+            """), params).mappings().all()
             por_bc_list = [dict(r) for r in por_blockchain]
         except Exception:
             self.session.rollback()
