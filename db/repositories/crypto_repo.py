@@ -117,27 +117,56 @@ class CryptoRepository:
             if not tabla_existe:
                 return []
 
-            if search:
-                rows = self.session.execute(text("""
-                    SELECT cc.*,
-                           COUNT(cm.id) AS total_wallets,
-                           COALESCE(SUM(cm.total_exposure), 0) AS exposure_total
-                    FROM crypto_clientes cc
-                    LEFT JOIN crypto_monitoreo cm ON cm.crypto_cliente_id = cc.id
-                    WHERE cc.razon_social ILIKE :s OR cc.nit ILIKE :s
-                    GROUP BY cc.id
-                    ORDER BY cc.razon_social
-                """), {"s": f"%{search}%"}).mappings().all()
+            # Verificar si la columna FK ya existe en crypto_monitoreo
+            col_fk_existe = self.session.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name   = 'crypto_monitoreo'
+                      AND column_name  = 'crypto_cliente_id'
+                )
+            """)).scalar()
+
+            if col_fk_existe:
+                # Query completa con conteo de wallets y exposición
+                if search:
+                    rows = self.session.execute(text("""
+                        SELECT cc.*,
+                               COUNT(cm.id) AS total_wallets,
+                               COALESCE(SUM(cm.total_exposure), 0) AS exposure_total
+                        FROM crypto_clientes cc
+                        LEFT JOIN crypto_monitoreo cm ON cm.crypto_cliente_id = cc.id
+                        WHERE cc.razon_social ILIKE :s OR cc.nit ILIKE :s
+                        GROUP BY cc.id
+                        ORDER BY cc.razon_social
+                    """), {"s": f"%{search}%"}).mappings().all()
+                else:
+                    rows = self.session.execute(text("""
+                        SELECT cc.*,
+                               COUNT(cm.id) AS total_wallets,
+                               COALESCE(SUM(cm.total_exposure), 0) AS exposure_total
+                        FROM crypto_clientes cc
+                        LEFT JOIN crypto_monitoreo cm ON cm.crypto_cliente_id = cc.id
+                        GROUP BY cc.id
+                        ORDER BY cc.razon_social
+                    """)).mappings().all()
             else:
-                rows = self.session.execute(text("""
-                    SELECT cc.*,
-                           COUNT(cm.id) AS total_wallets,
-                           COALESCE(SUM(cm.total_exposure), 0) AS exposure_total
-                    FROM crypto_clientes cc
-                    LEFT JOIN crypto_monitoreo cm ON cm.crypto_cliente_id = cc.id
-                    GROUP BY cc.id
-                    ORDER BY cc.razon_social
-                """)).mappings().all()
+                # Fallback: query simple sin JOIN (columna FK aún no existe)
+                logger.warning("get_clientes: columna crypto_cliente_id no existe, usando query simple")
+                if search:
+                    rows = self.session.execute(text("""
+                        SELECT *, 0 AS total_wallets, 0 AS exposure_total
+                        FROM crypto_clientes
+                        WHERE razon_social ILIKE :s OR nit ILIKE :s
+                        ORDER BY razon_social
+                    """), {"s": f"%{search}%"}).mappings().all()
+                else:
+                    rows = self.session.execute(text("""
+                        SELECT *, 0 AS total_wallets, 0 AS exposure_total
+                        FROM crypto_clientes
+                        ORDER BY razon_social
+                    """)).mappings().all()
+
             return [dict(r) for r in rows]
         except Exception as exc:
             self.session.rollback()
