@@ -11,7 +11,6 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from sqlalchemy.exc import ProgrammingError
 
 from db.models import WalletMonitorCreate, CryptoClienteCreate
 
@@ -22,11 +21,6 @@ _MSG_TABLA_NO_INIT = (
     "Advertencia: Tabla de monitoreo cripto no inicializada. "
     "Aplica la migración 019_create_crypto_compliance_schema.sql en Railway."
 )
-
-_STATS_VACIAS_CLIENTES: dict = {
-    "_tabla_no_existe": True,
-    "total": 0,
-}
 
 _STATS_VACIAS: dict = {
     "total_wallets": 0,
@@ -302,9 +296,9 @@ class CryptoRepository:
                 {"addr": wallet_address.strip()},
             ).mappings().first()
             return dict(row) if row else None
-        except ProgrammingError:
+        except Exception as exc:
             self.session.rollback()
-            logger.warning(_MSG_TABLA_NO_INIT)
+            logger.warning("get_by_address error: %s", exc)
             return None
 
     def get_by_id(self, wallet_id: int) -> Optional[dict]:
@@ -314,9 +308,9 @@ class CryptoRepository:
                 {"id": wallet_id},
             ).mappings().first()
             return dict(row) if row else None
-        except ProgrammingError:
+        except Exception as exc:
             self.session.rollback()
-            logger.warning(_MSG_TABLA_NO_INIT)
+            logger.warning("get_by_id error: %s", exc)
             return None
 
     # ── Listado con filtros ───────────────────────────────────
@@ -337,7 +331,7 @@ class CryptoRepository:
         # y con los campos que consume la UI (client_nombre, exposure_currency incluidos).
         query = """
             SELECT id, wallet_address, blockchain,
-                   client_id, client_nombre,
+                   crypto_cliente_id, client_id, client_nombre,
                    gl_score, riesgo_nivel, risk_labels,
                    total_exposure, exposure_currency,
                    pdf_report_url, last_report_date,
@@ -367,9 +361,9 @@ class CryptoRepository:
         try:
             rows = self.session.execute(text(query), params).mappings().all()
             return [dict(r) for r in rows]
-        except ProgrammingError:
+        except Exception as exc:
             self.session.rollback()
-            logger.warning(_MSG_TABLA_NO_INIT)
+            logger.warning("get_lista error: %s", exc)
             return []
 
     # ── Métricas para reporte gerencial ──────────────────────
@@ -380,7 +374,6 @@ class CryptoRepository:
         con '_tabla_no_existe': True para que la UI muestre el aviso correcto.
         """
         # Verificar existencia con information_schema antes de consultar
-        # (evita ProgrammingError y estados de conexión corruptos en el pool)
         try:
             tabla_existe = self.session.execute(text("""
                 SELECT EXISTS (
@@ -410,9 +403,9 @@ class CryptoRepository:
                     COUNT(*) FILTER (WHERE riesgo_nivel = 'Sin Datos') AS sin_datos
                 FROM crypto_monitoreo
             """)).mappings().first()
-        except ProgrammingError:
+        except Exception as exc:
             self.session.rollback()
-            logger.warning(_MSG_TABLA_NO_INIT)
+            logger.warning("get_stats_gerencial error: %s", exc)
             return dict(_STATS_VACIAS)
 
         # COUNT(*) nunca devuelve NULL, pero si la tabla estuviera vacía
@@ -426,9 +419,8 @@ class CryptoRepository:
                 GROUP BY blockchain ORDER BY total DESC
             """)).mappings().all()
             por_bc_list = [dict(r) for r in por_blockchain]
-        except ProgrammingError:
+        except Exception:
             self.session.rollback()
-            logger.warning(_MSG_TABLA_NO_INIT)
             por_bc_list = []
 
         return {
@@ -459,9 +451,9 @@ class CryptoRepository:
                 ORDER BY gl_score ASC NULLS FIRST, total_exposure DESC
             """)).mappings().all()
             return [dict(r) for r in rows]
-        except ProgrammingError:
+        except Exception as exc:
             self.session.rollback()
-            logger.warning(_MSG_TABLA_NO_INIT)
+            logger.warning("get_atencion_prioritaria error: %s", exc)
             return []
 
     # ── Eliminar ──────────────────────────────────────────────
@@ -473,7 +465,7 @@ class CryptoRepository:
             )
             self.session.commit()
             return result.rowcount > 0
-        except ProgrammingError:
+        except Exception as exc:
             self.session.rollback()
-            logger.warning(_MSG_TABLA_NO_INIT)
+            logger.warning("delete error: %s", exc)
             return False

@@ -13,7 +13,6 @@ from typing import Optional
 
 import streamlit as st
 
-from config.settings import Roles
 from db.database import get_session
 from db.repositories.crypto_repo import CryptoRepository, score_a_nivel_riesgo
 from db.models import WalletMonitorCreate, RiskLabel, CryptoClienteCreate
