@@ -264,7 +264,7 @@ def _form_nueva_wallet(user: dict) -> None:
             notas            = notas.strip() or None,
         )
 
-        with get_session() as session:
+        with next(get_session()) as session:
             repo   = CryptoRepository(session)
             result = repo.upsert_from_gl(payload)
 
@@ -454,7 +454,7 @@ def page_crypto_compliance(user: dict) -> None:
         "➕ Registrar Wallet",
     ])
 
-    with get_session() as session:
+    with next(get_session()) as session:
         repo = CryptoRepository(session)
 
         # ── Tab 1: Monitor ────────────────────────────────────
