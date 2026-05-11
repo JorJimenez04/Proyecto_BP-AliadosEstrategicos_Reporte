@@ -88,6 +88,117 @@ def _score_bar(score: Optional[int]) -> str:
     )
 
 
+def _contam_bar(label: str, pct: float, color: str) -> str:
+    """HTML progress bar para mostrar % de contaminación."""
+    safe = min(max(float(pct or 0), 0.0), 100.0)
+    return (
+        f"<div style='margin-bottom:7px;'>"
+        f"<div style='display:flex;justify-content:space-between;margin-bottom:2px;'>"
+        f"<span style='color:#9ca3af;font-size:0.74rem;'>{label}</span>"
+        f"<span style='color:{color};font-size:0.75rem;font-weight:700;'>{safe:.1f}%</span>"
+        f"</div>"
+        f"<div style='background:#1f2937;border-radius:3px;height:5px;'>"
+        f"<div style='width:{safe}%;background:{color};height:100%;border-radius:3px;'></div>"
+        f"</div>"
+        f"</div>"
+    )
+
+
+def _render_flujo_block(wallet: dict, prefix: str, title: str) -> None:
+    """Renderiza el bloque SoF o UoF dentro del tab de análisis."""
+    indicador   = wallet.get(f"{prefix}_indicador")
+    tipo_riesgo = wallet.get(f"{prefix}_tipo_riesgo") if prefix == "sof" else None
+    naturaleza  = wallet.get(f"{prefix}_naturaleza") or "—"
+    profundidad = wallet.get(f"{prefix}_profundidad")
+    cont_dir    = float(wallet.get(f"{prefix}_cont_directa")   or 0)
+    cont_ind    = float(wallet.get(f"{prefix}_cont_indirecta") or 0)
+    cont_tot    = float(wallet.get(f"{prefix}_cont_total")     or 0)
+    score_val   = wallet.get(f"{prefix}_score")
+    nivel       = wallet.get(f"{prefix}_nivel") or "Sin Datos"
+    monto       = wallet.get(f"{prefix}_monto")
+    color       = _COLOR_NIVEL.get(nivel, "#6b7280")
+
+    if not indicador:
+        st.markdown(
+            f"<div style='border:1px dashed #374151;border-radius:8px;padding:16px;"
+            f"background:#0a0f1a;text-align:center;'>"
+            f"<span style='color:#6b7280;font-size:0.83rem;'>Sin indicador registrado</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    # Pre-compute conditional fragments (no backslashes in f-expressions)
+    gl_ref     = GL_SCORES.get(indicador)
+    gl_ref_tag = (
+        f"<span style='color:#6b7280;font-size:0.71rem;margin-top:2px;display:block;'>"
+        f"Ref. GL: {gl_ref}</span>"
+    ) if gl_ref is not None else ""
+
+    tipo_row = (
+        f"<div style='background:#111827;border-radius:6px;padding:8px 10px;'>"
+        f"<span style='color:#6b7280;font-size:0.71rem;'>TIPO DE RIESGO</span><br>"
+        f"<span style='color:#d1d5db;font-size:0.82rem;'>{tipo_riesgo}</span>"
+        f"</div>"
+    ) if tipo_riesgo else ""
+
+    score_txt = str(score_val) if score_val is not None else "—"
+    monto_txt = f"${float(monto):,.2f}" if monto else "—"
+    prof_txt  = str(profundidad) if profundidad is not None else "—"
+
+    bars_html = (
+        _contam_bar("Contaminación Directa",   cont_dir, "#f97316") +
+        _contam_bar("Contaminación Indirecta",  cont_ind, "#f59e0b") +
+        _contam_bar("Total Contaminación",      cont_tot, color)
+    )
+
+    nivel_pill = _pill(nivel, color)
+
+    st.markdown(
+        f"<div style='border:1px solid {color};border-radius:8px;padding:14px 16px;"
+        f"background:#0a0f1a;'>"
+        # Título + nivel
+        f"<div style='display:flex;justify-content:space-between;align-items:center;"
+        f"margin-bottom:12px;'>"
+        f"<span style='color:{color};font-weight:700;font-size:0.88rem;'>{title}</span>"
+        f"{nivel_pill}"
+        f"</div>"
+        # Indicador
+        f"<div style='background:#111827;border-radius:6px;padding:8px 10px;margin-bottom:10px;'>"
+        f"<span style='color:#6b7280;font-size:0.71rem;'>INDICADOR</span><br>"
+        f"<span style='color:#e5e7eb;font-size:0.85rem;font-weight:600;'>{indicador}</span>"
+        f"{gl_ref_tag}"
+        f"</div>"
+        # Tipo de riesgo (SoF only) + Naturaleza + Profundidad
+        f"<div style='display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;'>"
+        f"{tipo_row}"
+        f"<div style='flex:1;min-width:90px;background:#111827;border-radius:6px;padding:8px 10px;'>"
+        f"<span style='color:#6b7280;font-size:0.71rem;'>NATURALEZA</span><br>"
+        f"<span style='color:#d1d5db;font-size:0.82rem;'>{naturaleza}</span>"
+        f"</div>"
+        f"<div style='min-width:60px;background:#111827;border-radius:6px;padding:8px 10px;'>"
+        f"<span style='color:#6b7280;font-size:0.71rem;'>PROF.</span><br>"
+        f"<span style='color:#d1d5db;font-size:0.82rem;'>{prof_txt}</span>"
+        f"</div>"
+        f"</div>"
+        # Barras de contaminación
+        f"<div style='margin-bottom:10px;'>{bars_html}</div>"
+        # Score + Monto
+        f"<div style='display:flex;gap:8px;'>"
+        f"<div style='flex:1;background:#111827;border-radius:6px;padding:8px 10px;'>"
+        f"<span style='color:#6b7280;font-size:0.71rem;'>SCORE ANALÍTICO</span><br>"
+        f"<span style='color:{color};font-size:1.15rem;font-weight:700;'>{score_txt}</span>"
+        f"</div>"
+        f"<div style='flex:1;background:#111827;border-radius:6px;padding:8px 10px;'>"
+        f"<span style='color:#6b7280;font-size:0.71rem;'>MONTO</span><br>"
+        f"<span style='color:#9ca3af;font-size:0.85rem;'>{monto_txt}</span>"
+        f"</div>"
+        f"</div>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _parse_labels(raw) -> list[dict]:
     """Normaliza risk_labels desde DB (puede ser str JSON, list o None)."""
     if not raw:
@@ -142,31 +253,81 @@ def _get_clientes_cached() -> list[dict]:
 def _ficha_wallet(wallet: dict, user: dict) -> None:
     """Panel de detalle con tabs para una wallet seleccionada."""
     nivel      = wallet.get("riesgo_nivel", "Sin Datos")
-    color      = _COLOR_NIVEL.get(nivel, "#6b7280")
     score      = wallet.get("gl_score")
     labels     = _parse_labels(wallet.get("risk_labels"))
     chain      = wallet.get("blockchain", "ETH")
     chain_icon = _BLOCKCHAIN_ICONS.get(chain, "🔗")
 
+    # Datos del análisis SoF/UoF
+    final_risk_score = wallet.get("final_risk_score")
+    final_risk_level = wallet.get("final_risk_level")
+    sof_indicador    = wallet.get("sof_indicador")
+    uof_indicador    = wallet.get("uof_indicador")
+    has_analysis     = bool(sof_indicador or uof_indicador)
+
+    # Nivel efectivo: preferir el dictaminado por el analista
+    display_nivel = final_risk_level or nivel
+    display_color = _COLOR_NIVEL.get(display_nivel, "#6b7280")
+
+    # ── Cabecera: dirección + pills ───────────────────────────
     st.markdown(
         f"<h4 style='color:#f9fafb;margin-bottom:4px;'>"
         f"{chain_icon} <code style='color:#5fe9d0;font-size:0.85rem;'>"
         f"{wallet['wallet_address']}</code></h4>",
         unsafe_allow_html=True,
     )
+    attn_pill = (
+        "&nbsp;&nbsp;" + _pill("⚠️ ATENCIÓN PRIORITARIA", "#ef4444")
+        if (score is not None and score < 30) or display_nivel == "Crítico" else ""
+    )
     st.markdown(
-        _pill(nivel, color) + "&nbsp;&nbsp;" +
-        _pill(chain, "#5fe9d0") +
-        ("&nbsp;&nbsp;" + _pill("⚠️ ATENCIÓN PRIORITARIA", "#ef4444")
-         if (score is not None and score < 30) or nivel == "Crítico" else ""),
+        _pill(display_nivel, display_color) + "&nbsp;&nbsp;" +
+        _pill(chain, "#5fe9d0") + attn_pill,
         unsafe_allow_html=True,
     )
-    st.markdown("<br>", unsafe_allow_html=True)
 
-    tab_resumen, tab_labels, tab_notas = st.tabs(
-        ["📊 Resumen", "🚩 Risk Labels", "📝 Notas & Reporte"]
+    # ── Métricas de cabecera ──────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    if final_risk_score is not None and score is not None:
+        delta_val = round(float(final_risk_score) - float(score), 1)
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            st.metric(
+                "Final Risk Score",
+                f"{float(final_risk_score):.0f} / 100",
+                delta=f"{delta_val:+.1f} vs GL",
+                delta_color="inverse",
+                help="Score calculado por el analista. Delta positivo = riesgo agravado respecto al GL.",
+            )
+        with m2:
+            st.metric("GL Score Original", str(score) if score is not None else "—")
+        with m3:
+            st.metric("Nivel Final", display_nivel)
+        with m4:
+            st.metric("Analista", wallet.get("monitoring_analyst") or "—")
+    else:
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.markdown("**GL Score**")
+            st.markdown(_score_bar(score), unsafe_allow_html=True)
+        with m2:
+            exp      = wallet.get("total_exposure", 0) or 0
+            currency = wallet.get("exposure_currency", "USD")
+            st.metric("Exposición Total", f"${exp:,.2f} {currency}")
+        with m3:
+            st.metric("Cliente", wallet.get("client_nombre") or "—")
+
+    st.markdown(
+        "<hr style='border:none;border-top:1px solid #374151;margin:10px 0 16px 0;'>",
+        unsafe_allow_html=True,
     )
 
+    # ── Tabs ──────────────────────────────────────────────────
+    tab_resumen, tab_sof_uof, tab_labels_t, tab_notas = st.tabs(
+        ["📊 Resumen", "🔬 Análisis SoF/UoF", "🚩 Risk Labels", "📝 Notas & Reporte"]
+    )
+
+    # ── Tab: Resumen ──────────────────────────────────────────
     with tab_resumen:
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -189,24 +350,77 @@ def _ficha_wallet(wallet: dict, user: dict) -> None:
             st.markdown(f"**Registrado por:** {wallet.get('registrado_por') or '—'}")
             st.markdown(f"**Actualizado:** {str(wallet.get('updated_at',''))[:16]}")
 
-    with tab_labels:
+    # ── Tab: Análisis SoF/UoF ─────────────────────────────────
+    with tab_sof_uof:
+        if not has_analysis:
+            st.info(
+                "Esta wallet aún no tiene un análisis SoF/UoF completado. "
+                "Ve a **➕ Vincular Wallet** para registrar el monitoreo.",
+                icon="📋",
+            )
+        else:
+            col_sof, col_uof = st.columns(2)
+            with col_sof:
+                _render_flujo_block(wallet, "sof", "📤 Source of Funds (SoF)")
+            with col_uof:
+                _render_flujo_block(wallet, "uof", "📥 Use of Funds (UoF)")
+
+            # ── Bitácora del Analista ─────────────────────────
+            observations = wallet.get("analyst_observations") or ""
+            analyst      = wallet.get("monitoring_analyst") or "—"
+            frs          = wallet.get("final_risk_score")
+            frl          = wallet.get("final_risk_level") or "—"
+            frl_color    = _COLOR_NIVEL.get(frl, "#6b7280")
+            frs_txt      = f"{float(frs):.0f}" if frs is not None else "—"
+            obs_content  = (
+                observations if observations
+                else "<i style='color:#6b7280;'>Sin observaciones registradas.</i>"
+            )
+            frs_span = (
+                f"<span style='color:#9ca3af;font-size:0.76rem;'>"
+                f"🎯 Score Final: <b style='color:{frl_color};'>{frs_txt}</b></span>"
+            )
+            frl_span = (
+                f"<span style='color:#9ca3af;font-size:0.76rem;'>"
+                f"🏁 Nivel: <b style='color:{frl_color};'>{frl}</b></span>"
+            )
+            analyst_span = (
+                f"<span style='color:#9ca3af;font-size:0.76rem;'>"
+                f"👤 Analista: <b style='color:#e5e7eb;'>{analyst}</b></span>"
+            )
+
+            st.markdown(
+                f"<div style='margin-top:16px;background:#0d1a0d;border:1px solid {frl_color};"
+                f"border-radius:8px;padding:16px 18px;'>"
+                f"<div style='color:{frl_color};font-size:0.8rem;font-weight:700;"
+                f"letter-spacing:0.05em;margin-bottom:10px;'>📋 CONCLUSIÓN DEL ANALISTA</div>"
+                f"<div style='color:#d1d5db;font-size:0.86rem;line-height:1.6;"
+                f"background:#111827;border-radius:6px;padding:10px 14px;'>"
+                f"{obs_content}</div>"
+                f"<div style='margin-top:12px;display:flex;gap:20px;flex-wrap:wrap;"
+                f"border-top:1px solid #1f2937;padding-top:10px;'>"
+                f"{analyst_span}{frs_span}{frl_span}"
+                f"</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+    # ── Tab: Risk Labels ─────────────────────────────────────
+    with tab_labels_t:
         if not labels:
             st.info("Sin alertas registradas para esta wallet.")
         else:
-            # Enriquecer labels con catálogo GL
             calificacion = calificar_labels(labels)
             nivel_f      = calificacion["nivel_final"]
             color_f      = _COLOR_NIVEL.get(nivel_f, "#6b7280")
-
-            # Resumen SoF / UoF
-            sof = calificacion["sof_max_nivel"]
-            uof = calificacion["uof_max_nivel"]
-            sof_color = _COLOR_NIVEL.get(sof, "#6b7280")
-            uof_color = _COLOR_NIVEL.get(uof, "#6b7280")
+            sof          = calificacion["sof_max_nivel"]
+            uof          = calificacion["uof_max_nivel"]
+            sof_color    = _COLOR_NIVEL.get(sof, "#6b7280")
+            uof_color    = _COLOR_NIVEL.get(uof, "#6b7280")
             st.markdown(
                 f"<div style='background:#1f2937;border-radius:8px;padding:10px 14px;"
                 f"margin-bottom:12px;display:flex;gap:20px;flex-wrap:wrap;'>"
-                f"<span style='color:#9ca3af;font-size:0.82rem;'>Calificación catálogo: "
+                f"<span style='color:#9ca3af;font-size:0.82rem;'>Catálogo: "
                 f"<b style='color:{color_f};'>{nivel_f}</b></span>"
                 f"<span style='color:#9ca3af;font-size:0.82rem;'>SoF máx: "
                 f"<b style='color:{sof_color};'>{sof}</b></span>"
@@ -219,7 +433,6 @@ def _ficha_wallet(wallet: dict, user: dict) -> None:
                 f"</div>",
                 unsafe_allow_html=True,
             )
-
             for ind in calificacion["indicadores"]:
                 label_text = ind.get("label", "")
                 label_es   = ind.get("label_es") or label_text
@@ -230,17 +443,20 @@ def _ficha_wallet(wallet: dict, user: dict) -> None:
                 source     = ind.get("source") or ""
                 flujo      = " · ".join(ind.get("flujo") or [])
                 desc       = ind.get("descripcion") or ""
-                flag_icon  = "🔴" if nivel_ind == "Crítico" else ("🟠" if nivel_ind == "Alto" else ("🟡" if nivel_ind == "Medio" else "🟢"))
-
-                pct_html    = f'<span style="color:#9ca3af;font-size:0.78rem;">📊 Exp: {round(pct, 1)}%</span>' if pct else ""
-                flujo_html  = f'<span style="color:#9ca3af;font-size:0.78rem;">🏷️ {flujo}</span>' if flujo else ""
-                source_html = f'<span style="color:#9ca3af;font-size:0.78rem;">📌 {source}</span>' if source else ""
-                desc_html   = f'<div style="color:#6b7280;font-size:0.75rem;margin-top:4px;">{desc}</div>' if desc else ""
-
+                flag_icon  = (
+                    "🔴" if nivel_ind == "Crítico" else
+                    "🟠" if nivel_ind == "Alto" else
+                    "🟡" if nivel_ind == "Medio" else "🟢"
+                )
+                pct_html    = f"<span style='color:#9ca3af;font-size:0.78rem;'>📊 {round(pct, 1)}%</span>" if pct else ""
+                flujo_html  = f"<span style='color:#9ca3af;font-size:0.78rem;'>🏷️ {flujo}</span>" if flujo else ""
+                source_html = f"<span style='color:#9ca3af;font-size:0.78rem;'>📌 {source}</span>" if source else ""
+                desc_html   = f"<div style='color:#6b7280;font-size:0.75rem;margin-top:4px;'>{desc}</div>" if desc else ""
                 st.markdown(
                     f"<div style='background:#1f2937;border-left:3px solid {flag_color};"
                     f"padding:10px 14px;border-radius:6px;margin-bottom:8px;'>"
-                    f"<div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;'>"
+                    f"<div style='display:flex;justify-content:space-between;align-items:flex-start;"
+                    f"flex-wrap:wrap;gap:6px;'>"
                     f"<span style='color:{flag_color};font-weight:700;font-size:0.9rem;'>"
                     f"{flag_icon} {label_es}</span>"
                     f"<span style='color:#6b7280;font-size:0.75rem;font-style:italic;'>{label_text}</span>"
@@ -256,8 +472,9 @@ def _ficha_wallet(wallet: dict, user: dict) -> None:
                     unsafe_allow_html=True,
                 )
             if calificacion["sin_catalogo"]:
-                st.caption(f"⚠️ Labels sin clasificar: {', '.join(calificacion['sin_catalogo'])}")
+                st.caption(f"⚠️ Sin clasificar: {', '.join(calificacion['sin_catalogo'])}")
 
+    # ── Tab: Notas & Reporte ──────────────────────────────────
     with tab_notas:
         notas = wallet.get("notas") or ""
         pdf   = wallet.get("pdf_report_url") or ""
@@ -273,6 +490,7 @@ def _ficha_wallet(wallet: dict, user: dict) -> None:
     if st.button("✖ Cerrar ficha", key=f"close_ficha_{wallet['id']}"):
         st.session_state.pop("crypto_detail_id", None)
         st.rerun()
+
 
 
 # ── Tarjeta de wallet en lista ───────────────────────────────
