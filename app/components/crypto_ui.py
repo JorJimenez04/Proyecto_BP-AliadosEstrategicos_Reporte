@@ -333,9 +333,23 @@ def render_gerencial_crypto(session) -> None:
     """
     import plotly.graph_objects as go
 
-    repo   = CryptoRepository(session)
-    stats  = repo.get_stats_gerencial()
+    repo     = CryptoRepository(session)
+    stats    = repo.get_stats_gerencial()
     criticos = repo.get_atencion_prioritaria()
+
+    # ── Tabla no existe todavía ───────────────────────────────
+    if stats.get("_tabla_no_existe"):
+        st.warning(
+            "⚠️ **Tabla `crypto_monitoreo` no encontrada** en la base de datos. "
+            "Aplica la migración `019_create_crypto_compliance_schema.sql` en el "
+            "panel de Railway → PostgreSQL → Data para activar este módulo.",
+            icon="🛠️",
+        )
+        st.info(
+            "Una vez aplicada la migración, recarga la página. "
+            "El formulario **➕ Registrar Wallet** ya está disponible para comenzar a cargar datos."
+        )
+        return
 
     total_wallets = int(stats.get("total_wallets", 0) or 0)
     total_exp     = float(stats.get("total_exposure_usd", 0) or 0)
@@ -509,21 +523,41 @@ def _page_crypto_compliance_inner(user: dict) -> None:
                 st.session_state.pop("crypto_detail_id", None)
 
         # Lista de wallets
+        _tabla_ok = True
         try:
             session = next(get_session())
-            wallets = CryptoRepository(session).get_lista(
+            repo_tmp = CryptoRepository(session)
+            wallets = repo_tmp.get_lista(
                 riesgo_nivel  = f_nivel if f_nivel != "Todos" else None,
                 blockchain    = f_chain if f_chain != "Todos" else None,
                 solo_criticos = f_criticos,
                 search_text   = f_search or None,
             )
+            # Verificar si la tabla no existe usando get_stats (más barato que una query extra)
+            _stats_check = repo_tmp.get_stats_gerencial()
+            _tabla_ok = not _stats_check.get("_tabla_no_existe", False)
             session.close()
         except Exception as exc:
             st.error(f"Error consultando wallets: {exc}")
             wallets = []
+            _tabla_ok = False
 
-        if not wallets:
-            st.info("Sin wallets registradas. Usa la tab **➕ Registrar Wallet** para añadir la primera.")
+        if not _tabla_ok:
+            st.warning(
+                "⚠️ **Tabla `crypto_monitoreo` no inicializada.** "
+                "Aplica la migración `019_create_crypto_compliance_schema.sql` en Railway → "
+                "PostgreSQL → Data para activar el módulo.",
+                icon="🛠️",
+            )
+            st.info(
+                "Mientras tanto, la pestaña **➕ Registrar Wallet** mostrará un error al guardar "
+                "hasta que la migración esté aplicada."
+            )
+        elif not wallets:
+            st.info(
+                "📭 No hay wallets registradas. "
+                "Comience cargando un reporte de Global Ledger en la pestaña **➕ Registrar Wallet**."
+            )
         else:
             st.caption(f"{len(wallets)} wallet{'s' if len(wallets) != 1 else ''} encontrada{'s' if len(wallets) != 1 else ''}")
             for w in wallets:

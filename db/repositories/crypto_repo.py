@@ -11,10 +11,30 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 
 from db.models import WalletMonitorCreate
 
 logger = logging.getLogger(__name__)
+
+# Mensaje canónico para tabla no inicializada
+_MSG_TABLA_NO_INIT = (
+    "Advertencia: Tabla de monitoreo cripto no inicializada. "
+    "Aplica la migración 019_create_crypto_compliance_schema.sql en Railway."
+)
+
+_STATS_VACIAS: dict = {
+    "total_wallets": 0,
+    "total_exposure_usd": 0.0,
+    "atencion_prioritaria": 0,
+    "nivel_critico": 0,
+    "nivel_alto": 0,
+    "nivel_medio": 0,
+    "nivel_bajo": 0,
+    "sin_datos": 0,
+    "por_blockchain": [],
+    "_tabla_no_existe": True,
+}
 
 # Labels que activan alerta prioritaria (independiente del score)
 _LABELS_CRITICOS: frozenset[str] = frozenset({
@@ -123,18 +143,28 @@ class CryptoRepository:
 
     # ── Lectura individual ────────────────────────────────────
     def get_by_address(self, wallet_address: str) -> Optional[dict]:
-        row = self.session.execute(
-            text("SELECT * FROM crypto_monitoreo WHERE wallet_address = :addr"),
-            {"addr": wallet_address.strip()},
-        ).mappings().first()
-        return dict(row) if row else None
+        try:
+            row = self.session.execute(
+                text("SELECT * FROM crypto_monitoreo WHERE wallet_address = :addr"),
+                {"addr": wallet_address.strip()},
+            ).mappings().first()
+            return dict(row) if row else None
+        except ProgrammingError:
+            self.session.rollback()
+            logger.warning(_MSG_TABLA_NO_INIT)
+            return None
 
     def get_by_id(self, wallet_id: int) -> Optional[dict]:
-        row = self.session.execute(
-            text("SELECT * FROM crypto_monitoreo WHERE id = :id"),
-            {"id": wallet_id},
-        ).mappings().first()
-        return dict(row) if row else None
+        try:
+            row = self.session.execute(
+                text("SELECT * FROM crypto_monitoreo WHERE id = :id"),
+                {"id": wallet_id},
+            ).mappings().first()
+            return dict(row) if row else None
+        except ProgrammingError:
+            self.session.rollback()
+            logger.warning(_MSG_TABLA_NO_INIT)
+            return None
 
     # ── Listado con filtros ───────────────────────────────────
     def get_lista(
@@ -148,7 +178,10 @@ class CryptoRepository:
         """
         Devuelve la lista de wallets con filtros opcionales.
         solo_criticos = True → score < 30 O contiene label sancionada.
+        Retorna [] si la tabla aún no existe (migración pendiente).
         """
+        # Columnas en el SELECT deben coincidir 1:1 con el esquema de crypto_monitoreo
+        # y con los campos que consume la UI (client_nombre, exposure_currency incluidos).
         query = """
             SELECT id, wallet_address, blockchain,
                    client_id, client_nombre,
@@ -177,73 +210,100 @@ class CryptoRepository:
             params["search"] = f"%{search_text}%"
 
         query += " ORDER BY gl_score ASC NULLS LAST, updated_at DESC"
-        rows = self.session.execute(text(query), params).mappings().all()
-        return [dict(r) for r in rows]
+
+        try:
+            rows = self.session.execute(text(query), params).mappings().all()
+            return [dict(r) for r in rows]
+        except ProgrammingError:
+            self.session.rollback()
+            logger.warning(_MSG_TABLA_NO_INIT)
+            return []
 
     # ── Métricas para reporte gerencial ──────────────────────
     def get_stats_gerencial(self) -> dict:
         """
-        Retorna métricas consolidadas para el dashboard gerencial:
-        - distribución por nivel de riesgo
-        - total wallets, total exposure USD
-        - wallets en atención prioritaria
-        - distribución por blockchain
+        Retorna métricas consolidadas para el dashboard gerencial.
+        Si la tabla no existe (migración pendiente), retorna _STATS_VACIAS
+        con '_tabla_no_existe': True para que la UI muestre el aviso correcto.
         """
-        stats = self.session.execute(text("""
-            SELECT
-                COUNT(*)                                            AS total_wallets,
-                COALESCE(SUM(total_exposure), 0)                   AS total_exposure_usd,
-                COUNT(*) FILTER (WHERE gl_score < 30
-                              OR riesgo_nivel IN ('Crítico','Alto')) AS atencion_prioritaria,
-                COUNT(*) FILTER (WHERE riesgo_nivel = 'Crítico')   AS nivel_critico,
-                COUNT(*) FILTER (WHERE riesgo_nivel = 'Alto')      AS nivel_alto,
-                COUNT(*) FILTER (WHERE riesgo_nivel = 'Medio')     AS nivel_medio,
-                COUNT(*) FILTER (WHERE riesgo_nivel = 'Bajo')      AS nivel_bajo,
-                COUNT(*) FILTER (WHERE riesgo_nivel = 'Sin Datos') AS sin_datos
-            FROM crypto_monitoreo
-        """)).mappings().first()
+        try:
+            stats = self.session.execute(text("""
+                SELECT
+                    COUNT(*)                                            AS total_wallets,
+                    COALESCE(SUM(total_exposure), 0)                   AS total_exposure_usd,
+                    COUNT(*) FILTER (WHERE gl_score < 30
+                                  OR riesgo_nivel IN ('Crítico','Alto')) AS atencion_prioritaria,
+                    COUNT(*) FILTER (WHERE riesgo_nivel = 'Crítico')   AS nivel_critico,
+                    COUNT(*) FILTER (WHERE riesgo_nivel = 'Alto')      AS nivel_alto,
+                    COUNT(*) FILTER (WHERE riesgo_nivel = 'Medio')     AS nivel_medio,
+                    COUNT(*) FILTER (WHERE riesgo_nivel = 'Bajo')      AS nivel_bajo,
+                    COUNT(*) FILTER (WHERE riesgo_nivel = 'Sin Datos') AS sin_datos
+                FROM crypto_monitoreo
+            """)).mappings().first()
+        except ProgrammingError:
+            self.session.rollback()
+            logger.warning(_MSG_TABLA_NO_INIT)
+            return dict(_STATS_VACIAS)
 
-        # COUNT(*) nunca devuelve NULL, pero si la tabla no existe first() puede
-        # ser None en algunos drivers — garantizamos un dict seguro.
+        # COUNT(*) nunca devuelve NULL, pero si la tabla estuviera vacía
+        # first() puede ser None en algunos drivers — garantizamos un dict seguro.
         stats_dict: dict = dict(stats) if stats else {}
 
-        por_blockchain = self.session.execute(text("""
-            SELECT blockchain, COUNT(*) AS total
-            FROM crypto_monitoreo
-            GROUP BY blockchain ORDER BY total DESC
-        """)).mappings().all()
+        try:
+            por_blockchain = self.session.execute(text("""
+                SELECT blockchain, COUNT(*) AS total
+                FROM crypto_monitoreo
+                GROUP BY blockchain ORDER BY total DESC
+            """)).mappings().all()
+            por_bc_list = [dict(r) for r in por_blockchain]
+        except ProgrammingError:
+            self.session.rollback()
+            logger.warning(_MSG_TABLA_NO_INIT)
+            por_bc_list = []
 
         return {
-            "total_wallets":       int(stats_dict.get("total_wallets", 0) or 0),
-            "total_exposure_usd":  float(stats_dict.get("total_exposure_usd", 0) or 0),
+            "total_wallets":        int(stats_dict.get("total_wallets", 0) or 0),
+            "total_exposure_usd":   float(stats_dict.get("total_exposure_usd", 0) or 0),
             "atencion_prioritaria": int(stats_dict.get("atencion_prioritaria", 0) or 0),
-            "nivel_critico":       int(stats_dict.get("nivel_critico", 0) or 0),
-            "nivel_alto":          int(stats_dict.get("nivel_alto", 0) or 0),
-            "nivel_medio":         int(stats_dict.get("nivel_medio", 0) or 0),
-            "nivel_bajo":          int(stats_dict.get("nivel_bajo", 0) or 0),
-            "sin_datos":           int(stats_dict.get("sin_datos", 0) or 0),
-            "por_blockchain":      [dict(r) for r in por_blockchain],
+            "nivel_critico":        int(stats_dict.get("nivel_critico", 0) or 0),
+            "nivel_alto":           int(stats_dict.get("nivel_alto", 0) or 0),
+            "nivel_medio":          int(stats_dict.get("nivel_medio", 0) or 0),
+            "nivel_bajo":           int(stats_dict.get("nivel_bajo", 0) or 0),
+            "sin_datos":            int(stats_dict.get("sin_datos", 0) or 0),
+            "por_blockchain":       por_bc_list,
+            "_tabla_no_existe":     False,
         }
 
     # ── Wallets en atención prioritaria ──────────────────────
     def get_atencion_prioritaria(self) -> list[dict]:
-        """Score < 30 O labels sancionadas — ordenadas por score ascendente."""
-        rows = self.session.execute(text("""
-            SELECT id, wallet_address, blockchain, client_nombre,
-                   gl_score, riesgo_nivel, risk_labels,
-                   total_exposure, exposure_currency, pdf_report_url, last_report_date
-            FROM crypto_monitoreo
-            WHERE gl_score < 30
-               OR riesgo_nivel IN ('Crítico', 'Alto')
-            ORDER BY gl_score ASC NULLS FIRST, total_exposure DESC
-        """)).mappings().all()
-        return [dict(r) for r in rows]
+        """Score < 30 O nivel Crítico/Alto — ordenadas por score ascendente.
+        Retorna [] si la tabla aún no existe."""
+        try:
+            rows = self.session.execute(text("""
+                SELECT id, wallet_address, blockchain, client_nombre,
+                       gl_score, riesgo_nivel, risk_labels,
+                       total_exposure, exposure_currency, pdf_report_url, last_report_date
+                FROM crypto_monitoreo
+                WHERE gl_score < 30
+                   OR riesgo_nivel IN ('Crítico', 'Alto')
+                ORDER BY gl_score ASC NULLS FIRST, total_exposure DESC
+            """)).mappings().all()
+            return [dict(r) for r in rows]
+        except ProgrammingError:
+            self.session.rollback()
+            logger.warning(_MSG_TABLA_NO_INIT)
+            return []
 
     # ── Eliminar ──────────────────────────────────────────────
     def delete(self, wallet_id: int) -> bool:
-        result = self.session.execute(
-            text("DELETE FROM crypto_monitoreo WHERE id = :id"),
-            {"id": wallet_id},
-        )
-        self.session.commit()
-        return result.rowcount > 0
+        try:
+            result = self.session.execute(
+                text("DELETE FROM crypto_monitoreo WHERE id = :id"),
+                {"id": wallet_id},
+            )
+            self.session.commit()
+            return result.rowcount > 0
+        except ProgrammingError:
+            self.session.rollback()
+            logger.warning(_MSG_TABLA_NO_INIT)
+            return False
