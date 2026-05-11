@@ -85,6 +85,28 @@ def _parse_labels(raw) -> list[dict]:
     return raw if isinstance(raw, list) else []
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _get_wallets_cached(
+    riesgo_nivel: Optional[str],
+    blockchain: Optional[str],
+    solo_criticos: bool,
+    search_text: Optional[str],
+) -> list[dict]:
+    """Lista de wallets con caché de 10 min para optimizar el dashboard."""
+    try:
+        session = next(get_session())
+        wallets = CryptoRepository(session).get_lista(
+            riesgo_nivel=riesgo_nivel,
+            blockchain=blockchain,
+            solo_criticos=solo_criticos,
+            search_text=search_text,
+        )
+        session.close()
+        return wallets
+    except Exception:
+        return []
+
+
 # ── Ficha individual de wallet ───────────────────────────────
 def _ficha_wallet(wallet: dict, user: dict) -> None:
     """Panel de detalle con tabs para una wallet seleccionada."""
@@ -208,7 +230,8 @@ def _form_nueva_wallet(user: dict) -> None:
             niveles = ["Sin Datos", "Bajo", "Medio", "Alto", "Crítico"]
             riesgo_manual = st.selectbox("Nivel de Riesgo", niveles)
         with col_c:
-            exposure = st.number_input("Exposición USD", min_value=0.0, value=0.0, step=100.0)
+            exposure = st.number_input("Exposición", min_value=0.0, value=0.0, step=100.0)
+            exposure_currency = st.selectbox("Moneda", ["USD", "EUR", "USDT", "USDC"])
 
         st.markdown("**Risk Labels (JSON de Global Ledger)**")
         st.caption("Pega el array JSON de labels. Ej: `[{\"label\": \"Sanctioned Exchange\", \"exposure_pct\": 12.5, \"source\": \"OFAC\"}]`")
@@ -250,24 +273,26 @@ def _form_nueva_wallet(user: dict) -> None:
             client_id_int = None
 
         payload = WalletMonitorCreate(
-            wallet_address   = wallet_address.strip(),
-            blockchain       = blockchain,
-            client_id        = client_id_int,
-            client_nombre    = client_nombre.strip() or None,
-            gl_score         = int(gl_score_val) if gl_score_val is not None else None,
-            riesgo_nivel     = nivel_final,
-            risk_labels      = risk_labels,
-            total_exposure   = float(exposure),
-            pdf_report_url   = pdf_url.strip() or None,
-            last_report_date = datetime.combine(report_date, datetime.min.time()) if report_date else None,
-            registrado_por   = user.get("username"),
-            notas            = notas.strip() or None,
+            wallet_address    = wallet_address.strip(),
+            blockchain        = blockchain,
+            client_id         = client_id_int,
+            client_nombre     = client_nombre.strip() or None,
+            gl_score          = int(gl_score_val) if gl_score_val is not None else None,
+            riesgo_nivel      = nivel_final,
+            risk_labels       = risk_labels,
+            total_exposure    = float(exposure),
+            exposure_currency = exposure_currency,
+            pdf_report_url    = pdf_url.strip() or None,
+            last_report_date  = datetime.combine(report_date, datetime.min.time()) if report_date else None,
+            registrado_por    = user.get("username"),
+            notas             = notas.strip() or None,
         )
 
         with next(get_session()) as session:
             repo   = CryptoRepository(session)
             result = repo.upsert_from_gl(payload)
 
+        _get_wallets_cached.clear()  # Invalida caché para mostrar la nueva wallet
         nivel_r = result.get("riesgo_nivel", "")
         color_r = _COLOR_NIVEL.get(nivel_r, "#6b7280")
         st.success(
@@ -367,8 +392,8 @@ def render_gerencial_crypto(session) -> None:
     if total_wallets == 0:
         st.markdown("---")
         st.info(
-            "📭 No hay wallets registradas. Comience cargando un reporte de Global Ledger "
-            "en la pestaña **➕ Registrar Wallet**."
+            "✅ Sistema listo. Por favor, registre la primera wallet "
+            "para generar el análisis de riesgo."
         )
         return
 
@@ -526,17 +551,18 @@ def _page_crypto_compliance_inner(user: dict) -> None:
         _tabla_ok = True
         try:
             session = next(get_session())
-            repo_tmp = CryptoRepository(session)
-            wallets = repo_tmp.get_lista(
-                riesgo_nivel  = f_nivel if f_nivel != "Todos" else None,
-                blockchain    = f_chain if f_chain != "Todos" else None,
-                solo_criticos = f_criticos,
-                search_text   = f_search or None,
-            )
-            # Verificar si la tabla no existe usando get_stats (más barato que una query extra)
-            _stats_check = repo_tmp.get_stats_gerencial()
-            _tabla_ok = not _stats_check.get("_tabla_no_existe", False)
+            _stats_check = CryptoRepository(session).get_stats_gerencial()
             session.close()
+            _tabla_ok = not _stats_check.get("_tabla_no_existe", False)
+            if _tabla_ok:
+                wallets = _get_wallets_cached(
+                    riesgo_nivel  = f_nivel if f_nivel != "Todos" else None,
+                    blockchain    = f_chain if f_chain != "Todos" else None,
+                    solo_criticos = f_criticos,
+                    search_text   = f_search or None,
+                )
+            else:
+                wallets = []
         except Exception as exc:
             st.error(f"Error consultando wallets: {exc}")
             wallets = []
@@ -555,8 +581,8 @@ def _page_crypto_compliance_inner(user: dict) -> None:
             )
         elif not wallets:
             st.info(
-                "📭 No hay wallets registradas. "
-                "Comience cargando un reporte de Global Ledger en la pestaña **➕ Registrar Wallet**."
+                "✅ Sistema listo. Por favor, registre la primera wallet "
+                "para generar el análisis de riesgo."
             )
         else:
             st.caption(f"{len(wallets)} wallet{'s' if len(wallets) != 1 else ''} encontrada{'s' if len(wallets) != 1 else ''}")
