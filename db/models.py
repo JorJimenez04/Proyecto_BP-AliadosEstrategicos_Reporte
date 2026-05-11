@@ -390,6 +390,21 @@ class RiskLabel(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CryptoClienteCreate(BaseModel):
+    """Modelo para registrar un cliente corporativo del módulo Cripto."""
+    razon_social:        str            = Field(..., min_length=2, max_length=200)
+    nit:                 Optional[str]  = Field(default=None, max_length=30)
+    representante_legal: Optional[str]  = None
+    correo_corporativo:  Optional[str]  = None
+    telefono:            Optional[str]  = None
+    direccion:           Optional[str]  = None
+    fecha_onboarding:    Optional[date] = None
+    notas:               Optional[str]  = None
+    creado_por:          Optional[str]  = None
+
+    model_config = {"from_attributes": True}
+
+
 class WalletMonitorCreate(BaseModel):
     """
     Modelo para registrar o actualizar una wallet desde la respuesta
@@ -399,7 +414,8 @@ class WalletMonitorCreate(BaseModel):
                                    description="Dirección de la wallet (hex o bech32)")
     blockchain:       str  = Field(default="ETH", max_length=20)
 
-    # Relación con aliado
+    # Relación con cliente corporativo cripto y con aliado
+    crypto_cliente_id: Optional[int]  = None
     client_id:        Optional[int]  = None
     client_nombre:    Optional[str]  = None
 
