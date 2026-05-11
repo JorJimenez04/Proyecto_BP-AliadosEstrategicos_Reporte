@@ -16,7 +16,10 @@ import streamlit as st
 from db.database import get_session
 from db.repositories.crypto_repo import CryptoRepository, score_a_nivel_riesgo
 from db.models import WalletMonitorCreate, RiskLabel, CryptoClienteCreate
-from app.utils.crypto_logic import calificar_labels, lookup_label
+from app.utils.crypto_logic import (
+    calificar_labels, lookup_label,
+    GL_ALL_LABELS_SORTED, GL_SCORES, calcular_score_sof_uof, score_gl_to_nivel,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,18 @@ _LABELS_CRITICOS = {
     "Ransomware", "Scam", "Terrorism Financing",
     "Child Abuse Material", "Mixer", "Blacklisted",
 }
+
+# ── Opciones de selectbox GL (228 indicadores, orden score desc) ─
+_GL_OPTS_NONE   = "— Sin indicador —"
+_GL_SELECTBOX   = [_GL_OPTS_NONE] + [
+    f"{lbl}  (GL: {sc})" for lbl, sc in GL_ALL_LABELS_SORTED
+]
+
+def _parse_gl_opt(opt: str) -> Optional[str]:
+    """Extrae el nombre del indicador de la opción formateada del selectbox."""
+    if not opt or opt == _GL_OPTS_NONE:
+        return None
+    return opt.split("  (GL:")[0].strip()
 
 
 # ── Helpers de UI ────────────────────────────────────────────
@@ -577,25 +592,37 @@ def _parse_gl_report(texto: str) -> dict:
 
 # ── Tab Vincular Wallet ──────────────────────────────────────
 def _tab_vincular_wallet(user: dict) -> None:
-    """Formulario de registro de wallet vinculada a cliente corporativo."""
-    st.markdown("### ➕ Vincular Wallet a Cliente")
+    """
+    Formulario de registro de wallet con metodología SoF/UoF del Excel
+    de monitoreo AdamoServices. Guía al analista paso a paso:
+      Paso 1 — Pegar reporte GL (pre-llenado automático)
+      Paso 2 — Identificación de la wallet
+      Paso 3 — Source of Funds / Use of Funds (doble columna)
+      Paso 4 — Conclusión y observaciones
+    """
+    st.markdown("### ➕ Vincular Wallet — Ficha de Monitoreo GL")
 
-    # Cargar lista de clientes para el selectbox
     clientes = _get_clientes_cached()
     if not clientes:
-        st.warning("⚠️ No hay clientes registrados. Ve a la pestaña **👥 Clientes** para registrar primero la empresa.")
+        st.warning(
+            "⚠️ No hay clientes registrados. "
+            "Ve a la pestaña **👥 Clientes** para registrar primero la empresa."
+        )
         return
 
-    opciones_cl = {f"{cl['razon_social']} (NIT: {cl.get('nit') or '—'})": cl["id"] for cl in clientes}
+    opciones_cl = {
+        f"{cl['razon_social']} (NIT: {cl.get('nit') or '—'})": cl["id"]
+        for cl in clientes
+    }
     opciones_labels = list(opciones_cl.keys())
 
-    # ── Paso 1: Pegar reporte GL para prellenado ─────────────
+    # ── Paso 1: Pegar reporte GL ──────────────────────────
     st.markdown("#### 📄 Paso 1 — Pegar Reporte Global Ledger *(opcional)*")
-    st.caption("Pega aquí el texto o JSON del reporte. El formulario se pre-llenará automáticamente.")
+    st.caption("Pega el JSON o texto del reporte GL. El formulario se pre-llenará automáticamente.")
     gl_raw = st.text_area(
         "Reporte Global Ledger",
-        height=130,
-        placeholder='Pega el JSON o texto del reporte GL aquí...\nEj: {"address":"TAHQWz...","score":47,"labels":[...]}',
+        height=110,
+        placeholder='{"address":"TAHQWz...","score":47,"labels":[{"name":"Reported hack",...}]}',
         key="gl_raw_report",
     )
 
@@ -603,200 +630,356 @@ def _tab_vincular_wallet(user: dict) -> None:
     if gl_raw.strip():
         parsed = _parse_gl_report(gl_raw)
         if any(v for v in parsed.values() if v not in (None, [], "")):
-            st.success("✅ Datos extraídos del reporte. Revisa y ajusta si es necesario.")
-            det_cols = st.columns(4)
-            with det_cols[0]:
+            st.success("✅ Datos extraídos. Revisa y ajusta si es necesario.")
+            pc = st.columns(4)
+            with pc[0]:
                 st.markdown(f"**Wallet:** `{(parsed.get('wallet_address') or '—')[:20]}`")
-            with det_cols[1]:
+            with pc[1]:
                 st.markdown(f"**Blockchain:** {parsed.get('blockchain') or '—'}")
-            with det_cols[2]:
-                score_p = parsed.get("gl_score")
-                st.markdown(f"**Score:** {score_p if score_p is not None else '—'}")
-            with det_cols[3]:
+            with pc[2]:
+                sc_p = parsed.get("gl_score")
+                st.markdown(f"**Score GL:** {sc_p if sc_p is not None else '—'}")
+            with pc[3]:
                 st.markdown(f"**Nivel:** {parsed.get('riesgo_nivel') or '—'}")
             if parsed.get("risk_labels"):
-                labels_preview = ", ".join(l["label"] for l in parsed["risk_labels"][:5])
-                st.markdown(f"**Labels detectadas:** {labels_preview}")
+                lbls_prev = ", ".join(lb["label"] for lb in parsed["risk_labels"][:5])
+                st.markdown(f"**Labels detectadas:** {lbls_prev}")
         else:
-            st.warning("No se pudo extraer información del texto pegado. Completa el formulario manualmente.")
+            st.warning("No se pudo extraer información. Completa el formulario manualmente.")
 
-    st.markdown("#### 📝 Paso 2 — Confirmar y Registrar")
-
-    # Valores iniciales desde parsed o defaults
-    init_address    = parsed.get("wallet_address") or ""
-    init_chain      = parsed.get("blockchain") or "ETH"
-    init_score      = parsed.get("gl_score")
-    init_nivel      = parsed.get("riesgo_nivel") or "Sin Datos"
-    init_exposure   = parsed.get("total_exposure") or 0.0
+    # ── Valores iniciales desde parsed o defaults ─────────
+    init_address  = parsed.get("wallet_address") or ""
+    init_chain    = parsed.get("blockchain") or "ETH"
+    init_score    = parsed.get("gl_score")
+    init_nivel    = parsed.get("riesgo_nivel") or "Sin Datos"
     init_labels_raw = json.dumps(parsed.get("risk_labels") or [], ensure_ascii=False)
 
-    # El selectbox de blockchain debe ser un índice válido
     chain_opts = ["ETH", "BTC", "BNB", "TRX", "SOL", "MATIC", "Otro"]
     chain_idx  = chain_opts.index(init_chain) if init_chain in chain_opts else 0
-
     niveles    = ["Sin Datos", "Bajo", "Medio", "Alto", "Crítico"]
     nivel_idx  = niveles.index(init_nivel) if init_nivel in niveles else 0
 
-    with st.form("form_nueva_wallet", clear_on_submit=True):
-        st.markdown("**Cliente Corporativo** *(obligatorio)*")
-        cliente_seleccionado = st.selectbox("Seleccionar Cliente", opciones_labels)
+    status_opts     = ["Active", "Inactive", "Suspended", "Under Review"]
+    tipo_riesgo_opts = ["Low", "Medium", "High", "Critical"]
+    naturaleza_opts  = ["Directa", "Indirecta"]
+    currency_opts    = ["USD", "EUR", "USDT", "USDC"]
 
-        st.markdown("**Identificación de la Wallet**")
-        col1, col2 = st.columns([3, 1])
-        with col1:
+    # Detectar analistas disponibles (lista estática ampliable)
+    analyst_opts = [
+        user.get("nombre_completo") or user.get("username") or "Analista",
+        "Adrian Cardona", "Jorge Jiménez",
+    ]
+    analyst_opts = list(dict.fromkeys(analyst_opts))  # eliminar duplicados
+
+    st.markdown("---")
+    st.markdown("#### 📝 Paso 2 — Ficha de la Wallet")
+
+    with st.form("form_wallet_sof_uof", clear_on_submit=True):
+
+        # ── Identificación ────────────────────────────────
+        col_cl, col_fecha = st.columns([3, 1])
+        with col_cl:
+            cliente_seleccionado = st.selectbox("🏢 Cliente Corporativo *", opciones_labels)
+        with col_fecha:
+            report_date = st.date_input("📅 Fecha del Reporte", value=None)
+
+        col_wa, col_chain, col_status = st.columns([4, 1, 1])
+        with col_wa:
             wallet_address = st.text_input(
-                "Dirección de Wallet *",
+                "💳 Dirección de Wallet *",
                 value=init_address,
-                placeholder="0x... o T... o bc1q...",
+                placeholder="0x... · T... · bc1q...",
             )
-        with col2:
+        with col_chain:
             blockchain = st.selectbox("Blockchain", chain_opts, index=chain_idx)
+        with col_status:
+            wallet_status = st.selectbox("Estado", status_opts)
 
-        st.markdown("**Datos Global Ledger**")
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
+        col_sc, col_nv, col_an = st.columns(3)
+        with col_sc:
             gl_score_val = st.number_input(
-                "GL Score (0-100)", min_value=0, max_value=100,
+                "🎯 GL Global Score (0-100)",
+                min_value=0, max_value=100,
                 value=init_score, placeholder="Ej: 47",
             )
-        with col_b:
-            riesgo_manual = st.selectbox("Nivel de Riesgo", niveles, index=nivel_idx)
-        with col_c:
-            exposure = st.number_input(
-                "Exposición Total", min_value=0.0,
-                value=float(init_exposure), step=1000.0,
+        with col_nv:
+            riesgo_manual = st.selectbox("Nivel de Riesgo GL", niveles, index=nivel_idx)
+        with col_an:
+            monitoring_analyst = st.selectbox("👤 Analista de Monitoreo", analyst_opts)
+
+        st.markdown("---")
+
+        # ── SoF / UoF doble columna ───────────────────────
+        st.markdown("#### 🔄 Paso 3 — Análisis Source of Funds · Use of Funds")
+        col_sof, col_uof = st.columns(2, gap="large")
+
+        with col_sof:
+            st.markdown(
+                "<div style='background:#1e3a5f;padding:8px 14px;border-radius:8px;"
+                "margin-bottom:12px;border-left:3px solid #3b82f6;'>"
+                "<b style='color:#93c5fd;'>📥 SOURCE OF FUNDS (SoF)</b><br>"
+                "<span style='color:#6b7280;font-size:0.78rem;'>Origen de los fondos que entran</span>"
+                "</div>",
+                unsafe_allow_html=True,
             )
-            exposure_currency = st.selectbox("Moneda", ["USD", "EUR", "USDT", "USDC"])
+            sof_tipo = st.selectbox("Tipología / Type of Risk", tipo_riesgo_opts, key="sof_tipo")
+            sof_ind_opt = st.selectbox(
+                "Indicador GL",
+                _GL_SELECTBOX,
+                key="sof_ind_sel",
+                help="Indicadores ordenados por score de riesgo (mayor primero)",
+            )
+            sof_naturaleza = st.selectbox("Naturaleza", naturaleza_opts, key="sof_nat")
+            sof_profundidad = st.number_input(
+                "Profundidad (Depth / nro. saltos)",
+                min_value=1, max_value=50, value=1, key="sof_dep",
+            )
+            st.markdown("**% Contaminación**")
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                sof_direct = st.number_input(
+                    "Directa %", min_value=0.0, max_value=100.0,
+                    value=0.0, step=0.01, format="%.4f", key="sof_dc",
+                )
+            with sc2:
+                sof_indirect = st.number_input(
+                    "Indirecta %", min_value=0.0, max_value=100.0,
+                    value=0.0, step=0.01, format="%.4f", key="sof_ic",
+                )
+            sof_monto = st.number_input(
+                "Amount Analyzed (USD)",
+                min_value=0.0, step=1000.0, key="sof_am",
+            )
 
-        st.markdown("**Risk Labels** *(JSON de Global Ledger)*")
-        st.caption('Ej: `[{"label": "Blacklisted Wallet", "exposure_pct": 45.2, "source": "OFAC"}]`')
-        labels_raw = st.text_area("Risk Labels JSON", value=init_labels_raw, height=90)
+        with col_uof:
+            st.markdown(
+                "<div style='background:#1e3a2f;padding:8px 14px;border-radius:8px;"
+                "margin-bottom:12px;border-left:3px solid #22c55e;'>"
+                "<b style='color:#86efac;'>📤 USE OF FUNDS (UoF)</b><br>"
+                "<span style='color:#6b7280;font-size:0.78rem;'>Destino / uso de los fondos que salen</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            uof_ind_opt = st.selectbox(
+                "Indicador GL",
+                _GL_SELECTBOX,
+                key="uof_ind_sel",
+                help="Indicadores ordenados por score de riesgo (mayor primero)",
+            )
+            uof_naturaleza = st.selectbox("Naturaleza", naturaleza_opts, key="uof_nat")
+            uof_profundidad = st.number_input(
+                "Profundidad (Depth / nro. saltos)",
+                min_value=1, max_value=50, value=1, key="uof_dep",
+            )
+            st.markdown("**% Contaminación**")
+            uc1, uc2 = st.columns(2)
+            with uc1:
+                uof_direct = st.number_input(
+                    "Directa %", min_value=0.0, max_value=100.0,
+                    value=0.0, step=0.01, format="%.4f", key="uof_dc",
+                )
+            with uc2:
+                uof_indirect = st.number_input(
+                    "Indirecta %", min_value=0.0, max_value=100.0,
+                    value=0.0, step=0.01, format="%.4f", key="uof_ic",
+                )
+            uof_monto = st.number_input(
+                "Amount Analyzed (USD)",
+                min_value=0.0, step=1000.0, key="uof_am",
+            )
 
-    # ── Botón Validar Indicadores (fuera del form para no bloquear submit) ──
-    if labels_raw.strip():
-        if st.button("🔍 Validar Indicadores", key="btn_validar_ind", use_container_width=False):
-            try:
-                labels_test = json.loads(labels_raw)
-                if not isinstance(labels_test, list):
-                    st.warning("El JSON debe ser una lista de objetos.")
-                else:
-                    scoring = calificar_labels(labels_test)
-                    nivel_f  = scoring["nivel_final"]
-                    color_f  = _COLOR_NIVEL.get(nivel_f, "#6b7280")
-                    criticos = scoring["criticos_encontrados"]
-                    altos    = scoring["altos_encontrados"]
-                    medios   = scoring["medios_encontrados"]
-                    bajos    = scoring["bajos_encontrados"]
-                    nc       = len(scoring["sin_catalogo"])
-                    if nivel_f in ("Crítico",):
-                        st.error(
-                            f"🚨 Se detectaron **{criticos}** indicador(es) CRÍTICO(S). "
-                            f"Calificación sugerida: **{nivel_f}**"
-                        )
-                    elif nivel_f == "Alto":
-                        st.warning(
-                            f"⚠️ Se detectaron **{altos}** indicador(es) ALTO(S). "
-                            f"Calificación sugerida: **{nivel_f}**"
-                        )
-                    else:
-                        st.success(
-                            f"✅ Calificación sugerida: **{nivel_f}** "
-                            f"(Críticos: {criticos} · Altos: {altos} · Medios: {medios} · Bajos: {bajos})"
-                        )
-                    # Detalle de indicadores encontrados
-                    with st.expander("Ver detalle de indicadores", expanded=False):
-                        for ind in scoring["indicadores"]:
-                            nivel_ind = ind.get("nivel") or "Sin clasificar"
-                            label_es  = ind.get("label_es") or ind.get("label", "")
-                            label_en  = ind.get("label", "")
-                            flujo     = " · ".join(ind.get("flujo") or [])
-                            desc      = ind.get("descripcion") or ""
-                            fc        = _COLOR_NIVEL.get(nivel_ind, "#6b7280")
-                            st.markdown(
-                                f"<div style='background:#1f2937;border-left:3px solid {fc};"
-                                f"padding:8px 12px;border-radius:6px;margin-bottom:6px;'>"
-                                f"<b style='color:{fc};'>{label_es}</b>"
-                                f"<span style='color:#6b7280;font-size:0.78rem;'> ({label_en})</span>"
-                                f"<br><span style='color:#9ca3af;font-size:0.78rem;'>"
-                                f"{nivel_ind}{' · ' + flujo if flujo else ''}"
-                                f"{'<br>' + desc if desc else ''}</span></div>",
-                                unsafe_allow_html=True,
-                            )
-                        if scoring["sin_catalogo"]:
-                            st.caption(f"⚠️ Sin clasificar: {', '.join(scoring['sin_catalogo'])}")
-            except (json.JSONDecodeError, ValueError) as exc:
-                st.warning(f"JSON inválido: {exc}")
+        st.markdown("---")
 
-    with st.form("form_vincular_wallet", clear_on_submit=True):
-        col_p, col_f = st.columns(2)
-        with col_p:
-            pdf_url = st.text_input("URL del reporte PDF", placeholder="https://...")
-        with col_f:
-            report_date = st.date_input("Fecha del reporte", value=None)
+        # ── Conclusión ────────────────────────────────────
+        st.markdown("#### 📋 Paso 4 — Conclusión y Observaciones")
+        analyst_observations = st.text_area(
+            "📝 Analyst Observations",
+            height=100,
+            placeholder=(
+                "Ej: Tiene 3 indicadores de riesgo relacionados con transacciones indirectas:\n"
+                "• High-Risk Exchange (ChangeNOW): 2.88%\n"
+                "• Reported Hack: 0.42%\n"
+                "Total % Contaminación Indirecta: 3.3%  · Cantidad de saltos: +6"
+            ),
+        )
 
-        notas = st.text_area("Notas internas", height=60)
-        submitted = st.form_submit_button("💾 Vincular Wallet", type="primary", use_container_width=True)
+        col_exp, col_cur = st.columns([3, 1])
+        with col_exp:
+            exposure = st.number_input(
+                "💰 Exposición Total",
+                min_value=0.0, value=0.0, step=1000.0,
+            )
+        with col_cur:
+            exposure_currency = st.selectbox("Moneda", currency_opts)
 
+        col_pdf, col_notas = st.columns(2)
+        with col_pdf:
+            pdf_url = st.text_input("📄 URL Reporte PDF", placeholder="https://...")
+        with col_notas:
+            notas = st.text_area("Notas internas", height=68)
+
+        st.markdown("**Risk Labels JSON** *(del reporte GL)*")
+        labels_raw = st.text_area(
+            "Risk Labels",
+            value=init_labels_raw,
+            height=70,
+            label_visibility="collapsed",
+        )
+
+        submitted = st.form_submit_button(
+            "💾 Guardar Monitoreo",
+            type="primary",
+            use_container_width=True,
+        )
+
+    # ── Procesamiento del submit ───────────────────────────
     if submitted:
         if not wallet_address.strip():
             st.error("La dirección de wallet es obligatoria.")
             return
 
         crypto_cliente_id = opciones_cl[cliente_seleccionado]
+        cliente_nombre    = clientes[
+            [cl["id"] for cl in clientes].index(crypto_cliente_id)
+        ]["razon_social"]
 
+        # Parsear labels
         try:
             labels_parsed = json.loads(labels_raw) if labels_raw.strip() else []
-            risk_labels   = [RiskLabel(**lbl) if isinstance(lbl, dict) else lbl for lbl in labels_parsed]
+            risk_labels   = [
+                RiskLabel(**lbl) if isinstance(lbl, dict) else lbl
+                for lbl in labels_parsed
+            ]
         except Exception as exc:
             st.error(f"JSON de Risk Labels inválido: {exc}")
             return
 
-        # Nivel final: política score < 30 → CRÍTICO
-        gl_score_int = int(gl_score_val) if gl_score_val is not None else None
-        if gl_score_int is not None and gl_score_int < 30:
-            nivel_final = "Crítico"
-        elif riesgo_manual == "Sin Datos" and gl_score_int is not None:
-            nivel_final = score_a_nivel_riesgo(gl_score_int)
-        else:
-            nivel_final = riesgo_manual
+        # ── Cálculos automáticos SoF ──────────────────────
+        sof_indicador = _parse_gl_opt(sof_ind_opt)
+        sof_ind_score = GL_SCORES.get(sof_indicador, 50) if sof_indicador else 50
+        sof_total_pct = sof_direct + sof_indirect
+        sof_score_calc = round((sof_total_pct / 100.0) * sof_ind_score)
+        sof_nivel_calc = score_gl_to_nivel(sof_score_calc)
 
-        # Nombre del cliente para desnormalizar
-        cliente_nombre = clientes[[cl["id"] for cl in clientes].index(crypto_cliente_id)]["razon_social"]
+        # ── Cálculos automáticos UoF ──────────────────────
+        uof_indicador = _parse_gl_opt(uof_ind_opt)
+        uof_ind_score = GL_SCORES.get(uof_indicador, 50) if uof_indicador else 50
+        uof_total_pct = uof_direct + uof_indirect
+        uof_score_calc = round((uof_total_pct / 100.0) * uof_ind_score)
+        uof_nivel_calc = score_gl_to_nivel(uof_score_calc)
+
+        # ── Final Risk Score & Level ───────────────────────
+        if sof_indicador and uof_indicador:
+            final_risk_score_calc = (sof_score_calc + uof_score_calc) / 2.0
+        elif sof_indicador:
+            final_risk_score_calc = float(sof_score_calc)
+        elif uof_indicador:
+            final_risk_score_calc = float(uof_score_calc)
+        else:
+            final_risk_score_calc = None
+
+        # Bloqueo crítico: cualquier indicador con GL score = 100
+        is_critico_locked = (sof_ind_score == 100 or uof_ind_score == 100)
+
+        if is_critico_locked:
+            final_risk_level_calc = "Crítico"
+        elif final_risk_score_calc is not None:
+            final_risk_level_calc = score_gl_to_nivel(round(final_risk_score_calc))
+        else:
+            final_risk_level_calc = riesgo_manual
+
+        # Nivel GL global (política score < 30 + calificar_labels)
+        gl_score_int = int(gl_score_val) if gl_score_val is not None else None
+        calificacion = calificar_labels([lbl.model_dump() for lbl in risk_labels])
+        nivel_catalogo = calificacion["nivel_final"]
+        nivel_base = riesgo_manual
+        if nivel_base == "Sin Datos" and gl_score_int is not None:
+            nivel_base = score_a_nivel_riesgo(gl_score_int)
+        nivel_gl = nivel_dominante(nivel_catalogo, nivel_base)
+        if gl_score_int is not None and gl_score_int < 30:
+            nivel_gl = "Crítico"
+        # El nivel final es el más severo entre GL y SoF/UoF
+        riesgo_nivel_final = nivel_dominante(nivel_gl, final_risk_level_calc)
+
+        # Mostrar advertencia crítico ANTES de guardar
+        if is_critico_locked:
+            st.error(
+                "⚠️ Indicador de alto riesgo detectado. "
+                "Calificación bloqueada en **CRÍTICO** según política AdamoServices."
+            )
 
         payload = WalletMonitorCreate(
-            wallet_address     = wallet_address.strip(),
-            blockchain         = blockchain,
-            crypto_cliente_id  = crypto_cliente_id,
-            client_nombre      = cliente_nombre,
-            gl_score           = gl_score_int,
-            riesgo_nivel       = nivel_final,
-            risk_labels        = risk_labels,
-            total_exposure     = float(exposure),
-            exposure_currency  = exposure_currency,
-            pdf_report_url     = pdf_url.strip() or None,
-            last_report_date   = datetime.combine(report_date, datetime.min.time()) if report_date else None,
-            registrado_por     = user.get("username"),
-            notas              = notas.strip() or None,
+            wallet_address        = wallet_address.strip(),
+            blockchain            = blockchain,
+            crypto_cliente_id     = crypto_cliente_id,
+            client_nombre         = cliente_nombre,
+            gl_score              = gl_score_int,
+            riesgo_nivel          = riesgo_nivel_final,
+            risk_labels           = risk_labels,
+            total_exposure        = float(exposure),
+            exposure_currency     = exposure_currency,
+            wallet_status         = wallet_status,
+            # SoF
+            sof_tipo_riesgo       = sof_tipo,
+            sof_indicador         = sof_indicador,
+            sof_naturaleza        = sof_naturaleza,
+            sof_profundidad       = sof_profundidad,
+            sof_cont_directa      = sof_direct,
+            sof_cont_indirecta    = sof_indirect,
+            sof_cont_total        = sof_total_pct,
+            sof_score             = sof_score_calc,
+            sof_nivel             = sof_nivel_calc,
+            sof_monto             = sof_monto or None,
+            # UoF
+            uof_indicador         = uof_indicador,
+            uof_naturaleza        = uof_naturaleza,
+            uof_profundidad       = uof_profundidad,
+            uof_cont_directa      = uof_direct,
+            uof_cont_indirecta    = uof_indirect,
+            uof_cont_total        = uof_total_pct,
+            uof_score             = uof_score_calc,
+            uof_nivel             = uof_nivel_calc,
+            uof_monto             = uof_monto or None,
+            # Conclusión
+            analyst_observations  = analyst_observations.strip() or None,
+            monitoring_analyst    = monitoring_analyst,
+            final_risk_score      = final_risk_score_calc,
+            final_risk_level      = final_risk_level_calc,
+            # Reporte
+            pdf_report_url        = pdf_url.strip() or None,
+            last_report_date      = datetime.combine(report_date, datetime.min.time()) if report_date else None,
+            registrado_por        = user.get("username"),
+            notas                 = notas.strip() or None,
         )
 
         try:
             session = next(get_session())
             result  = CryptoRepository(session).upsert_from_gl(payload)
             session.close()
-
             _get_wallets_cached.clear()
             _get_clientes_cached.clear()
-            nivel_r = result.get("riesgo_nivel", "")
-            color_r = _COLOR_NIVEL.get(nivel_r, "#6b7280")
+
+            frl    = result.get("final_risk_level") or riesgo_nivel_final
+            frs    = result.get("final_risk_score")
+            frs_txt = f"{frs:.1f}" if frs is not None else "N/A"
+            color_frl = _COLOR_NIVEL.get(frl, "#6b7280")
+
+            sof_lbl = sof_indicador or "N/A"
+            uof_lbl = uof_indicador or "N/A"
+
             st.success(
-                f"✅ Wallet vinculada a **{cliente_nombre}** — "
-                f"Score: **{result.get('gl_score', 'N/A')}** · Nivel: **{nivel_r}** · "
-                f"Exposición: **${float(result.get('total_exposure') or 0):,.2f} {exposure_currency}**"
+                f"✅ **{cliente_nombre}** — Wallet guardada.\n\n"
+                f"**Final Risk Level:** {frl} · **Final Risk Score:** {frs_txt} · "
+                f"GL Score: {gl_score_int or '—'}\n\n"
+                f"SoF: {sof_lbl} → cont. {sof_total_pct:.2f}% · score {sof_score_calc} ({sof_nivel_calc})\n\n"
+                f"UoF: {uof_lbl} → cont. {uof_total_pct:.2f}% · score {uof_score_calc} ({uof_nivel_calc})"
             )
             st.rerun()
         except Exception as exc:
             st.error(f"Error al registrar wallet: {exc}")
 
+
+# ── Reporte Gerencial ────────────────────────────────────────
 
 # ── Reporte Gerencial ────────────────────────────────────────
 def render_gerencial_crypto(session) -> None:

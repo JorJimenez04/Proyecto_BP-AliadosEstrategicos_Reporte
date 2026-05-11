@@ -430,6 +430,7 @@ class WalletMonitorCreate(BaseModel):
     """
     Modelo para registrar o actualizar una wallet desde la respuesta
     JSON de Global Ledger (upsert por wallet_address).
+    Incluye campos de análisis SoF/UoF según metodología Excel AdamoServices.
     """
     wallet_address:   str  = Field(..., min_length=10, max_length=150,
                                    description="Dirección de la wallet (hex o bech32)")
@@ -448,6 +449,38 @@ class WalletMonitorCreate(BaseModel):
     # Financiero
     total_exposure:   float          = Field(default=0.0, ge=0.0)
     exposure_currency: str           = "USD"
+
+    # Estado de la wallet
+    wallet_status:    str            = "Active"
+
+    # ── Source of Funds (SoF) ─────────────────────────────
+    sof_tipo_riesgo:      Optional[str]   = None   # "Low" / "Medium" / "High" / "Critical"
+    sof_indicador:        Optional[str]   = None   # Nombre del indicador GL
+    sof_naturaleza:       Optional[str]   = None   # "Directa" / "Indirecta"
+    sof_profundidad:      Optional[int]   = None   # Depth (nro. de saltos)
+    sof_cont_directa:     Optional[float] = Field(default=None, ge=0.0)   # %
+    sof_cont_indirecta:   Optional[float] = Field(default=None, ge=0.0)   # %
+    sof_cont_total:       Optional[float] = Field(default=None, ge=0.0)   # % calculado
+    sof_score:            Optional[int]   = None   # Score ponderado SoF
+    sof_nivel:            Optional[str]   = None   # "Bajo" / "Medio" / "Alto" / "Crítico"
+    sof_monto:            Optional[float] = Field(default=None, ge=0.0)   # Amount USD
+
+    # ── Use of Funds (UoF) ────────────────────────────────
+    uof_indicador:        Optional[str]   = None
+    uof_naturaleza:       Optional[str]   = None
+    uof_profundidad:      Optional[int]   = None
+    uof_cont_directa:     Optional[float] = Field(default=None, ge=0.0)
+    uof_cont_indirecta:   Optional[float] = Field(default=None, ge=0.0)
+    uof_cont_total:       Optional[float] = Field(default=None, ge=0.0)
+    uof_score:            Optional[int]   = None
+    uof_nivel:            Optional[str]   = None
+    uof_monto:            Optional[float] = Field(default=None, ge=0.0)
+
+    # ── Conclusión ────────────────────────────────────────
+    analyst_observations: Optional[str]   = None
+    monitoring_analyst:   Optional[str]   = None
+    final_risk_score:     Optional[float] = None   # promedio SoF/UoF score
+    final_risk_level:     Optional[str]   = None   # "Bajo" / "Medio" / "Alto" / "Crítico"
 
     # Reporte
     pdf_report_url:   Optional[str]  = None
