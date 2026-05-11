@@ -337,9 +337,9 @@ def render_gerencial_crypto(session) -> None:
     stats  = repo.get_stats_gerencial()
     criticos = repo.get_atencion_prioritaria()
 
-    total_wallets = stats.get("total_wallets", 0)
+    total_wallets = int(stats.get("total_wallets", 0) or 0)
     total_exp     = float(stats.get("total_exposure_usd", 0) or 0)
-    atencion      = stats.get("atencion_prioritaria", 0)
+    atencion      = int(stats.get("atencion_prioritaria", 0) or 0)
 
     # KPI cards
     k1, k2, k3, k4 = st.columns(4)
@@ -350,6 +350,14 @@ def render_gerencial_crypto(session) -> None:
               delta_color="inverse")
     k4.metric("Críticas", stats.get("nivel_critico", 0))
 
+    if total_wallets == 0:
+        st.markdown("---")
+        st.info(
+            "📭 No hay wallets registradas. Comience cargando un reporte de Global Ledger "
+            "en la pestaña **➕ Registrar Wallet**."
+        )
+        return
+
     st.markdown("---")
     col_chart, col_table = st.columns([1, 1])
 
@@ -357,26 +365,30 @@ def render_gerencial_crypto(session) -> None:
         st.markdown("#### Distribución de Riesgo")
         niveles = ["Crítico", "Alto", "Medio", "Bajo", "Sin Datos"]
         counts  = [
-            stats.get("nivel_critico", 0),
-            stats.get("nivel_alto", 0),
-            stats.get("nivel_medio", 0),
-            stats.get("nivel_bajo", 0),
-            stats.get("sin_datos", 0),
+            int(stats.get("nivel_critico", 0) or 0),
+            int(stats.get("nivel_alto", 0) or 0),
+            int(stats.get("nivel_medio", 0) or 0),
+            int(stats.get("nivel_bajo", 0) or 0),
+            int(stats.get("sin_datos", 0) or 0),
         ]
-        colors_pie = [_COLOR_NIVEL[n] for n in niveles]
-        fig = go.Figure(go.Pie(
-            labels=niveles, values=counts,
-            marker_colors=colors_pie,
-            hole=0.5,
-            textinfo="label+value",
-            textfont_size=12,
-        ))
-        fig.update_layout(
-            paper_bgcolor="#111827", plot_bgcolor="#111827",
-            font_color="#d1d5db", showlegend=False,
-            margin=dict(t=10, b=10, l=10, r=10), height=280,
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        # Solo renderizar Pie si hay al menos un dato positivo
+        if any(c > 0 for c in counts):
+            colors_pie = [_COLOR_NIVEL[n] for n in niveles]
+            fig = go.Figure(go.Pie(
+                labels=niveles, values=counts,
+                marker_colors=colors_pie,
+                hole=0.5,
+                textinfo="label+value",
+                textfont_size=12,
+            ))
+            fig.update_layout(
+                paper_bgcolor="#111827", plot_bgcolor="#111827",
+                font_color="#d1d5db", showlegend=False,
+                margin=dict(t=10, b=10, l=10, r=10), height=280,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.caption("Sin datos de distribución aún.")
 
         # Distribución por blockchain
         por_bc = stats.get("por_blockchain", [])
@@ -432,6 +444,16 @@ def render_gerencial_crypto(session) -> None:
 # ── Página principal del módulo ──────────────────────────────
 def page_crypto_compliance(user: dict) -> None:
     """Punto de entrada del módulo Cripto Compliance."""
+    try:
+        _page_crypto_compliance_inner(user)
+    except Exception as exc:
+        logger.exception("Error crítico en Cripto Compliance: %s", exc)
+        st.error(f"❌ Error cargando el módulo Cripto: **{exc}**")
+        st.caption("Revisa los logs del servidor para más detalles.")
+
+
+def _page_crypto_compliance_inner(user: dict) -> None:
+    """Implementación interna del módulo Cripto Compliance."""
     rol = user.get("rol", "")
     if rol not in {"admin", "compliance"}:
         st.error("🚫 Acceso Denegado. Este módulo requiere rol **admin** o **compliance**.")

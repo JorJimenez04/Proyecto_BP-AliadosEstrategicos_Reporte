@@ -203,6 +203,10 @@ class CryptoRepository:
             FROM crypto_monitoreo
         """)).mappings().first()
 
+        # COUNT(*) nunca devuelve NULL, pero si la tabla no existe first() puede
+        # ser None en algunos drivers — garantizamos un dict seguro.
+        stats_dict: dict = dict(stats) if stats else {}
+
         por_blockchain = self.session.execute(text("""
             SELECT blockchain, COUNT(*) AS total
             FROM crypto_monitoreo
@@ -210,8 +214,15 @@ class CryptoRepository:
         """)).mappings().all()
 
         return {
-            **dict(stats),
-            "por_blockchain": [dict(r) for r in por_blockchain],
+            "total_wallets":       int(stats_dict.get("total_wallets", 0) or 0),
+            "total_exposure_usd":  float(stats_dict.get("total_exposure_usd", 0) or 0),
+            "atencion_prioritaria": int(stats_dict.get("atencion_prioritaria", 0) or 0),
+            "nivel_critico":       int(stats_dict.get("nivel_critico", 0) or 0),
+            "nivel_alto":          int(stats_dict.get("nivel_alto", 0) or 0),
+            "nivel_medio":         int(stats_dict.get("nivel_medio", 0) or 0),
+            "nivel_bajo":          int(stats_dict.get("nivel_bajo", 0) or 0),
+            "sin_datos":           int(stats_dict.get("sin_datos", 0) or 0),
+            "por_blockchain":      [dict(r) for r in por_blockchain],
         }
 
     # ── Wallets en atención prioritaria ──────────────────────
