@@ -124,6 +124,8 @@ def sidebar(user: dict) -> tuple[str, str | None]:
             _nav_opts.append("👥 Gestión de Agentes")
         if user.get("rol") in {"admin", "compliance", "comercial", "consulta"}:
             _nav_opts.append("📚 Centro Documental")
+        if user.get("rol") in Roles.CAN_VIEW_CRYPTO:
+            _nav_opts.append("🛡️ Cripto Compliance")
         nav_choice = st.radio(
             "Navegación",
             options=_nav_opts,
@@ -199,7 +201,13 @@ def main():
     elif page == "\U0001f4da Centro Documental":
         from app.components.compliance_ui import page_compliance
         page_compliance(user)
-    elif page == "👤 Perfil Agente" and agente_username:
+    elif page == "�️ Cripto Compliance":
+        if user.get("rol") not in Roles.CAN_VIEW_CRYPTO:
+            st.error("🚫 Acceso Denegado. Este módulo requiere rol admin o compliance.")
+            st.stop()
+        from app.components.crypto_ui import page_crypto_compliance
+        page_crypto_compliance(user)
+    elif page == "�👤 Perfil Agente" and agente_username:
         from app.components.agentes_ui import render_perfil_agente
         render_perfil_agente(agente_username, user=user)
 

@@ -128,6 +128,8 @@ class Roles:
     CAN_EDIT_JURISDICTIONS: frozenset[str] = frozenset({"admin", "compliance"})
     # Pueden editar campos de Criticidad y Cumplimiento ISO (licencias, certificaciones)
     CAN_EDIT_COMPLIANCE: frozenset[str] = frozenset({"admin", "compliance"})
+    # Pueden acceder al módulo Cripto Compliance (VASP Monitor)
+    CAN_VIEW_CRYPTO: frozenset[str] = frozenset({"admin", "compliance"})
 
 # ── Pipeline de estados de aliados ───────────────────────
 class EstadosAliado:

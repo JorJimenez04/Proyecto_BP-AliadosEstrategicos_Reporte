@@ -372,3 +372,84 @@ class AuditoriaOut(BaseModel):
     created_at:         datetime
 
     model_config = {"from_attributes": True}
+
+
+# ─────────────────────────────────────────────────────────────
+# CRIPTO COMPLIANCE — VASP Monitor (Global Ledger)
+# ─────────────────────────────────────────────────────────────
+
+_NIVELES_RIESGO_CRYPTO = {"Crítico", "Alto", "Medio", "Bajo", "Sin Datos"}
+
+
+class RiskLabel(BaseModel):
+    """Label de alerta devuelto por Global Ledger."""
+    label:        str
+    exposure_pct: float = Field(default=0.0, ge=0.0, le=100.0)
+    source:       str   = ""   # Ej: "OFAC", "EU", "UN"
+
+    model_config = {"from_attributes": True}
+
+
+class WalletMonitorCreate(BaseModel):
+    """
+    Modelo para registrar o actualizar una wallet desde la respuesta
+    JSON de Global Ledger (upsert por wallet_address).
+    """
+    wallet_address:   str  = Field(..., min_length=10, max_length=150,
+                                   description="Dirección de la wallet (hex o bech32)")
+    blockchain:       str  = Field(default="ETH", max_length=20)
+
+    # Relación con aliado
+    client_id:        Optional[int]  = None
+    client_nombre:    Optional[str]  = None
+
+    # Datos de Global Ledger
+    gl_score:         Optional[int]  = Field(default=None, ge=0, le=100)
+    riesgo_nivel:     str            = "Sin Datos"
+    risk_labels:      List[RiskLabel] = Field(default_factory=list)
+
+    # Financiero
+    total_exposure:   float          = Field(default=0.0, ge=0.0)
+    exposure_currency: str           = "USD"
+
+    # Reporte
+    pdf_report_url:   Optional[str]  = None
+    last_report_date: Optional[datetime] = None
+    registrado_por:   Optional[str]  = None
+    notas:            Optional[str]  = None
+
+    @field_validator("riesgo_nivel")
+    @classmethod
+    def _check_riesgo_nivel(cls, v: str) -> str:
+        if v not in _NIVELES_RIESGO_CRYPTO:
+            raise ValueError(f"riesgo_nivel inválido. Opciones: {sorted(_NIVELES_RIESGO_CRYPTO)}")
+        return v
+
+    @field_validator("wallet_address")
+    @classmethod
+    def _normalizar_address(cls, v: str) -> str:
+        return v.strip()
+
+    model_config = {"from_attributes": True}
+
+
+class WalletMonitorOut(BaseModel):
+    """Modelo de salida completo para una wallet monitoreada."""
+    id:               int
+    wallet_address:   str
+    blockchain:       str
+    client_id:        Optional[int]  = None
+    client_nombre:    Optional[str]  = None
+    gl_score:         Optional[int]  = None
+    riesgo_nivel:     str            = "Sin Datos"
+    risk_labels:      List[dict]     = Field(default_factory=list)
+    total_exposure:   float          = 0.0
+    exposure_currency: str           = "USD"
+    pdf_report_url:   Optional[str]  = None
+    last_report_date: Optional[datetime] = None
+    registrado_por:   Optional[str]  = None
+    notas:            Optional[str]  = None
+    created_at:       datetime
+    updated_at:       datetime
+
+    model_config = {"from_attributes": True}
