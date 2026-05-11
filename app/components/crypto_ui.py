@@ -454,51 +454,68 @@ def page_crypto_compliance(user: dict) -> None:
         "➕ Registrar Wallet",
     ])
 
-    with next(get_session()) as session:
-        repo = CryptoRepository(session)
+    # ── Tab 1: Monitor ────────────────────────────────────────
+    with tab_monitor:
+        # Filtros (se renderizan antes de la query para tener los valores)
+        with st.expander("🔍 Filtros", expanded=False):
+            f1, f2, f3, f4 = st.columns(4)
+            with f1:
+                f_nivel = st.selectbox("Nivel de Riesgo",
+                                       ["Todos", "Crítico", "Alto", "Medio", "Bajo", "Sin Datos"])
+            with f2:
+                f_chain = st.selectbox("Blockchain",
+                                       ["Todos", "ETH", "BTC", "BNB", "TRX", "SOL", "MATIC"])
+            with f3:
+                f_criticos = st.checkbox("Solo Atención Prioritaria")
+            with f4:
+                f_search = st.text_input("Buscar wallet / cliente", placeholder="0x... o nombre")
 
-        # ── Tab 1: Monitor ────────────────────────────────────
-        with tab_monitor:
-            # Panel de detalle si hay una wallet seleccionada
-            detail_id = st.session_state.get("crypto_detail_id")
-            if detail_id:
-                wallet = repo.get_by_id(detail_id)
-                if wallet:
-                    _ficha_wallet(wallet, user)
-                    st.markdown("---")
-                else:
-                    st.session_state.pop("crypto_detail_id", None)
-
-            # Filtros
-            with st.expander("🔍 Filtros", expanded=False):
-                f1, f2, f3, f4 = st.columns(4)
-                with f1:
-                    f_nivel = st.selectbox("Nivel de Riesgo", ["Todos","Crítico","Alto","Medio","Bajo","Sin Datos"])
-                with f2:
-                    f_chain = st.selectbox("Blockchain", ["Todos","ETH","BTC","BNB","TRX","SOL","MATIC"])
-                with f3:
-                    f_criticos = st.checkbox("Solo Atención Prioritaria")
-                with f4:
-                    f_search = st.text_input("Buscar wallet / cliente", placeholder="0x... o nombre")
-
-            wallets = repo.get_lista(
-                riesgo_nivel = f_nivel if f_nivel != "Todos" else None,
-                blockchain   = f_chain if f_chain != "Todos" else None,
-                solo_criticos = f_criticos,
-                search_text  = f_search or None,
-            )
-
-            if not wallets:
-                st.info("Sin wallets registradas con los filtros actuales.")
+        # Detalle de wallet seleccionada
+        detail_id = st.session_state.get("crypto_detail_id")
+        if detail_id:
+            try:
+                session = next(get_session())
+                wallet = CryptoRepository(session).get_by_id(detail_id)
+                session.close()
+            except Exception as exc:
+                st.error(f"Error cargando ficha: {exc}")
+                wallet = None
+            if wallet:
+                _ficha_wallet(wallet, user)
+                st.markdown("---")
             else:
-                st.caption(f"{len(wallets)} wallet{'s' if len(wallets) != 1 else ''} encontrada{'s' if len(wallets) != 1 else ''}")
-                for w in wallets:
-                    _card_wallet(w)
+                st.session_state.pop("crypto_detail_id", None)
 
-        # ── Tab 2: Gerencial ──────────────────────────────────
-        with tab_gerencial:
+        # Lista de wallets
+        try:
+            session = next(get_session())
+            wallets = CryptoRepository(session).get_lista(
+                riesgo_nivel  = f_nivel if f_nivel != "Todos" else None,
+                blockchain    = f_chain if f_chain != "Todos" else None,
+                solo_criticos = f_criticos,
+                search_text   = f_search or None,
+            )
+            session.close()
+        except Exception as exc:
+            st.error(f"Error consultando wallets: {exc}")
+            wallets = []
+
+        if not wallets:
+            st.info("Sin wallets registradas. Usa la tab **➕ Registrar Wallet** para añadir la primera.")
+        else:
+            st.caption(f"{len(wallets)} wallet{'s' if len(wallets) != 1 else ''} encontrada{'s' if len(wallets) != 1 else ''}")
+            for w in wallets:
+                _card_wallet(w)
+
+    # ── Tab 2: Gerencial ──────────────────────────────────────
+    with tab_gerencial:
+        try:
+            session = next(get_session())
             render_gerencial_crypto(session)
+            session.close()
+        except Exception as exc:
+            st.error(f"Error cargando reporte gerencial: {exc}")
 
-        # ── Tab 3: Nueva wallet ───────────────────────────────
-        with tab_nueva:
-            _form_nueva_wallet(user)
+    # ── Tab 3: Nueva wallet ───────────────────────────────────
+    with tab_nueva:
+        _form_nueva_wallet(user)
