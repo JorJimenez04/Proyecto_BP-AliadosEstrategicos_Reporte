@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from db.models import WalletMonitorCreate, CryptoClienteCreate
+from app.utils.crypto_logic import calificar_labels, nivel_dominante
 
 logger = logging.getLogger(__name__)
 
@@ -222,21 +223,44 @@ class CryptoRepository:
     def upsert_from_gl(self, data: WalletMonitorCreate) -> dict:
         """
         Crea o actualiza una wallet a partir de la respuesta de Global Ledger.
-        Retorna el registro resultante como dict.
-        """
-        # Calcular nivel de riesgo automáticamente si no viene explícito
-        nivel = data.riesgo_nivel
-        if nivel == "Sin Datos" and data.gl_score is not None:
-            nivel = score_a_nivel_riesgo(data.gl_score)
 
-        # Política interna AdamoServices: score < 30 → CRÍTICO siempre
+        Logica de calificacion (prioridad descendente):
+        1. Si alguna label esta en el catalogo GL → nivel = indicador mas alto
+        2. Si viene nivel explicito (no 'Sin Datos') → se usa como base
+        3. Si solo viene gl_score → score_a_nivel_riesgo()
+        Politica AdamoServices: score < 30 siempre eleva a CRITICO.
+        """
+        labels_list = [lbl.model_dump() for lbl in data.risk_labels]
+
+        # Calificacion por catalogo de indicadores GL
+        calificacion = calificar_labels(labels_list)
+        nivel_catalogo = calificacion["nivel_final"]   # "Critico"/"Alto"/etc. o "Sin Datos"
+
+        # Nivel base desde score o campo explicito
+        nivel_base = data.riesgo_nivel
+        if nivel_base == "Sin Datos" and data.gl_score is not None:
+            nivel_base = score_a_nivel_riesgo(data.gl_score)
+
+        # Nivel final: el mas alto entre catalogo y nivel base
+        nivel = nivel_dominante(nivel_catalogo, nivel_base)
+
+        # Politica interna AdamoServices: score < 30 → CRÍTICO siempre
         if data.gl_score is not None and data.gl_score < 30:
             nivel = "Crítico"
 
-        risk_labels_json = json.dumps(
-            [lbl.model_dump() for lbl in data.risk_labels]
-        )
+        risk_labels_json = json.dumps(labels_list)
         last_report = data.last_report_date.isoformat() if data.last_report_date else None
+
+        logger.info(
+            "crypto.upsert: wallet=%s nivel=%s score=%s "
+            "[catalogo=%s criticos=%d altos=%d sof=%s uof=%s]",
+            data.wallet_address, nivel, data.gl_score,
+            nivel_catalogo,
+            calificacion["criticos_encontrados"],
+            calificacion["altos_encontrados"],
+            calificacion["sof_max_nivel"],
+            calificacion["uof_max_nivel"],
+        )
 
         row = self.session.execute(text("""
             INSERT INTO crypto_monitoreo (
@@ -288,8 +312,6 @@ class CryptoRepository:
         }).mappings().first()
 
         self.session.commit()
-        logger.info("crypto.upsert: wallet=%s nivel=%s score=%s",
-                    data.wallet_address, nivel, data.gl_score)
         return dict(row)
 
     # ── Lectura individual ────────────────────────────────────

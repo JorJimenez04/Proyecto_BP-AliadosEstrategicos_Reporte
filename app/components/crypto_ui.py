@@ -16,6 +16,7 @@ import streamlit as st
 from db.database import get_session
 from db.repositories.crypto_repo import CryptoRepository, score_a_nivel_riesgo
 from db.models import WalletMonitorCreate, RiskLabel, CryptoClienteCreate
+from app.utils.crypto_logic import calificar_labels, lookup_label
 
 logger = logging.getLogger(__name__)
 
@@ -177,21 +178,67 @@ def _ficha_wallet(wallet: dict, user: dict) -> None:
         if not labels:
             st.info("Sin alertas registradas para esta wallet.")
         else:
-            for lbl in labels:
-                label_text = lbl.get("label", "")
-                is_red     = label_text in _LABELS_CRITICOS
-                pct        = lbl.get("exposure_pct", 0)
-                source     = lbl.get("source", "")
-                flag_color = "#ef4444" if is_red else "#f59e0b"
+            # Enriquecer labels con catálogo GL
+            calificacion = calificar_labels(labels)
+            nivel_f      = calificacion["nivel_final"]
+            color_f      = _COLOR_NIVEL.get(nivel_f, "#6b7280")
+
+            # Resumen SoF / UoF
+            sof = calificacion["sof_max_nivel"]
+            uof = calificacion["uof_max_nivel"]
+            sof_color = _COLOR_NIVEL.get(sof, "#6b7280")
+            uof_color = _COLOR_NIVEL.get(uof, "#6b7280")
+            st.markdown(
+                f"<div style='background:#1f2937;border-radius:8px;padding:10px 14px;"
+                f"margin-bottom:12px;display:flex;gap:20px;flex-wrap:wrap;'>"
+                f"<span style='color:#9ca3af;font-size:0.82rem;'>Calificación catálogo: "
+                f"<b style='color:{color_f};'>{nivel_f}</b></span>"
+                f"<span style='color:#9ca3af;font-size:0.82rem;'>SoF máx: "
+                f"<b style='color:{sof_color};'>{sof}</b></span>"
+                f"<span style='color:#9ca3af;font-size:0.82rem;'>UoF máx: "
+                f"<b style='color:{uof_color};'>{uof}</b></span>"
+                f"<span style='color:#9ca3af;font-size:0.82rem;'>"
+                f"Críticos: <b style='color:#ef4444;'>{calificacion['criticos_encontrados']}</b>"
+                f" · Altos: <b style='color:#f97316;'>{calificacion['altos_encontrados']}</b>"
+                f"</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+
+            for ind in calificacion["indicadores"]:
+                label_text = ind.get("label", "")
+                label_es   = ind.get("label_es") or label_text
+                nivel_ind  = ind.get("nivel")
+                flag_color = _COLOR_NIVEL.get(nivel_ind, "#6b7280") if nivel_ind else "#6b7280"
+                nivel_badge = nivel_ind or "Sin clasificar"
+                pct        = float(ind.get("exposure_pct") or 0)
+                source     = ind.get("source") or ""
+                flujo      = " · ".join(ind.get("flujo") or [])
+                desc       = ind.get("descripcion") or ""
+                flag_icon  = "🔴" if nivel_ind == "Crítico" else ("🟠" if nivel_ind == "Alto" else ("🟡" if nivel_ind == "Medio" else "🟢"))
+
                 st.markdown(
                     f"<div style='background:#1f2937;border-left:3px solid {flag_color};"
-                    f"padding:8px 14px;border-radius:6px;margin-bottom:8px;'>"
-                    f"<span style='color:{flag_color};font-weight:700;'>{'🔴' if is_red else '🟡'} {label_text}</span>"
-                    f"&nbsp;&nbsp;<span style='color:#9ca3af;font-size:0.8rem;'>"
-                    f"Exposición: {pct:.1f}%{' · ' + source if source else ''}</span>"
+                    f"padding:10px 14px;border-radius:6px;margin-bottom:8px;'>"
+                    f"<div style='display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;'>"
+                    f"<span style='color:{flag_color};font-weight:700;font-size:0.9rem;'>"
+                    f"{flag_icon} {label_es}</span>"
+                    f"<span style='color:#6b7280;font-size:0.75rem;font-style:italic;'>{label_text}</span>"
+                    f"</div>"
+                    f"<div style='display:flex;gap:14px;margin-top:6px;flex-wrap:wrap;'>"
+                    f"<span style='color:{flag_color};font-size:0.78rem;font-weight:700;"
+                    f"background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:10px;'>"
+                    f"{nivel_badge}</span>"
+                    f"{'<span style=\"color:#9ca3af;font-size:0.78rem;\">📊 Exp: ' + str(round(pct,1)) + '%</span>' if pct else ''}"
+                    f"{'<span style=\"color:#9ca3af;font-size:0.78rem;\">🏷️ ' + flujo + '</span>' if flujo else ''}"
+                    f"{'<span style=\"color:#9ca3af;font-size:0.78rem;\">📌 ' + source + '</span>' if source else ''}"
+                    f"</div>"
+                    f"{'<div style=\"color:#6b7280;font-size:0.75rem;margin-top:4px;\">' + desc + '</div>' if desc else ''}"
                     f"</div>",
                     unsafe_allow_html=True,
                 )
+            if calificacion["sin_catalogo"]:
+                st.caption(f"⚠️ Labels sin clasificar: {', '.join(calificacion['sin_catalogo'])}")
 
     with tab_notas:
         notas = wallet.get("notas") or ""
@@ -622,7 +669,62 @@ def _tab_vincular_wallet(user: dict) -> None:
         st.caption('Ej: `[{"label": "Blacklisted Wallet", "exposure_pct": 45.2, "source": "OFAC"}]`')
         labels_raw = st.text_area("Risk Labels JSON", value=init_labels_raw, height=90)
 
-        st.markdown("**Reporte**")
+    # ── Botón Validar Indicadores (fuera del form para no bloquear submit) ──
+    if labels_raw.strip():
+        if st.button("🔍 Validar Indicadores", key="btn_validar_ind", use_container_width=False):
+            try:
+                labels_test = json.loads(labels_raw)
+                if not isinstance(labels_test, list):
+                    st.warning("El JSON debe ser una lista de objetos.")
+                else:
+                    scoring = calificar_labels(labels_test)
+                    nivel_f  = scoring["nivel_final"]
+                    color_f  = _COLOR_NIVEL.get(nivel_f, "#6b7280")
+                    criticos = scoring["criticos_encontrados"]
+                    altos    = scoring["altos_encontrados"]
+                    medios   = scoring["medios_encontrados"]
+                    bajos    = scoring["bajos_encontrados"]
+                    nc       = len(scoring["sin_catalogo"])
+                    if nivel_f in ("Crítico",):
+                        st.error(
+                            f"🚨 Se detectaron **{criticos}** indicador(es) CRÍTICO(S). "
+                            f"Calificación sugerida: **{nivel_f}**"
+                        )
+                    elif nivel_f == "Alto":
+                        st.warning(
+                            f"⚠️ Se detectaron **{altos}** indicador(es) ALTO(S). "
+                            f"Calificación sugerida: **{nivel_f}**"
+                        )
+                    else:
+                        st.success(
+                            f"✅ Calificación sugerida: **{nivel_f}** "
+                            f"(Críticos: {criticos} · Altos: {altos} · Medios: {medios} · Bajos: {bajos})"
+                        )
+                    # Detalle de indicadores encontrados
+                    with st.expander("Ver detalle de indicadores", expanded=False):
+                        for ind in scoring["indicadores"]:
+                            nivel_ind = ind.get("nivel") or "Sin clasificar"
+                            label_es  = ind.get("label_es") or ind.get("label", "")
+                            label_en  = ind.get("label", "")
+                            flujo     = " · ".join(ind.get("flujo") or [])
+                            desc      = ind.get("descripcion") or ""
+                            fc        = _COLOR_NIVEL.get(nivel_ind, "#6b7280")
+                            st.markdown(
+                                f"<div style='background:#1f2937;border-left:3px solid {fc};"
+                                f"padding:8px 12px;border-radius:6px;margin-bottom:6px;'>"
+                                f"<b style='color:{fc};'>{label_es}</b>"
+                                f"<span style='color:#6b7280;font-size:0.78rem;'> ({label_en})</span>"
+                                f"<br><span style='color:#9ca3af;font-size:0.78rem;'>"
+                                f"{nivel_ind}{' · ' + flujo if flujo else ''}"
+                                f"{'<br>' + desc if desc else ''}</span></div>",
+                                unsafe_allow_html=True,
+                            )
+                        if scoring["sin_catalogo"]:
+                            st.caption(f"⚠️ Sin clasificar: {', '.join(scoring['sin_catalogo'])}")
+            except (json.JSONDecodeError, ValueError) as exc:
+                st.warning(f"JSON inválido: {exc}")
+
+    with st.form("form_vincular_wallet", clear_on_submit=True):
         col_p, col_f = st.columns(2)
         with col_p:
             pdf_url = st.text_input("URL del reporte PDF", placeholder="https://...")
