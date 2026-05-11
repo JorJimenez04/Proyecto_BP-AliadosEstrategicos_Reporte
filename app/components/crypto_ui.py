@@ -1,4 +1,4 @@
-﻿"""
+"""
 app/components/crypto_ui.py
 Módulo Cripto Compliance — VASP Monitor (Global Ledger).
 Acceso restringido a roles: admin, compliance.
