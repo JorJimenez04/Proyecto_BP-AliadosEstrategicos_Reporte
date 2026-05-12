@@ -656,6 +656,7 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "report_date":         report_date_detected,
         "gl_level":            _gl_level_detected,
         "gl_risk_level_text":  gl_risk_level_text,  # nivel desde texto (sin score)
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
