@@ -451,6 +451,8 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
                 "type":       _t,
             })
 
+    top_entity = indicators[0]["entity"] if indicators else None
+
     return {
         "ok":                  True,
         "error":               None,
