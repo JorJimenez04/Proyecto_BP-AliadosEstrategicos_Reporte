@@ -95,7 +95,17 @@ _WALLET_RE = re.compile(
     r')\b'
 )
 _GL_SCORE_RE = re.compile(
-    r'(?:gl[-\s]?score|risk[-\s]?score|score|puntuaci[o\u00f3]n)[:\s=]+(\d{1,3})\b',
+    r'(?:gl[-\s]?score|wallet[-\s]?risk[-\s]?score|risk[-\s]?score'
+    r'|score|puntuaci[o\u00f3]n)'
+    r'[:\s=\n\r]+(\d{1,3})(?:\s*/\s*100)?\b',
+    re.IGNORECASE | re.MULTILINE,
+)
+# Fallback: detecta "47/100" sin prefijo de etiqueta
+_GL_SCORE_FRACTION_RE = re.compile(r'\b(\d{1,3})\s*/\s*100\b')
+# Detecta nivel de riesgo global en texto: "HIGH RISK", "MEDIUM RISK", etc.
+_GL_RISK_LEVEL_RE = re.compile(
+    r'\b(critical|high|medium|low|bajo|medio|alto|cr[i\u00ed]tico)\s*risk\b'
+    r'|\brisk\s*level[:\s]*(critical|high|medium|low|bajo|medio|alto|cr[i\u00ed]tico)\b',
     re.IGNORECASE,
 )
 # Detecta fechas en texto libre del PDF (múltiples formatos)
@@ -431,12 +441,14 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
     # ── Detección de metadatos desde texto libre ──────────────────────────────
     wallet_detected: Optional[str] = None
     gl_score_detected: Optional[int] = None
+    gl_risk_level_text: Optional[str] = None  # detectado desde texto libre
     report_date_detected: Optional[str] = None
     if full_text_pages:
         _full_text = "\n".join(full_text_pages)
         _mw = _WALLET_RE.search(_full_text)
         if _mw:
             wallet_detected = _mw.group(1)
+        # Score con etiqueta (ej. "Score: 47" o "Score\n47")
         _ms = _GL_SCORE_RE.search(_full_text)
         if _ms:
             try:
@@ -444,6 +456,26 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
                 gl_score_detected = _sc if 0 <= _sc <= 100 else None
             except ValueError:
                 pass
+        # Fallback: "47/100" sin etiqueta
+        if gl_score_detected is None:
+            _mf = _GL_SCORE_FRACTION_RE.search(_full_text)
+            if _mf:
+                try:
+                    _sc2 = int(_mf.group(1))
+                    gl_score_detected = _sc2 if 0 <= _sc2 <= 100 else None
+                except ValueError:
+                    pass
+        # Nivel de riesgo desde texto ("HIGH RISK", "Risk Level: High")
+        _ml = _GL_RISK_LEVEL_RE.search(_full_text)
+        if _ml:
+            _raw_lvl = (_ml.group(1) or _ml.group(2) or "").lower()
+            _lvl_map = {
+                "critical": "Cr\u00edtico", "cr\u00edtico": "Cr\u00edtico",
+                "high": "Alto", "alto": "Alto",
+                "medium": "Medio", "medio": "Medio",
+                "low": "Bajo", "bajo": "Bajo",
+            }
+            gl_risk_level_text = _lvl_map.get(_raw_lvl[:8])
         # Fecha del reporte
         _md = _REPORT_DATE_RE.search(_full_text)
         if _md:
@@ -591,7 +623,7 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
 
     top_entity = indicators[0]["entity"] if indicators else None
 
-    # ── GL Level derivado del score ──────────────────────────────────────────
+    # ── GL Level: preferir el score; si no hay score, usar detección de texto ────
     _gl_level_detected: Optional[str] = None
     if gl_score_detected is not None:
         if gl_score_detected <= 30:
@@ -600,7 +632,8 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
             _gl_level_detected = "Medio"
         else:
             _gl_level_detected = "Alto"
-
+    elif gl_risk_level_text:
+        _gl_level_detected = gl_risk_level_text
     return {
         "ok":                  True,
         "error":               None,
@@ -622,7 +655,7 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "gl_score_detected":   gl_score_detected,
         "report_date":         report_date_detected,
         "gl_level":            _gl_level_detected,
-    }
+        "gl_risk_level_text":  gl_risk_level_text,  # nivel desde texto (sin score)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

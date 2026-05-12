@@ -981,7 +981,7 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
     _pdf_sof_pct_g   = _gl.get("sof_total_pct", 0.0)     if _from_pdf else 0.0
     _pdf_uof_pct_g   = _gl.get("uof_total_pct", 0.0)     if _from_pdf else 0.0
 
-    # Convertir fecha ISO a objeto date para el widget
+    # ── Fecha: parser → fallback desde nombre del archivo ────────────────────
     _pdf_date_val = None
     if _pdf_report_date:
         try:
@@ -990,15 +990,37 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         except ValueError:
             _pdf_date_val = None
 
+    if _pdf_date_val is None and _from_pdf and pdf_nw:
+        # Intentar extraer del nombre del archivo: report-DD-MM-YYYY_... o YYYY-MM-DD
+        import re as _re  # noqa: PLC0415
+        from datetime import date as _date  # noqa: PLC0415
+        _fn = pdf_nw.name
+        _dm = _re.search(r'(\d{1,2})[_\-](\d{1,2})[_\-](\d{4})', _fn)
+        if _dm:
+            try:
+                d, m, y = int(_dm.group(1)), int(_dm.group(2)), int(_dm.group(3))
+                _pdf_date_val = _date(y, m, d)
+            except ValueError:
+                pass
+        if _pdf_date_val is None:
+            _dm2 = _re.search(r'(\d{4})[_\-](\d{2})[_\-](\d{2})', _fn)
+            if _dm2:
+                try:
+                    y, m, d = int(_dm2.group(1)), int(_dm2.group(2)), int(_dm2.group(3))
+                    _pdf_date_val = _date(y, m, d)
+                except ValueError:
+                    pass
+
     init_addr   = _pdf_wallet or _src.get("wallet_address") or ""
     init_chain  = (
         _infer_chain(_pdf_wallet) if (_from_pdf and _pdf_wallet)
         else _src.get("blockchain") or "ETH"
     )
     init_score  = _pdf_score if _pdf_score is not None else _src.get("gl_score")
+    # Nivel: 1) derivado del score; 2) detectado desde texto PDF; 3) manual / sin datos
     init_nivel  = (
         _score_to_nivel_local(_pdf_score) if _pdf_score is not None
-        else _src.get("riesgo_nivel") or "Sin Datos"
+        else _pdf_gl_level or _src.get("riesgo_nivel") or "Sin Datos"
     )
     init_labels = json.dumps(_src.get("risk_labels") or [], ensure_ascii=False)
 
@@ -1187,7 +1209,11 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
                 disabled=(_from_pdf and _pdf_score is not None),
             )
         with col_nv:
-            if _from_pdf and _pdf_score is not None:
+            # Bloquear si el PDF aportó score o nivel de texto
+            _nivel_from_pdf = _from_pdf and (
+                _pdf_score is not None or _pdf_gl_level is not None
+            )
+            if _nivel_from_pdf:
                 riesgo_manual = st.text_input("Nivel GL", value=init_nivel, disabled=True)
             else:
                 riesgo_manual = st.selectbox("Nivel GL", niveles, index=nivel_idx)
