@@ -323,78 +323,83 @@ class CryptoRepository:
         risk_labels_json = json.dumps(labels_list)
         last_report = data.last_report_date.isoformat() if data.last_report_date else None
 
+        _SQL_CREATE = """
+            INSERT INTO crypto_monitoreo (
+                wallet_address, blockchain,
+                crypto_cliente_id, client_id, client_nombre,
+                gl_score, riesgo_nivel, risk_labels,
+                total_exposure, exposure_currency, wallet_status,
+                sof_tipo_riesgo, sof_indicador, sof_naturaleza, sof_profundidad,
+                sof_cont_directa, sof_cont_indirecta, sof_cont_total,
+                sof_score, sof_nivel, sof_monto,
+                uof_indicador, uof_naturaleza, uof_profundidad,
+                uof_cont_directa, uof_cont_indirecta, uof_cont_total,
+                uof_score, uof_nivel, uof_monto,
+                analyst_observations, monitoring_analyst,
+                final_risk_score, final_risk_level,
+                pdf_report_url, last_report_date, registrado_por, notas
+            ) VALUES (
+                %(wallet_address)s, %(blockchain)s,
+                %(crypto_cliente_id)s, %(client_id)s, %(client_nombre)s,
+                %(gl_score)s, %(riesgo_nivel)s, %(risk_labels)s::jsonb,
+                %(total_exposure)s, %(exposure_currency)s, %(wallet_status)s,
+                %(sof_tipo_riesgo)s, %(sof_indicador)s, %(sof_naturaleza)s, %(sof_profundidad)s,
+                %(sof_cont_directa)s, %(sof_cont_indirecta)s, %(sof_cont_total)s,
+                %(sof_score)s, %(sof_nivel)s, %(sof_monto)s,
+                %(uof_indicador)s, %(uof_naturaleza)s, %(uof_profundidad)s,
+                %(uof_cont_directa)s, %(uof_cont_indirecta)s, %(uof_cont_total)s,
+                %(uof_score)s, %(uof_nivel)s, %(uof_monto)s,
+                %(analyst_observations)s, %(monitoring_analyst)s,
+                %(final_risk_score)s, %(final_risk_level)s,
+                %(pdf_report_url)s, %(last_report_date)s, %(registrado_por)s, %(notas)s
+            )
+            RETURNING *
+        """
+        _params_create = {
+            "wallet_address":       data.wallet_address,
+            "blockchain":           data.blockchain,
+            "crypto_cliente_id":    data.crypto_cliente_id,
+            "client_id":            data.client_id,
+            "client_nombre":        data.client_nombre,
+            "gl_score":             data.gl_score,
+            "riesgo_nivel":         nivel,
+            "risk_labels":          risk_labels_json,
+            "total_exposure":       data.total_exposure,
+            "exposure_currency":    data.exposure_currency,
+            "wallet_status":        data.wallet_status,
+            "sof_tipo_riesgo":      data.sof_tipo_riesgo,
+            "sof_indicador":        data.sof_indicador,
+            "sof_naturaleza":       data.sof_naturaleza,
+            "sof_profundidad":      data.sof_profundidad,
+            "sof_cont_directa":     data.sof_cont_directa,
+            "sof_cont_indirecta":   data.sof_cont_indirecta,
+            "sof_cont_total":       data.sof_cont_total,
+            "sof_score":            data.sof_score,
+            "sof_nivel":            data.sof_nivel,
+            "sof_monto":            data.sof_monto if data.sof_monto is not None else None,
+            "uof_indicador":        data.uof_indicador,
+            "uof_naturaleza":       data.uof_naturaleza,
+            "uof_profundidad":      data.uof_profundidad,
+            "uof_cont_directa":     data.uof_cont_directa,
+            "uof_cont_indirecta":   data.uof_cont_indirecta,
+            "uof_cont_total":       data.uof_cont_total,
+            "uof_score":            data.uof_score,
+            "uof_nivel":            data.uof_nivel,
+            "uof_monto":            data.uof_monto if data.uof_monto is not None else None,
+            "analyst_observations": data.analyst_observations,
+            "monitoring_analyst":   data.monitoring_analyst,
+            "final_risk_score":     data.final_risk_score,
+            "final_risk_level":     data.final_risk_level,
+            "pdf_report_url":       data.pdf_report_url,
+            "last_report_date":     last_report,
+            "registrado_por":       data.registrado_por,
+            "notas":                data.notas,
+        }
+
         try:
-            row = self.session.execute(text("""
-                INSERT INTO crypto_monitoreo (
-                    wallet_address, blockchain,
-                    crypto_cliente_id, client_id, client_nombre,
-                    gl_score, riesgo_nivel, risk_labels,
-                    total_exposure, exposure_currency, wallet_status,
-                    sof_tipo_riesgo, sof_indicador, sof_naturaleza, sof_profundidad,
-                    sof_cont_directa, sof_cont_indirecta, sof_cont_total,
-                    sof_score, sof_nivel, sof_monto,
-                    uof_indicador, uof_naturaleza, uof_profundidad,
-                    uof_cont_directa, uof_cont_indirecta, uof_cont_total,
-                    uof_score, uof_nivel, uof_monto,
-                    analyst_observations, monitoring_analyst,
-                    final_risk_score, final_risk_level,
-                    pdf_report_url, last_report_date, registrado_por, notas
-                ) VALUES (
-                    :wallet_address, :blockchain,
-                    :crypto_cliente_id, :client_id, :client_nombre,
-                    :gl_score, :riesgo_nivel, CAST(:risk_labels AS jsonb),
-                    :total_exposure, :exposure_currency, :wallet_status,
-                    :sof_tipo_riesgo, :sof_indicador, :sof_naturaleza, :sof_profundidad,
-                    :sof_cont_directa, :sof_cont_indirecta, :sof_cont_total,
-                    :sof_score, :sof_nivel, :sof_monto,
-                    :uof_indicador, :uof_naturaleza, :uof_profundidad,
-                    :uof_cont_directa, :uof_cont_indirecta, :uof_cont_total,
-                    :uof_score, :uof_nivel, :uof_monto,
-                    :analyst_observations, :monitoring_analyst,
-                    :final_risk_score, :final_risk_level,
-                    :pdf_report_url, :last_report_date, :registrado_por, :notas
-                )
-                RETURNING *
-            """), {
-                "wallet_address":       data.wallet_address,
-                "blockchain":           data.blockchain,
-                "crypto_cliente_id":    data.crypto_cliente_id,
-                "client_id":            data.client_id,
-                "client_nombre":        data.client_nombre,
-                "gl_score":             data.gl_score,
-                "riesgo_nivel":         nivel,
-                "risk_labels":          risk_labels_json,
-                "total_exposure":       data.total_exposure,
-                "exposure_currency":    data.exposure_currency,
-                "wallet_status":        data.wallet_status,
-                "sof_tipo_riesgo":      data.sof_tipo_riesgo,
-                "sof_indicador":        data.sof_indicador,
-                "sof_naturaleza":       data.sof_naturaleza,
-                "sof_profundidad":      data.sof_profundidad,
-                "sof_cont_directa":     data.sof_cont_directa,
-                "sof_cont_indirecta":   data.sof_cont_indirecta,
-                "sof_cont_total":       data.sof_cont_total,
-                "sof_score":            data.sof_score,
-                "sof_nivel":            data.sof_nivel,
-                "sof_monto":            data.sof_monto,
-                "uof_indicador":        data.uof_indicador,
-                "uof_naturaleza":       data.uof_naturaleza,
-                "uof_profundidad":      data.uof_profundidad,
-                "uof_cont_directa":     data.uof_cont_directa,
-                "uof_cont_indirecta":   data.uof_cont_indirecta,
-                "uof_cont_total":       data.uof_cont_total,
-                "uof_score":            data.uof_score,
-                "uof_nivel":            data.uof_nivel,
-                "uof_monto":            data.uof_monto,
-                "analyst_observations": data.analyst_observations,
-                "monitoring_analyst":   data.monitoring_analyst,
-                "final_risk_score":     data.final_risk_score,
-                "final_risk_level":     data.final_risk_level,
-                "pdf_report_url":       data.pdf_report_url,
-                "last_report_date":     last_report,
-                "registrado_por":       data.registrado_por,
-                "notas":                data.notas,
-            }).mappings().first()
+            row = self.session.connection().exec_driver_sql(
+                _SQL_CREATE, _params_create
+            ).mappings().first()
             self.session.commit()
             logger.info("crypto.create_wallet: %s → %s", data.wallet_address, nivel)
             return dict(row)
@@ -441,47 +446,48 @@ class CryptoRepository:
         risk_labels_json = json.dumps(labels_list)
         last_report = data.last_report_date.isoformat() if data.last_report_date else None
 
-        row = self.session.execute(text("""
+        _SQL_MONITOR = """
             UPDATE crypto_monitoreo SET
-                blockchain            = :blockchain,
-                gl_score              = :gl_score,
-                riesgo_nivel          = :riesgo_nivel,
-                risk_labels           = CAST(:risk_labels AS jsonb),
-                total_exposure        = :total_exposure,
-                exposure_currency     = :exposure_currency,
-                wallet_status         = :wallet_status,
-                sof_tipo_riesgo       = :sof_tipo_riesgo,
-                sof_indicador         = :sof_indicador,
-                sof_naturaleza        = :sof_naturaleza,
-                sof_profundidad       = :sof_profundidad,
-                sof_cont_directa      = :sof_cont_directa,
-                sof_cont_indirecta    = :sof_cont_indirecta,
-                sof_cont_total        = :sof_cont_total,
-                sof_score             = :sof_score,
-                sof_nivel             = :sof_nivel,
-                sof_monto             = :sof_monto,
-                uof_indicador         = :uof_indicador,
-                uof_naturaleza        = :uof_naturaleza,
-                uof_profundidad       = :uof_profundidad,
-                uof_cont_directa      = :uof_cont_directa,
-                uof_cont_indirecta    = :uof_cont_indirecta,
-                uof_cont_total        = :uof_cont_total,
-                uof_score             = :uof_score,
-                uof_nivel             = :uof_nivel,
-                uof_monto             = :uof_monto,
-                analyst_observations  = :analyst_observations,
-                monitoring_analyst    = :monitoring_analyst,
-                final_risk_score      = :final_risk_score,
-                final_risk_level      = :final_risk_level,
-                weekly_delta          = :weekly_delta,
-                pdf_report_url        = COALESCE(:pdf_report_url, pdf_report_url),
-                last_report_date      = :last_report_date,
-                registrado_por        = :registrado_por,
-                notas                 = COALESCE(:notas, notas),
+                blockchain            = %(blockchain)s,
+                gl_score              = %(gl_score)s,
+                riesgo_nivel          = %(riesgo_nivel)s,
+                risk_labels           = %(risk_labels)s::jsonb,
+                total_exposure        = %(total_exposure)s,
+                exposure_currency     = %(exposure_currency)s,
+                wallet_status         = %(wallet_status)s,
+                sof_tipo_riesgo       = %(sof_tipo_riesgo)s,
+                sof_indicador         = %(sof_indicador)s,
+                sof_naturaleza        = %(sof_naturaleza)s,
+                sof_profundidad       = %(sof_profundidad)s,
+                sof_cont_directa      = %(sof_cont_directa)s,
+                sof_cont_indirecta    = %(sof_cont_indirecta)s,
+                sof_cont_total        = %(sof_cont_total)s,
+                sof_score             = %(sof_score)s,
+                sof_nivel             = %(sof_nivel)s,
+                sof_monto             = %(sof_monto)s,
+                uof_indicador         = %(uof_indicador)s,
+                uof_naturaleza        = %(uof_naturaleza)s,
+                uof_profundidad       = %(uof_profundidad)s,
+                uof_cont_directa      = %(uof_cont_directa)s,
+                uof_cont_indirecta    = %(uof_cont_indirecta)s,
+                uof_cont_total        = %(uof_cont_total)s,
+                uof_score             = %(uof_score)s,
+                uof_nivel             = %(uof_nivel)s,
+                uof_monto             = %(uof_monto)s,
+                analyst_observations  = %(analyst_observations)s,
+                monitoring_analyst    = %(monitoring_analyst)s,
+                final_risk_score      = %(final_risk_score)s,
+                final_risk_level      = %(final_risk_level)s,
+                weekly_delta          = %(weekly_delta)s,
+                pdf_report_url        = COALESCE(%(pdf_report_url)s, pdf_report_url),
+                last_report_date      = %(last_report_date)s,
+                registrado_por        = %(registrado_por)s,
+                notas                 = COALESCE(%(notas)s, notas),
                 updated_at            = NOW()
-            WHERE wallet_address = :wallet_address
+            WHERE wallet_address = %(wallet_address)s
             RETURNING *
-        """), {
+        """
+        _params_monitor = {
             "wallet_address":       data.wallet_address,
             "blockchain":           data.blockchain,
             "gl_score":             data.gl_score,
@@ -499,7 +505,7 @@ class CryptoRepository:
             "sof_cont_total":       data.sof_cont_total,
             "sof_score":            data.sof_score,
             "sof_nivel":            data.sof_nivel,
-            "sof_monto":            data.sof_monto,
+            "sof_monto":            data.sof_monto if data.sof_monto is not None else None,
             "uof_indicador":        data.uof_indicador,
             "uof_naturaleza":       data.uof_naturaleza,
             "uof_profundidad":      data.uof_profundidad,
@@ -508,7 +514,7 @@ class CryptoRepository:
             "uof_cont_total":       data.uof_cont_total,
             "uof_score":            data.uof_score,
             "uof_nivel":            data.uof_nivel,
-            "uof_monto":            data.uof_monto,
+            "uof_monto":            data.uof_monto if data.uof_monto is not None else None,
             "analyst_observations": data.analyst_observations,
             "monitoring_analyst":   data.monitoring_analyst,
             "final_risk_score":     data.final_risk_score,
@@ -518,7 +524,11 @@ class CryptoRepository:
             "last_report_date":     last_report,
             "registrado_por":       data.registrado_por,
             "notas":                data.notas,
-        }).mappings().first()
+        }
+
+        row = self.session.connection().exec_driver_sql(
+            _SQL_MONITOR, _params_monitor
+        ).mappings().first()
         self.session.commit()
         logger.info(
             "crypto.monitor_wallet: %s → %s (archived prev)",
@@ -574,7 +584,7 @@ class CryptoRepository:
             calificacion["uof_max_nivel"],
         )
 
-        row = self.session.execute(text("""
+        row = self.session.connection().exec_driver_sql("""
             INSERT INTO crypto_monitoreo (
                 wallet_address, blockchain,
                 crypto_cliente_id, client_id, client_nombre,
@@ -593,22 +603,22 @@ class CryptoRepository:
                 pdf_report_url, last_report_date,
                 registrado_por, notas
             ) VALUES (
-                :wallet_address, :blockchain,
-                :crypto_cliente_id, :client_id, :client_nombre,
-                :gl_score, :riesgo_nivel, CAST(:risk_labels AS jsonb),
-                :total_exposure, :exposure_currency,
-                :wallet_status,
-                :sof_tipo_riesgo, :sof_indicador, :sof_naturaleza, :sof_profundidad,
-                :sof_cont_directa, :sof_cont_indirecta, :sof_cont_total,
-                :sof_score, :sof_nivel, :sof_monto,
-                :uof_indicador, :uof_naturaleza, :uof_profundidad,
-                :uof_cont_directa, :uof_cont_indirecta, :uof_cont_total,
-                :uof_score, :uof_nivel, :uof_monto,
-                :analyst_observations, :monitoring_analyst,
-                :final_risk_score, :final_risk_level,
-                :weekly_delta,
-                :pdf_report_url, :last_report_date,
-                :registrado_por, :notas
+                %(wallet_address)s, %(blockchain)s,
+                %(crypto_cliente_id)s, %(client_id)s, %(client_nombre)s,
+                %(gl_score)s, %(riesgo_nivel)s, %(risk_labels)s::jsonb,
+                %(total_exposure)s, %(exposure_currency)s,
+                %(wallet_status)s,
+                %(sof_tipo_riesgo)s, %(sof_indicador)s, %(sof_naturaleza)s, %(sof_profundidad)s,
+                %(sof_cont_directa)s, %(sof_cont_indirecta)s, %(sof_cont_total)s,
+                %(sof_score)s, %(sof_nivel)s, %(sof_monto)s,
+                %(uof_indicador)s, %(uof_naturaleza)s, %(uof_profundidad)s,
+                %(uof_cont_directa)s, %(uof_cont_indirecta)s, %(uof_cont_total)s,
+                %(uof_score)s, %(uof_nivel)s, %(uof_monto)s,
+                %(analyst_observations)s, %(monitoring_analyst)s,
+                %(final_risk_score)s, %(final_risk_level)s,
+                %(weekly_delta)s,
+                %(pdf_report_url)s, %(last_report_date)s,
+                %(registrado_por)s, %(notas)s
             )
             ON CONFLICT (wallet_address) DO UPDATE SET
                 blockchain            = EXCLUDED.blockchain,
@@ -651,7 +661,7 @@ class CryptoRepository:
                 notas                 = COALESCE(EXCLUDED.notas, crypto_monitoreo.notas),
                 updated_at            = NOW()
             RETURNING *
-        """), {
+        """, {
             "wallet_address":       data.wallet_address,
             "blockchain":           data.blockchain,
             "crypto_cliente_id":    data.crypto_cliente_id,
@@ -672,6 +682,7 @@ class CryptoRepository:
             "sof_cont_total":       data.sof_cont_total,
             "sof_score":            data.sof_score,
             "sof_nivel":            data.sof_nivel,
+            "sof_monto":            data.sof_monto if data.sof_monto is not None else None,
             "uof_indicador":        data.uof_indicador,
             "uof_naturaleza":       data.uof_naturaleza,
             "uof_profundidad":      data.uof_profundidad,
@@ -680,8 +691,7 @@ class CryptoRepository:
             "uof_cont_total":       data.uof_cont_total,
             "uof_score":            data.uof_score,
             "uof_nivel":            data.uof_nivel,
-            "uof_monto":            data.uof_monto,
-            "sof_monto":            data.sof_monto,
+            "uof_monto":            data.uof_monto if data.uof_monto is not None else None,
             "analyst_observations": data.analyst_observations,
             "monitoring_analyst":   data.monitoring_analyst,
             "final_risk_score":     data.final_risk_score,
