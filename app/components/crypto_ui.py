@@ -1355,19 +1355,31 @@ def _tab_monitoreo_semanal(user: dict) -> None:
         f"<b style='color:#93c5fd;'>{step1_label}</b></div>",
         unsafe_allow_html=True,
     )
+    # Key dinámica por wallet — fuerza un uploader limpio al cambiar wallet
+    _uploader_key = f"pdf_mon_{wallet_addr}"
+    _active_key   = f"mon_pdf_active_{wallet_addr}"
+
     col_pdf_up, col_delta = st.columns([1, 2])
     with col_pdf_up:
         pdf_file = st.file_uploader(
-            "📎 Cargar Reporte PDF", type=["pdf"], key="mon_pdf_upload",
+            "📎 Cargar Reporte PDF", type=["pdf"],
+            key=_uploader_key,
         )
         if pdf_file:
             kb = pdf_file.size // 1024
             st.caption(f"✅ `{pdf_file.name}`  ({kb} KB)")
-            # ── Auto-parseo del PDF ───────────────────────
-            _pdf_key = f"mon_pdf_parsed_{pdf_file.name}_{pdf_file.size}"
+            # ── Auto-parseo (cacheado por wallet+nombre+tamaño) ──
+            _pdf_key = f"mon_pdf_parsed_{wallet_addr}_{pdf_file.name}_{pdf_file.size}"
             if _pdf_key not in st.session_state:
-                with st.spinner("Analizando transacciones GL…"):
+                with st.spinner("🔍 Analizando reporte…"):
                     st.session_state[_pdf_key] = parse_gl_pdf(pdf_file.getvalue())
+            # Registrar la clave activa para usarla fuera del bloque
+            st.session_state[_active_key] = _pdf_key
+        else:
+            # Reset: el usuario quitó el archivo — limpiar datos del parser
+            if _active_key in st.session_state:
+                _stale_key = st.session_state.pop(_active_key)
+                st.session_state.pop(_stale_key, None)
     with col_delta:
         weekly_delta = st.text_area(
             "📝 Resumen de Cambios Semanales (Delta) *",
@@ -1380,9 +1392,9 @@ def _tab_monitoreo_semanal(user: dict) -> None:
         )
 
     # ── Resultados del parseo (ancho completo, bajo las columnas) ──
-    if pdf_file:
-        _pdf_key = f"mon_pdf_parsed_{pdf_file.name}_{pdf_file.size}"
-        _pr = st.session_state.get(_pdf_key, {})
+    _active_pdf_key = st.session_state.get(_active_key)
+    if _active_pdf_key:
+        _pr = st.session_state.get(_active_pdf_key, {})
         if _pr.get("ok"):
             _high  = _pr["high_risk_count"]
             _med   = _pr["medium_risk_count"]
