@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-05-11 (rev. 14)
+> Última actualización: 2026-05-12 (rev. 15)
 
 ---
 
@@ -106,10 +106,15 @@ Proyecto_PartnersStatus/
 │   │   ├── 📄 crypto_ui.py            # 🛡️ Cripto Compliance — VASP Monitor (Global Ledger)
 │   │   │                              # Acceso: solo admin y compliance (RBAC)
 │   │   │                              # page_crypto_compliance(user): 4 tabs
-│   │   │                              #   👥 Clientes (tab_clientes):
+│   │   │                              #   👥 Clientes (tab_clientes) → _tab_clientes(user):
+│   │   │                              #     Vinculador inline: si show_vinculador en session_state,
+│   │   │                              #       muestra _form_nueva_wallet() antes del listado + botón cancelar
 │   │   │                              #     Registro de clientes corporativos (crypto_clientes)
 │   │   │                              #     Cards HTML con razon_social · NIT · representante
 │   │   │                              #     Expander por cliente: wallets vinculadas + exposure
+│   │   │                              #     Botones por cliente (2 columnas):
+│   │   │                              #       📋 Ver en Monitor → filtro crypto_cliente_filtro
+│   │   │                              #       ➕ Vincular Wallet → activa show_vinculador + rerun
 │   │   │                              #     Formulario crear cliente (CryptoClienteCreate)
 │   │   │                              #   📋 Monitor de Wallets (tab_monitor):
 │   │   │                              #     filtros: nivel riesgo · blockchain · solo_criticos · texto
@@ -122,6 +127,23 @@ Proyecto_PartnersStatus/
 │   │   │                              #         labels críticos: Sanctioned Exchange, OFAC, Darknet,
 │   │   │                              #         Ransomware, Scam, Terrorism Financing, Mixer, etc.
 │   │   │                              #       📝 Notas & Reporte: link_button PDF · notas internas
+│   │   │                              #   📈 Monitoreo Semanal (tab_monitoreo) → _tab_monitoreo_semanal(user):
+│   │   │                              #     Selectbox de todas las wallets (label: cliente — addr · chain · nivel)
+│   │   │                              #     _render_comparativo(current_record): métricas delta vs snapshot anterior
+│   │   │                              #       st.metric con delta: GL score · SoF score · UoF score · exposure
+│   │   │                              #       muestra "Estado Actual (se archivará al guardar)"
+│   │   │                              #     st.file_uploader PDF (fuera del form, key mon_pdf_upload)
+│   │   │                              #     Área weekly_delta: resumen de cambios de la semana
+│   │   │                              #     st.form("form_monitoreo_semanal"): Pasos 2-4
+│   │   │                              #       Paso 2: SoF (tipo_riesgo, indicador, naturaleza, profundidad,
+│   │   │                              #         cont_directa/indirecta/total, score, nivel, monto)
+│   │   │                              #       Paso 3: UoF (indicador, naturaleza, profundidad,
+│   │   │                              #         cont_directa/indirecta/total, score, nivel, monto)
+│   │   │                              #       Paso 3b: GL Validation (selectbox GL labels, GL score manual)
+│   │   │                              #       Paso 4: Conclusión (analyst_observations, monitoring_analyst,
+│   │   │                              #         final_risk_score, final_risk_level, wallet_status)
+│   │   │                              #     Submit: CryptoRepository.monitor_wallet() — archiva + actualiza
+│   │   │                              #     Widget keys prefijados "mon_" para evitar colisiones
 │   │   │                              #   📊 Reporte Gerencial (tab_gerencial):
 │   │   │                              #     render_gerencial_crypto(session):
 │   │   │                              #       selectbox filtro por cliente (todos o específico)
@@ -129,18 +151,24 @@ Proyecto_PartnersStatus/
 │   │   │                              #       Pie chart distribución riesgo (Plotly)
 │   │   │                              #       Bar chart distribución por blockchain
 │   │   │                              #       Tabla atención prioritaria (score<30 o Crítico/Alto)
-│   │   │                              #   ➕ Vincular Wallet (tab_wallet):
-│   │   │                              #     selectbox obligatorio: elegir cliente corporativo
-│   │   │                              #     _form_nueva_wallet(user): address · blockchain
-│   │   │                              #     GL Score · nivel manual · exposure USD
-│   │   │                              #     Risk Labels JSON raw (pegar respuesta GL)
-│   │   │                              #     URL PDF · fecha reporte · notas
-│   │   │                              #     upsert: si wallet existe la actualiza (ON CONFLICT)
-│   │   │                              # Helpers: _pill() · _score_bar() · _parse_labels()
+│   │   │                              # Helpers internos:
+│   │   │                              #   _form_nueva_wallet(user, cliente_id, cliente_nombre):
+│   │   │                              #     Formulario de PRIMERA vinculación (cliente pre-fijado)
+│   │   │                              #     Expander opcional GL paste para pre-llenar campos
+│   │   │                              #     Llama CryptoRepository.create_wallet() — INSERT puro
+│   │   │                              #     Captura ValueError en duplicado · borra show_vinculador al éxito
+│   │   │                              #     Widget keys sufijadas _{cliente_id} para soporte multi-cliente
+│   │   │                              #   _render_comparativo(prev, new_gl_score):
+│   │   │                              #     Compara snapshot historial vs valores actuales/nuevos
+│   │   │                              #     4 st.metric con delta coloreado
+│   │   │                              #   _parse_gl_report(raw_text) · _parse_gl_opt(opt) · _parse_labels()
+│   │   │                              #   _pill() · _score_bar() · _card_wallet() · _ficha_wallet()
 │   │   │                              # Cache: _get_clientes_cached(ttl=300) · _get_wallets_cached()
 │   │   │                              # Paleta: Crítico=#ef4444 · Alto=#f97316 · Medio=#f59e0b
 │   │   │                              #   Bajo=#22c55e · Sin Datos=#6b7280
 │   │   │                              # Iconos blockchain: ⟠ETH · ₿BTC · 🔶BNB · 🔴TRX · ◎SOL
+│   │   │                              # Constantes módulo: _GL_SELECTBOX · _GL_OPTS_NONE · _COLOR_NIVEL
+│   │   │                              #   _BLOCKCHAIN_ICONS · _LABELS_CRITICOS
 │   │   ├── 📄 compliance_ui.py        # Centro Documental de Cumplimiento — page_compliance(user)
 │   │   │                              # Accesible para roles: admin · compliance · comercial · consulta
 │   │   │                              # Filtro empresa: Todas · Holdings BPO · PayCOP · Adamo Services
@@ -283,6 +311,14 @@ Proyecto_PartnersStatus/
 │   │                                  #   crypto_cliente_id (FK) · gl_score(0-100) · riesgo_nivel
 │   │                                  #   risk_labels[RiskLabel] · total_exposure · pdf_report_url
 │   │                                  #   last_report_date · validator: normaliza address, calcula nivel
+│   │                                  # — SoF/UoF y Conclusión (migración 021) —
+│   │                                  # WalletMonitorCreate: sof_tipo_riesgo · sof_indicador · sof_naturaleza
+│   │                                  #   sof_profundidad · sof_cont_directa/indirecta/total · sof_score
+│   │                                  #   sof_nivel · sof_monto — igual para uof_*
+│   │                                  #   analyst_observations · monitoring_analyst
+│   │                                  #   final_risk_score · final_risk_level · wallet_status
+│   │                                  # — Monitoreo Semanal (migración 022) —
+│   │                                  # WalletMonitorCreate: weekly_delta Optional[str]
 │   │                                  # WalletMonitorOut: modelo completo de salida
 │   │                                  # — Clientes Corporativos Cripto (migración 020) —
 │   │                                  # CryptoClienteCreate: razon_social · nit · representante_legal
@@ -355,6 +391,29 @@ Proyecto_PartnersStatus/
 │                                                       #       REFERENCES crypto_clientes(id)
 │                                                       #       ON DELETE SET NULL
 │                                                       #   índice: crypto_cliente_id · trigger updated_at
+│   │   ├── 📄 021_sof_uof_fields.sql                  # Metodología SoF/UoF (Wallets Monitoring AdamoServices)
+│   │   │                                              #   ALTER TABLE crypto_monitoreo ADD COLUMN IF NOT EXISTS:
+│   │   │                                              #   — Source of Funds: sof_tipo_riesgo · sof_indicador
+│   │   │                                              #     sof_naturaleza · sof_profundidad · sof_cont_directa
+│   │   │                                              #     sof_cont_indirecta · sof_cont_total · sof_score
+│   │   │                                              #     sof_nivel · sof_monto NUMERIC(20,2)
+│   │   │                                              #   — Use of Funds: uof_indicador · uof_naturaleza
+│   │   │                                              #     uof_profundidad · uof_cont_directa/indirecta/total
+│   │   │                                              #     uof_score · uof_nivel · uof_monto NUMERIC(20,2)
+│   │   │                                              #   — Conclusión: analyst_observations · monitoring_analyst
+│   │   │                                              #     final_risk_score NUMERIC(6,2) · final_risk_level
+│   │   │                                              #     wallet_status TEXT DEFAULT 'Active'
+│   │   │                                              #   Índices: sof_nivel · uof_nivel · final_risk_level
+│   │   │                                              #     monitoring_analyst
+│   │   └── 📄 022_weekly_monitoring_historial.sql     # Ciclo de monitoreo semanal + historial
+│       │                                              #   weekly_delta TEXT en crypto_monitoreo
+│       │                                              #   tabla crypto_monitoreo_historial (snapshots):
+│       │                                              #     id · original_id · snapshot_date · wallet_address
+│       │                                              #     gl_score · riesgo_nivel · sof/uof scores y niveles
+│       │                                              #     final_risk_score · final_risk_level · weekly_delta
+│       │                                              #     analyst_observations · monitoring_analyst
+│       │                                              #     registrado_por · pdf_report_url · total_exposure
+│       │                                              #   Índices: wallet_address · original_id · snapshot_date
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
@@ -392,9 +451,20 @@ Proyecto_PartnersStatus/
 │       │                              #   get_wallets_by_cliente(cliente_id) → list[dict]
 │       │                              #   get_stats_by_cliente(cliente_id) → dict
 │       │                              #     exposure_total · distribución por nivel
-│       │                              # — Wallets VASP:
+│       │                              # — Wallets VASP (ciclo de vida separado):
+│       │                              #   create_wallet(WalletMonitorCreate) → dict
+│       │                              #     INSERT puro — no ON CONFLICT. Primera vinculación.
+│       │                              #     Lanza ValueError con mensaje amigable en duplicado
+│       │                              #   monitor_wallet(WalletMonitorCreate) → dict
+│       │                              #     Ciclo semanal: archive_current → UPDATE registro activo
+│       │                              #     Lanza ValueError si wallet no existe
+│       │                              #     Lanza RuntimeError si archive falla
 │       │                              #   upsert_from_gl(WalletMonitorCreate) — ON CONFLICT wallet_address
-│       │                              #     persiste crypto_cliente_id · calcula nivel si 'Sin Datos'
+│       │                              #     (legado — mantener por compatibilidad)
+│       │                              #   get_previous_snapshot(wallet_address) → Optional[dict]
+│       │                              #     Último historial de crypto_monitoreo_historial
+│       │                              #   archive_current_to_history(wallet_address) → bool
+│       │                              #     INSERT INTO crypto_monitoreo_historial SELECT … FROM crypto_monitoreo
 │       │                              #   get_by_address(addr) · get_by_id(id)
 │       │                              #   get_lista(client_id, riesgo_nivel, blockchain,
 │       │                              #     solo_criticos, search_text):
