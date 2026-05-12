@@ -98,6 +98,19 @@ _GL_SCORE_RE = re.compile(
     r'(?:gl[-\s]?score|risk[-\s]?score|score|puntuaci[o\u00f3]n)[:\s=]+(\d{1,3})\b',
     re.IGNORECASE,
 )
+# Detecta fechas en texto libre del PDF (múltiples formatos)
+_REPORT_DATE_RE = re.compile(
+    r'(?:report\s+date|generated(?:\s+on)?|date|fecha)[:\s]+'
+    r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}'
+    r'|\d{4}-\d{2}-\d{2}'
+    r'|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?'
+    r'|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
+    r'\s+\d{1,2}(?:,\s*|\s+)\d{4}'
+    r'|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?'
+    r'|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
+    r'(?:\s+\d{4})?)',
+    re.IGNORECASE,
+)
 
 
 def _identify_columns(header: list) -> Optional[dict[str, int]]:
@@ -239,6 +252,54 @@ def _group_rows(rows: list[dict], gl_scores: dict[str, int]) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Helper: normalizar fecha detectada a ISO string "YYYY-MM-DD"
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_report_date(raw: str) -> Optional[str]:
+    """
+    Convierte una cadena de fecha libre a ISO 'YYYY-MM-DD'.
+    Acepta: '11/05/2026', '2026-05-11', '11-05-2026', 'May 11, 2026',
+            '11 May 2026', 'May 11 2026', etc.
+    Retorna None si no puede parsear.
+    """
+    from datetime import datetime as _dt  # noqa: PLC0415
+    raw = raw.strip()
+    _MONTH_MAP = {
+        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+        "january": 1, "february": 2, "march": 3, "april": 4, "june": 6,
+        "july": 7, "august": 8, "september": 9, "october": 10,
+        "november": 11, "december": 12,
+    }
+    # Intentar formatos estrictos
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y",
+                "%B %d, %Y", "%B %d %Y", "%d %B %Y", "%d %B %Y"):
+        try:
+            return _dt.strptime(raw, fmt).date().isoformat()
+        except ValueError:
+            pass
+    # Fallback: buscar dígitos y nombre de mes con regex
+    _m = re.search(
+        r'(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?'
+        r'|([A-Za-z]+)\s+(\d{1,2})(?:,\s*|\s+)(\d{4})',
+        raw,
+    )
+    if _m:
+        try:
+            if _m.group(1):  # "11 May 2026"
+                day, mon_str, year = _m.group(1), _m.group(2), _m.group(3) or "2026"
+            else:             # "May 11, 2026"
+                mon_str, day, year = _m.group(4), _m.group(5), _m.group(6)
+            month = _MONTH_MAP.get(mon_str.lower()[:3])
+            if month:
+                from datetime import date as _date  # noqa: PLC0415
+                return _date(int(year), month, int(day)).isoformat()
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Entrada principal
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -279,6 +340,8 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "tables_found": 0,
         "wallet_detected": None,
         "gl_score_detected": None,
+        "report_date": None,       # ISO str "YYYY-MM-DD" si se detecta
+        "gl_level": None,           # str: Bajo/Medio/Alto/Crítico/Sin Datos
     }
 
     if not _PDFPLUMBER_OK:
@@ -368,6 +431,7 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
     # ── Detección de metadatos desde texto libre ──────────────────────────────
     wallet_detected: Optional[str] = None
     gl_score_detected: Optional[int] = None
+    report_date_detected: Optional[str] = None
     if full_text_pages:
         _full_text = "\n".join(full_text_pages)
         _mw = _WALLET_RE.search(_full_text)
@@ -380,6 +444,10 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
                 gl_score_detected = _sc if 0 <= _sc <= 100 else None
             except ValueError:
                 pass
+        # Fecha del reporte
+        _md = _REPORT_DATE_RE.search(_full_text)
+        if _md:
+            report_date_detected = _parse_report_date(_md.group(1))
 
     if not raw_rows:
         # Intento fallback: texto plano con regex si las tablas no detectaron nada
@@ -523,6 +591,16 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
 
     top_entity = indicators[0]["entity"] if indicators else None
 
+    # ── GL Level derivado del score ──────────────────────────────────────────
+    _gl_level_detected: Optional[str] = None
+    if gl_score_detected is not None:
+        if gl_score_detected <= 30:
+            _gl_level_detected = "Bajo"
+        elif gl_score_detected <= 60:
+            _gl_level_detected = "Medio"
+        else:
+            _gl_level_detected = "Alto"
+
     return {
         "ok":                  True,
         "error":               None,
@@ -542,6 +620,8 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "tables_found":        tables_inspected,
         "wallet_detected":     wallet_detected,
         "gl_score_detected":   gl_score_detected,
+        "report_date":         report_date_detected,
+        "gl_level":            _gl_level_detected,
     }
 
 

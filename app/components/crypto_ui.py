@@ -969,11 +969,26 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
     _src = _gl if _from_pdf else _parsed_json
 
     # ── Valores derivados del parser ──────────────────────────────────────────
-    _pdf_wallet = _gl.get("wallet_detected") or "" if _from_pdf else ""
-    _pdf_score  = _gl.get("gl_score_detected")     if _from_pdf else None
-    _pdf_sof    = _gl.get("sof_top")               if _from_pdf else None
-    _pdf_uof    = _gl.get("uof_top")               if _from_pdf else None
-    _pdf_tots   = _gl.get("total_rows", 0)          if _from_pdf else 0
+    _pdf_wallet      = _gl.get("wallet_detected") or "" if _from_pdf else ""
+    _pdf_score       = _gl.get("gl_score_detected")     if _from_pdf else None
+    _pdf_sof         = _gl.get("sof_top")               if _from_pdf else None
+    _pdf_uof         = _gl.get("uof_top")               if _from_pdf else None
+    _pdf_tots        = _gl.get("total_rows", 0)          if _from_pdf else 0
+    _pdf_report_date = _gl.get("report_date")            if _from_pdf else None
+    _pdf_gl_level    = _gl.get("gl_level")               if _from_pdf else None
+    _pdf_sof_amt_g   = _gl.get("sof_total_amount", 0.0)  if _from_pdf else 0.0
+    _pdf_uof_amt_g   = _gl.get("uof_total_amount", 0.0)  if _from_pdf else 0.0
+    _pdf_sof_pct_g   = _gl.get("sof_total_pct", 0.0)     if _from_pdf else 0.0
+    _pdf_uof_pct_g   = _gl.get("uof_total_pct", 0.0)     if _from_pdf else 0.0
+
+    # Convertir fecha ISO a objeto date para el widget
+    _pdf_date_val = None
+    if _pdf_report_date:
+        try:
+            from datetime import date as _date  # noqa: PLC0415
+            _pdf_date_val = _date.fromisoformat(_pdf_report_date)
+        except ValueError:
+            _pdf_date_val = None
 
     init_addr   = _pdf_wallet or _src.get("wallet_address") or ""
     init_chain  = (
@@ -1179,7 +1194,40 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         with col_an:
             monitoring_analyst = st.selectbox("👤 Analista", analyst_opts)
         with col_fecha:
-            report_date = st.date_input("📅 Fecha Reporte", value=None)
+            if _from_pdf and _pdf_date_val is not None:
+                report_date = st.date_input(
+                    "📅 Fecha Reporte", value=_pdf_date_val, disabled=True
+                )
+            else:
+                report_date = st.date_input("📅 Fecha Reporte", value=None)
+
+        # ── SoF / UoF globales (solo lectura desde PDF) ───────────────────────
+        if _from_pdf:
+            _sof_g_str = (
+                f"{_pdf_sof_amt_g:,.2f} USD"
+                if _pdf_sof_amt_g > 0
+                else f"{_pdf_sof_pct_g:.4f}% de exposición detectada"
+            )
+            _uof_g_str = (
+                f"{_pdf_uof_amt_g:,.2f} USD"
+                if _pdf_uof_amt_g > 0
+                else f"{_pdf_uof_pct_g:.4f}% de exposición detectada"
+            )
+            _col_sof_g, _col_uof_g = st.columns(2)
+            with _col_sof_g:
+                st.text_input(
+                    "📥 Source of Funds (Global)",
+                    value=_sof_g_str,
+                    disabled=True,
+                    help="Total SoF acumulado del reporte PDF.",
+                )
+            with _col_uof_g:
+                st.text_input(
+                    "📤 Use of Funds (Global)",
+                    value=_uof_g_str,
+                    disabled=True,
+                    help="Total UoF acumulado del reporte PDF.",
+                )
 
         st.markdown("---")
         col_exp, col_cur, col_url = st.columns(3)
