@@ -1017,22 +1017,46 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             unsafe_allow_html=True,
         )
 
+    # ── Métricas globales SoF / UoF ───────────────────────────────────────────
+    _risk_expo      = _gl.get("risk_exposure_list", []) if _from_pdf else []
+    _residual_count = _gl.get("residual_count", 0)      if _from_pdf else 0
+    _sof_pct        = _gl.get("sof_total_pct", 0.0)     if _from_pdf else 0.0
+    _uof_pct        = _gl.get("uof_total_pct", 0.0)     if _from_pdf else 0.0
+    _sof_amt        = _gl.get("sof_total_amount", 0.0)  if _from_pdf else 0.0
+    _uof_amt        = _gl.get("uof_total_amount", 0.0)  if _from_pdf else 0.0
+
+    if _from_pdf and (_sof_pct > 0 or _uof_pct > 0):
+        _mc1, _mc2 = st.columns(2)
+        with _mc1:
+            st.metric(
+                "📥 Total SoF Analizado",
+                f"$ {_sof_amt:,.2f}" if _sof_amt > 0 else "—",
+                delta=f"{_sof_pct:.4f}% exposición",
+                delta_color="inverse",
+            )
+        with _mc2:
+            st.metric(
+                "📤 Total UoF Analizado",
+                f"$ {_uof_amt:,.2f}" if _uof_amt > 0 else "—",
+                delta=f"{_uof_pct:.4f}% exposición",
+                delta_color="inverse",
+            )
+
     # ── Risk Exposure Table ───────────────────────────────────────────────────
-    _risk_expo = _gl.get("risk_exposure_list", []) if _from_pdf else []
     st.markdown(
         "<div style='background:#0f172a;border-left:4px solid #f59e0b;"
         "padding:10px 16px;border-radius:6px;margin-bottom:10px;'>"
         "<b style='color:#fcd34d;'>📊 Risk Exposure</b>"
         "<span style='color:#94a3b8;font-size:0.8rem;margin-left:8px;'>"
-        "Extraído directamente del reporte PDF</span></div>",
+        "Indicadores HIGH siempre visibles · MEDIUM/LOW con ≥ 5% de exposición</span></div>",
         unsafe_allow_html=True,
     )
     if _risk_expo:
         import pandas as _pd  # noqa: PLC0415
         _df = _pd.DataFrame(_risk_expo)
         _df = _df.rename(columns={
-            "label":      "Indicador de Riesgo",
-            "level":      "Nivel",
+            "label":      "Risk Label",
+            "level":      "Risk Level",
             "amount":     "Monto (USD)",
             "percentage": "% Exposición",
             "type":       "Tipo",
@@ -1041,23 +1065,43 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             "CRITICAL": "🔴", "HIGH": "🔴", "MEDIUM": "🟡",
             "LOW": "🟢", "UNKNOWN": "⚪",
         }
-        _df["Nivel"] = _df["Nivel"].map(lambda v: f"{_level_colors.get(v, '⚪')} {v}")
+        _df["Risk Level"] = _df["Risk Level"].map(
+            lambda v: f"{_level_colors.get(v, '⚪')} {v}"
+        )
         st.dataframe(
             _df,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Indicador de Riesgo": st.column_config.TextColumn(width="large"),
-                "Nivel":               st.column_config.TextColumn(width="medium"),
-                "Monto (USD)":         st.column_config.NumberColumn(
+                "Risk Label":    st.column_config.TextColumn(width="large"),
+                "Risk Level":    st.column_config.TextColumn(width="medium"),
+                "Monto (USD)":   st.column_config.NumberColumn(
                     format="$ %.2f", width="small",
                 ),
-                "% Exposición":        st.column_config.NumberColumn(
+                "% Exposición":  st.column_config.NumberColumn(
                     format="%.4f%%", width="small",
                 ),
-                "Tipo":                st.column_config.TextColumn(width="small"),
+                "Tipo":          st.column_config.TextColumn(width="small"),
             },
         )
+        # ── Nota de Cumplimiento ──────────────────────────────────────────────
+        _high_shown = sum(
+            1 for r in _risk_expo if r["level"] in ("CRITICAL", "HIGH")
+        )
+        _note_parts = []
+        if _residual_count > 0:
+            _note_parts.append(
+                f"Se han detectado **{_residual_count}** indicador(es) adicional(es) "
+                f"de riesgo Medio/Bajo con exposición < 5% (omitidos de la tabla por "
+                f"política de relevancia analítica)."
+            )
+        if _high_shown > 0:
+            _note_parts.append(
+                f"Todos los **{_high_shown}** indicador(es) de riesgo **ALTO / CRÍTICO** "
+                f"han sido detallados independientemente de su porcentaje de exposición."
+            )
+        if _note_parts:
+            st.info("📋 **Nota de Cumplimiento:** " + " ".join(_note_parts))
     else:
         st.info(
             "📄 Cargue un reporte PDF para visualizar la exposición.",

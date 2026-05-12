@@ -268,6 +268,11 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "medium_risk_count": 0,
         "indicators": [],
         "risk_exposure_list": [],
+        "residual_count": 0,
+        "sof_total_pct": 0.0,
+        "uof_total_pct": 0.0,
+        "sof_total_amount": 0.0,
+        "uof_total_amount": 0.0,
         "sof_top": None,
         "uof_top": None,
         "top_entity": None,
@@ -424,32 +429,97 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
                 uof_top,
             )
 
-    # ── Construir risk_exposure_list (vista "espejo" del reporte oficial) ──────
-    # Cada elemento: {"label", "level", "amount", "percentage", "type"}
+    # ── Construir risk_exposure_list con reglas de filtrado y consolidación ────
+    #
+    # REGLA DE ORO      : CRITICAL/HIGH → siempre visible, sin importar el %
+    # REGLA DE RELEVANCIA: MEDIUM/LOW con % ≥ 5 → visible
+    # REGLA RESIDUAL    : MEDIUM/LOW con % < 5  → agrupados en nota aclaratoria
+    #
     _risk_level_map = {
         "Crítico": "CRITICAL", "Alto": "HIGH", "Medio": "MEDIUM",
         "Bajo": "LOW", "Sin Datos": "UNKNOWN",
     }
-    risk_exposure_list: list[dict] = []
+
+    # ── Extraer monto numérico del texto de entidad cuando viene embebido ─────
+    # GL a veces emite "Gambling$1,234.56" o "High-risk exchange 5678.90"
+    _AMOUNT_RE = re.compile(r'\$?\s*([\d,]+(?:\.\d{1,2})?)\s*$')
+
+    def _extract_amount(entity_str: str, raw_row_amount: float) -> tuple[str, float]:
+        """
+        Extrae monto al final del nombre de entidad si está embebido.
+        Retorna (entity_clean, amount).
+        """
+        m = _AMOUNT_RE.search(entity_str)
+        if m:
+            try:
+                amt = float(m.group(1).replace(",", ""))
+                clean = entity_str[:m.start()].strip()
+                return clean, amt
+            except ValueError:
+                pass
+        return entity_str, raw_row_amount
+
+    # Consolidar: un entry por (entity, type) para sumar duplicados
+    _consolidated: dict[tuple[str, str], dict] = {}
     for ind in indicators:
-        _lvl_str = _risk_level_map.get(ind["risk_level"], "UNKNOWN")
-        # Determinar tipo SoF / UoF
-        _flow = ind.get("flow", "unknown")
-        if _flow in ("sof", "unknown"):
-            _types = ["SoF"]
-        elif _flow == "uof":
-            _types = ["UoF"]
-        else:
-            _types = ["SoF", "UoF"]   # mixed → aparece en ambos
+        _lvl_str  = _risk_level_map.get(ind["risk_level"], "UNKNOWN")
+        _flow     = ind.get("flow", "unknown")
+        _types    = (
+            ["SoF"]        if _flow in ("sof", "unknown") else
+            ["UoF"]        if _flow == "uof"               else
+            ["SoF", "UoF"]                                  # mixed
+        )
+        _clean_entity, _amt = _extract_amount(ind["entity"], 0.0)
 
         for _t in _types:
-            risk_exposure_list.append({
-                "label":      ind["entity"],
-                "level":      _lvl_str,
-                "amount":     0.0,  # GL PDFs no siempre incluyen monto absoluto
-                "percentage": round(ind["total_pct"], 6),
-                "type":       _t,
-            })
+            _key = (_clean_entity, _t)
+            if _key in _consolidated:
+                _consolidated[_key]["percentage"] += ind["total_pct"]
+                _consolidated[_key]["amount"]     += _amt
+            else:
+                _consolidated[_key] = {
+                    "label":      _clean_entity,
+                    "level":      _lvl_str,
+                    "amount":     _amt,
+                    "percentage": ind["total_pct"],
+                    "type":       _t,
+                }
+
+    # Aplicar reglas de filtrado
+    _HIGH_LEVELS = {"CRITICAL", "HIGH"}
+    _RELEVANCE_THRESHOLD = 5.0
+
+    risk_exposure_list: list[dict] = []   # tabla principal
+    _residuals: list[dict]          = []  # nota aclaratoria
+
+    for item in _consolidated.values():
+        item["percentage"] = round(item["percentage"], 6)
+        _is_high = item["level"] in _HIGH_LEVELS
+        _is_relevant = item["percentage"] >= _RELEVANCE_THRESHOLD
+        if _is_high or _is_relevant:
+            risk_exposure_list.append(item)
+        else:
+            _residuals.append(item)
+
+    # Ordenar: HIGH/CRITICAL primero, luego por % desc
+    _order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "UNKNOWN": 4}
+    risk_exposure_list.sort(
+        key=lambda x: (_order.get(x["level"], 9), -x["percentage"])
+    )
+
+    # Totales globales SoF / UoF
+    _sof_total_pct = sum(
+        r["percentage"] for r in _consolidated.values() if r["type"] == "SoF"
+    )
+    _uof_total_pct = sum(
+        r["percentage"] for r in _consolidated.values() if r["type"] == "UoF"
+    )
+    _sof_total_amt = sum(
+        r["amount"] for r in _consolidated.values() if r["type"] == "SoF"
+    )
+    _uof_total_amt = sum(
+        r["amount"] for r in _consolidated.values() if r["type"] == "UoF"
+    )
 
     top_entity = indicators[0]["entity"] if indicators else None
 
@@ -461,6 +531,11 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "medium_risk_count":   len(medium_risk),
         "indicators":          indicators,
         "risk_exposure_list":  risk_exposure_list,
+        "residual_count":      len(_residuals),       # ← nota aclaratoria
+        "sof_total_pct":       round(_sof_total_pct, 4),
+        "uof_total_pct":       round(_uof_total_pct, 4),
+        "sof_total_amount":    round(_sof_total_amt, 2),
+        "uof_total_amount":    round(_uof_total_amt, 2),
         "sof_top":             sof_top,
         "uof_top":             uof_top,
         "top_entity":          top_entity,
