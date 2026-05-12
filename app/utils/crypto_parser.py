@@ -465,9 +465,9 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         _lvl_str  = _risk_level_map.get(ind["risk_level"], "UNKNOWN")
         _flow     = ind.get("flow", "unknown")
         _types    = (
-            ["SoF"]        if _flow in ("sof", "unknown") else
-            ["UoF"]        if _flow == "uof"               else
-            ["SoF", "UoF"]                                  # mixed
+            ["SoF"]        if _flow == "sof"  else
+            ["UoF"]        if _flow == "uof"  else
+            ["SoF", "UoF"]  # mixed o unknown → aparece en ambas tablas
         )
         _clean_entity, _amt = _extract_amount(ind["entity"], 0.0)
 

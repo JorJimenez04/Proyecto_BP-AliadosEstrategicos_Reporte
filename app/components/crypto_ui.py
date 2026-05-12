@@ -1025,65 +1025,88 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
     _sof_amt        = _gl.get("sof_total_amount", 0.0)  if _from_pdf else 0.0
     _uof_amt        = _gl.get("uof_total_amount", 0.0)  if _from_pdf else 0.0
 
+    # Separar listas por tipo antes de renderizar
+    _sof_rows = [r for r in _risk_expo if r.get("type") == "SoF"]
+    _uof_rows = [r for r in _risk_expo if r.get("type") == "UoF"]
+
     if _from_pdf and (_sof_pct > 0 or _uof_pct > 0):
         _mc1, _mc2 = st.columns(2)
         with _mc1:
+            # Mostrar % como valor principal; monto como delta si existe
+            _sof_main  = f"{_sof_pct:.4f}% exposición"
+            _sof_delta = f"$ {_sof_amt:,.2f}" if _sof_amt > 0 else None
             st.metric(
                 "📥 Total SoF Analizado",
-                f"$ {_sof_amt:,.2f}" if _sof_amt > 0 else "—",
-                delta=f"{_sof_pct:.4f}% exposición",
-                delta_color="inverse",
+                _sof_main,
+                delta=_sof_delta,
+                delta_color="off",
             )
         with _mc2:
+            _uof_main  = f"{_uof_pct:.4f}% exposición"
+            _uof_delta = f"$ {_uof_amt:,.2f}" if _uof_amt > 0 else None
             st.metric(
                 "📤 Total UoF Analizado",
-                f"$ {_uof_amt:,.2f}" if _uof_amt > 0 else "—",
-                delta=f"{_uof_pct:.4f}% exposición",
-                delta_color="inverse",
+                _uof_main,
+                delta=_uof_delta,
+                delta_color="off",
             )
 
-    # ── Risk Exposure Table ───────────────────────────────────────────────────
-    st.markdown(
-        "<div style='background:#0f172a;border-left:4px solid #f59e0b;"
-        "padding:10px 16px;border-radius:6px;margin-bottom:10px;'>"
-        "<b style='color:#fcd34d;'>📊 Risk Exposure</b>"
-        "<span style='color:#94a3b8;font-size:0.8rem;margin-left:8px;'>"
-        "Indicadores HIGH siempre visibles · MEDIUM/LOW con ≥ 5% de exposición</span></div>",
-        unsafe_allow_html=True,
-    )
-    if _risk_expo:
+    def _render_exposure_table(rows: list[dict], title: str, color: str) -> None:
+        """Renderiza una tabla de Risk Exposure para SoF o UoF."""
         import pandas as _pd  # noqa: PLC0415
-        _df = _pd.DataFrame(_risk_expo)
+        st.markdown(
+            f"<div style='background:#0f172a;border-left:4px solid {color};"
+            f"padding:10px 16px;border-radius:6px;margin-bottom:8px;'>"
+            f"<b style='color:#fcd34d;'>{title}</b>"
+            f"<span style='color:#94a3b8;font-size:0.78rem;margin-left:8px;'>"
+            f"HIGH siempre visible · MEDIUM/LOW ≥ 5%</span></div>",
+            unsafe_allow_html=True,
+        )
+        if not rows:
+            st.caption("Sin indicadores para este tipo de flujo.")
+            return
+        _level_colors = {
+            "CRITICAL": "🔴", "HIGH": "🔴", "MEDIUM": "🟡",
+            "LOW": "🟢", "UNKNOWN": "⚪",
+        }
+        _df = _pd.DataFrame(rows)[["label", "level", "amount", "percentage"]]
         _df = _df.rename(columns={
             "label":      "Risk Label",
             "level":      "Risk Level",
             "amount":     "Monto (USD)",
             "percentage": "% Exposición",
-            "type":       "Tipo",
         })
-        _level_colors = {
-            "CRITICAL": "🔴", "HIGH": "🔴", "MEDIUM": "🟡",
-            "LOW": "🟢", "UNKNOWN": "⚪",
-        }
         _df["Risk Level"] = _df["Risk Level"].map(
             lambda v: f"{_level_colors.get(v, '⚪')} {v}"
+        )
+        # Monto: reemplazar 0.0 por None para que no muestre "$ 0.00"
+        _df["Monto (USD)"] = _df["Monto (USD)"].apply(
+            lambda v: v if v > 0 else None
         )
         st.dataframe(
             _df,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Risk Label":    st.column_config.TextColumn(width="large"),
-                "Risk Level":    st.column_config.TextColumn(width="medium"),
-                "Monto (USD)":   st.column_config.NumberColumn(
+                "Risk Label":   st.column_config.TextColumn(width="large"),
+                "Risk Level":   st.column_config.TextColumn(width="medium"),
+                "Monto (USD)":  st.column_config.NumberColumn(
                     format="$ %.2f", width="small",
                 ),
-                "% Exposición":  st.column_config.NumberColumn(
+                "% Exposición": st.column_config.NumberColumn(
                     format="%.4f%%", width="small",
                 ),
-                "Tipo":          st.column_config.TextColumn(width="small"),
             },
         )
+
+    # ── Risk Exposure: dos tablas lado a lado ─────────────────────────────────
+    if _risk_expo:
+        _tc1, _tc2 = st.columns(2, gap="medium")
+        with _tc1:
+            _render_exposure_table(_sof_rows, "📥 Source of Funds (SoF)", "#93c5fd")
+        with _tc2:
+            _render_exposure_table(_uof_rows, "📤 Use of Funds (UoF)", "#86efac")
+
         # ── Nota de Cumplimiento ──────────────────────────────────────────────
         _high_shown = sum(
             1 for r in _risk_expo if r["level"] in ("CRITICAL", "HIGH")
@@ -1092,8 +1115,8 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         if _residual_count > 0:
             _note_parts.append(
                 f"Se han detectado **{_residual_count}** indicador(es) adicional(es) "
-                f"de riesgo Medio/Bajo con exposición < 5% (omitidos de la tabla por "
-                f"política de relevancia analítica)."
+                f"de riesgo Medio/Bajo con exposición < 5% (omitidos por política de "
+                f"relevancia analítica)."
             )
         if _high_shown > 0:
             _note_parts.append(
@@ -1107,6 +1130,7 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             "📄 Cargue un reporte PDF para visualizar la exposición.",
             icon="📊",
         )
+
 
     st.markdown("---")
 
