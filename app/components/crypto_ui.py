@@ -990,37 +990,88 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
     chain_idx = chain_opts.index(init_chain) if init_chain in chain_opts else 0
     nivel_idx = niveles.index(init_nivel) if init_nivel in niveles else 0
 
-    # Pre-llenar session_state para SoF/UoF ANTES de renderizar el form
-    # (los widgets con key= usarán estos valores como su "valor actual")
-    if _from_pdf:
-        _risk_map = {"Crítico": "Critical", "Alto": "High", "Medio": "Medium", "Bajo": "Low"}
-        if _pdf_sof:
-            _sof_ind_v = _find_gl_opt(_pdf_sof["entity"]) or _GL_SELECTBOX[0]
-            st.session_state[f"sof_ind_nw_{fk}"]  = _sof_ind_v
-            st.session_state[f"sof_dc_nw_{fk}"]   = float(_pdf_sof["direct_pct"])
-            st.session_state[f"sof_ic_nw_{fk}"]   = float(_pdf_sof["indirect_pct"])
-            st.session_state[f"sof_dep_nw_{fk}"]  = int(_pdf_sof.get("depth") or 1)
-            st.session_state[f"sof_tipo_nw_{fk}"] = _risk_map.get(
-                _pdf_sof.get("risk_level", ""), "Medium"
-            )
-        if _pdf_uof:
-            _uof_ind_v = _find_gl_opt(_pdf_uof["entity"]) or _GL_SELECTBOX[0]
-            st.session_state[f"uof_ind_nw_{fk}"]  = _uof_ind_v
-            st.session_state[f"uof_dc_nw_{fk}"]   = float(_pdf_uof["direct_pct"])
-            st.session_state[f"uof_ic_nw_{fk}"]   = float(_pdf_uof["indirect_pct"])
-            st.session_state[f"uof_dep_nw_{fk}"]  = int(_pdf_uof.get("depth") or 1)
+    # Pre-llenar session_state para SoF/UoF — guardados en _gl para la lógica de submit
+    # (no se usan widgets de form para SoF/UoF; se calculan directamente desde risk_exposure_list)
 
     # Bloquear si PDF inválido (cargado pero sin wallet detectada)
     if _from_pdf is False and pdf_nw and _gl.get("ok"):
         # ok=True pero wallet not found → ya mostramos warning arriba, no renderizar form
         return
 
+    # ── GL-Score Hero Component ───────────────────────────────────────────────
+    if _from_pdf and _pdf_score is not None:
+        _s = _pdf_score
+        if _s <= 30:
+            _bg, _border, _fg, _lbl = "#D1FAE5", "#10B981", "#065F46", "LOW RISK"
+        elif _s <= 60:
+            _bg, _border, _fg, _lbl = "#FFF3E0", "#FF9800", "#E65100", "MEDIUM RISK"
+        else:
+            _bg, _border, _fg, _lbl = "#FEE2E2", "#EF4444", "#7F1D1D", "HIGH RISK"
+        st.markdown(
+            f"<div style='background-color:{_bg};border-radius:15px;padding:20px;"
+            f"text-align:center;border:2px solid {_border};margin-bottom:16px;'>"
+            f"<h1 style='color:{_fg};margin:0;font-size:56px;font-weight:900;'>{_s}</h1>"
+            f"<p style='color:{_fg};font-weight:bold;margin:4px 0 0;font-size:1.1rem;'>"
+            f"{_lbl}</p>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+    # ── Risk Exposure Table ───────────────────────────────────────────────────
+    _risk_expo = _gl.get("risk_exposure_list", []) if _from_pdf else []
+    st.markdown(
+        "<div style='background:#0f172a;border-left:4px solid #f59e0b;"
+        "padding:10px 16px;border-radius:6px;margin-bottom:10px;'>"
+        "<b style='color:#fcd34d;'>📊 Risk Exposure</b>"
+        "<span style='color:#94a3b8;font-size:0.8rem;margin-left:8px;'>"
+        "Extraído directamente del reporte PDF</span></div>",
+        unsafe_allow_html=True,
+    )
+    if _risk_expo:
+        import pandas as _pd  # noqa: PLC0415
+        _df = _pd.DataFrame(_risk_expo)
+        _df = _df.rename(columns={
+            "label":      "Indicador de Riesgo",
+            "level":      "Nivel",
+            "amount":     "Monto (USD)",
+            "percentage": "% Exposición",
+            "type":       "Tipo",
+        })
+        _level_colors = {
+            "CRITICAL": "🔴", "HIGH": "🔴", "MEDIUM": "🟡",
+            "LOW": "🟢", "UNKNOWN": "⚪",
+        }
+        _df["Nivel"] = _df["Nivel"].map(lambda v: f"{_level_colors.get(v, '⚪')} {v}")
+        st.dataframe(
+            _df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Indicador de Riesgo": st.column_config.TextColumn(width="large"),
+                "Nivel":               st.column_config.TextColumn(width="medium"),
+                "Monto (USD)":         st.column_config.NumberColumn(
+                    format="$ %.2f", width="small",
+                ),
+                "% Exposición":        st.column_config.NumberColumn(
+                    format="%.4f%%", width="small",
+                ),
+                "Tipo":                st.column_config.TextColumn(width="small"),
+            },
+        )
+    else:
+        st.info(
+            "📄 Cargue un reporte PDF para visualizar la exposición.",
+            icon="📊",
+        )
+
+    st.markdown("---")
+
     # ── Header del formulario ─────────────────────────────────────────────────
     _lbl_btn = "✅ Confirmar y Vincular Wallet" if _from_pdf else "💾 Vincular Wallet"
     st.markdown(
         "<div style='background:#0f172a;border-left:4px solid #6366f1;"
         "padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
-        "<b style='color:#a5b4fc;'>📋 PASO 1 — Datos de Vinculación</b>"
+        "<b style='color:#a5b4fc;'>📋 Datos de Vinculación</b>"
         f"<span style='color:#94a3b8;font-size:0.8rem;margin-left:8px;'>"
         f"{'Campos clave bloqueados — extraídos del PDF.' if _from_pdf else 'Ingreso manual.'}"
         "</span></div>",
@@ -1063,79 +1114,6 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             report_date = st.date_input("📅 Fecha Reporte", value=None)
 
         st.markdown("---")
-        _sof_uof_lbl = (
-            "Pre-llenado desde PDF — ajustable." if _from_pdf and (_pdf_sof or _pdf_uof)
-            else "(opcional en creación)"
-        )
-        st.markdown(
-            f"<span style='color:#86efac;font-weight:700;'>🔄 Análisis SoF / UoF</span> "
-            f"<span style='color:#6b7280;font-size:0.78rem;'>{_sof_uof_lbl}</span>",
-            unsafe_allow_html=True,
-        )
-        col_sof, col_uof = st.columns(2, gap="large")
-
-        with col_sof:
-            st.markdown(
-                "<b style='color:#93c5fd;font-size:0.84rem;'>📥 SOURCE OF FUNDS</b>",
-                unsafe_allow_html=True,
-            )
-            sof_tipo_opt = st.selectbox(
-                "Tipología", tipo_riesgo_opts, key=f"sof_tipo_nw_{fk}",
-            )
-            sof_ind_opt = st.selectbox(
-                "Indicador GL", _GL_SELECTBOX, key=f"sof_ind_nw_{fk}",
-            )
-            sof_naturaleza = st.selectbox(
-                "Naturaleza", naturaleza_opts, key=f"sof_nat_nw_{fk}",
-            )
-            sof_profundidad = st.number_input(
-                "Profundidad", min_value=1, max_value=50, value=1, key=f"sof_dep_nw_{fk}",
-            )
-            sc1, sc2 = st.columns(2)
-            with sc1:
-                sof_direct = st.number_input(
-                    "Directa %", min_value=0.0, max_value=100.0,
-                    value=0.0, step=0.01, format="%.4f", key=f"sof_dc_nw_{fk}",
-                )
-            with sc2:
-                sof_indirect = st.number_input(
-                    "Indirecta %", min_value=0.0, max_value=100.0,
-                    value=0.0, step=0.01, format="%.4f", key=f"sof_ic_nw_{fk}",
-                )
-            sof_monto = st.number_input(
-                "Amount (USD)", min_value=0.0, step=1000.0, key=f"sof_am_nw_{fk}",
-            )
-
-        with col_uof:
-            st.markdown(
-                "<b style='color:#86efac;font-size:0.84rem;'>📤 USE OF FUNDS</b>",
-                unsafe_allow_html=True,
-            )
-            uof_ind_opt = st.selectbox(
-                "Indicador GL", _GL_SELECTBOX, key=f"uof_ind_nw_{fk}",
-            )
-            uof_naturaleza = st.selectbox(
-                "Naturaleza", naturaleza_opts, key=f"uof_nat_nw_{fk}",
-            )
-            uof_profundidad = st.number_input(
-                "Profundidad", min_value=1, max_value=50, value=1, key=f"uof_dep_nw_{fk}",
-            )
-            uc1, uc2 = st.columns(2)
-            with uc1:
-                uof_direct = st.number_input(
-                    "Directa %", min_value=0.0, max_value=100.0,
-                    value=0.0, step=0.01, format="%.4f", key=f"uof_dc_nw_{fk}",
-                )
-            with uc2:
-                uof_indirect = st.number_input(
-                    "Indirecta %", min_value=0.0, max_value=100.0,
-                    value=0.0, step=0.01, format="%.4f", key=f"uof_ic_nw_{fk}",
-                )
-            uof_monto = st.number_input(
-                "Amount (USD)", min_value=0.0, step=1000.0, key=f"uof_am_nw_{fk}",
-            )
-
-        st.markdown("---")
         col_exp, col_cur, col_url = st.columns(3)
         with col_exp:
             exposure = st.number_input(
@@ -1152,12 +1130,6 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         )
         notas = st.text_area("Notas internas", height=60)
 
-        st.markdown("**Risk Labels JSON** *(del reporte GL)*")
-        labels_raw = st.text_area(
-            "Risk Labels", value=init_labels, height=60,
-            label_visibility="collapsed",
-        )
-
         submitted = st.form_submit_button(
             _lbl_btn, type="primary", use_container_width=True,
         )
@@ -1167,34 +1139,62 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             st.error("La dirección de wallet es obligatoria.")
             return
 
-        try:
-            labels_parsed = json.loads(labels_raw) if labels_raw.strip() else []
-            risk_labels   = [
-                RiskLabel(**lbl) if isinstance(lbl, dict) else lbl
-                for lbl in labels_parsed
-            ]
-        except Exception as exc:
-            st.error(f"JSON de Risk Labels inválido: {exc}")
-            return
+        # ── Calcular SoF / UoF desde risk_exposure_list (PDF) ──────────────
+        risk_labels: list = []
+        _sof_indicador = _uof_indicador = None
+        _sof_direct = _sof_indirect = _uof_direct = _uof_indirect = 0.0
+        _sof_profundidad = _uof_profundidad = 1
+        _sof_naturaleza = _uof_naturaleza = "Directa"
+        _sof_tipo = "Medium"
 
-        sof_indicador  = _parse_gl_opt(sof_ind_opt)
-        sof_ind_score  = GL_SCORES.get(sof_indicador, 50) if sof_indicador else 50
-        sof_total_pct  = sof_direct + sof_indirect
+        if _from_pdf and _risk_expo:
+            _sof_rows = [r for r in _risk_expo if r["type"] == "SoF"]
+            _uof_rows = [r for r in _risk_expo if r["type"] == "UoF"]
+            if _sof_rows:
+                _best_sof = max(_sof_rows, key=lambda r: r["percentage"])
+                _sof_indicador  = _parse_gl_opt(_find_gl_opt(_best_sof["label"]))
+                _sof_direct     = float(_best_sof["percentage"])
+                _sof_indirect   = 0.0
+                _sof_profundidad = int(_pdf_sof.get("depth", 1)) if _pdf_sof else 1
+                _lvl_raw         = _best_sof.get("level", "")
+                _sof_tipo = (
+                    "Critical" if _lvl_raw == "CRITICAL" else
+                    "High"     if _lvl_raw == "HIGH"     else
+                    "Medium"   if _lvl_raw == "MEDIUM"   else "Low"
+                )
+            if _uof_rows:
+                _best_uof = max(_uof_rows, key=lambda r: r["percentage"])
+                _uof_indicador  = _parse_gl_opt(_find_gl_opt(_best_uof["label"]))
+                _uof_direct     = float(_best_uof["percentage"])
+                _uof_indirect   = 0.0
+                _uof_profundidad = int(_pdf_uof.get("depth", 1)) if _pdf_uof else 1
+        elif _pdf_sof:
+            _sof_indicador  = _parse_gl_opt(_find_gl_opt(_pdf_sof["entity"]))
+            _sof_direct     = float(_pdf_sof.get("direct_pct", 0))
+            _sof_indirect   = float(_pdf_sof.get("indirect_pct", 0))
+            _sof_profundidad = int(_pdf_sof.get("depth", 1))
+            if _pdf_uof:
+                _uof_indicador  = _parse_gl_opt(_find_gl_opt(_pdf_uof["entity"]))
+                _uof_direct     = float(_pdf_uof.get("direct_pct", 0))
+                _uof_indirect   = float(_pdf_uof.get("indirect_pct", 0))
+                _uof_profundidad = int(_pdf_uof.get("depth", 1))
+
+        sof_ind_score  = GL_SCORES.get(_sof_indicador, 50) if _sof_indicador else 50
+        sof_total_pct  = _sof_direct + _sof_indirect
         sof_score_calc = round((sof_total_pct / 100.0) * sof_ind_score)
         sof_nivel_calc = score_gl_to_nivel(sof_score_calc)
 
-        uof_indicador  = _parse_gl_opt(uof_ind_opt)
-        uof_ind_score  = GL_SCORES.get(uof_indicador, 50) if uof_indicador else 50
-        uof_total_pct  = uof_direct + uof_indirect
+        uof_ind_score  = GL_SCORES.get(_uof_indicador, 50) if _uof_indicador else 50
+        uof_total_pct  = _uof_direct + _uof_indirect
         uof_score_calc = round((uof_total_pct / 100.0) * uof_ind_score)
         uof_nivel_calc = score_gl_to_nivel(uof_score_calc)
 
         is_critico_locked = (sof_ind_score == 100 or uof_ind_score == 100)
-        if sof_indicador and uof_indicador:
+        if _sof_indicador and _uof_indicador:
             final_risk_score_calc = (sof_score_calc + uof_score_calc) / 2.0
-        elif sof_indicador:
+        elif _sof_indicador:
             final_risk_score_calc = float(sof_score_calc)
-        elif uof_indicador:
+        elif _uof_indicador:
             final_risk_score_calc = float(uof_score_calc)
         else:
             final_risk_score_calc = None
@@ -1207,7 +1207,7 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             final_risk_level_calc = riesgo_manual
 
         gl_score_int   = int(gl_score_val) if gl_score_val is not None else None
-        calificacion   = calificar_labels([lbl.model_dump() for lbl in risk_labels])
+        calificacion   = calificar_labels([])
         nivel_catalogo = calificacion["nivel_final"]
         nivel_base     = riesgo_manual
         if nivel_base == "Sin Datos" and gl_score_int is not None:
@@ -1234,25 +1234,25 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             total_exposure        = float(exposure),
             exposure_currency     = exposure_currency,
             wallet_status         = wallet_status,
-            sof_tipo_riesgo       = sof_tipo_opt,
-            sof_indicador         = sof_indicador,
-            sof_naturaleza        = sof_naturaleza,
-            sof_profundidad       = sof_profundidad,
-            sof_cont_directa      = sof_direct,
-            sof_cont_indirecta    = sof_indirect,
+            sof_tipo_riesgo       = _sof_tipo,
+            sof_indicador         = _sof_indicador,
+            sof_naturaleza        = _sof_naturaleza,
+            sof_profundidad       = _sof_profundidad,
+            sof_cont_directa      = _sof_direct,
+            sof_cont_indirecta    = _sof_indirect,
             sof_cont_total        = sof_total_pct,
             sof_score             = sof_score_calc,
             sof_nivel             = sof_nivel_calc,
-            sof_monto             = sof_monto or None,
-            uof_indicador         = uof_indicador,
-            uof_naturaleza        = uof_naturaleza,
-            uof_profundidad       = uof_profundidad,
-            uof_cont_directa      = uof_direct,
-            uof_cont_indirecta    = uof_indirect,
+            sof_monto             = None,
+            uof_indicador         = _uof_indicador,
+            uof_naturaleza        = _uof_naturaleza,
+            uof_profundidad       = _uof_profundidad,
+            uof_cont_directa      = _uof_direct,
+            uof_cont_indirecta    = _uof_indirect,
             uof_cont_total        = uof_total_pct,
             uof_score             = uof_score_calc,
             uof_nivel             = uof_nivel_calc,
-            uof_monto             = uof_monto or None,
+            uof_monto             = None,
             analyst_observations  = analyst_observations.strip() or None,
             monitoring_analyst    = monitoring_analyst,
             final_risk_score      = final_risk_score_calc,

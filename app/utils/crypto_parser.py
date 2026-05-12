@@ -267,6 +267,7 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "high_risk_count": 0,
         "medium_risk_count": 0,
         "indicators": [],
+        "risk_exposure_list": [],
         "sof_top": None,
         "uof_top": None,
         "top_entity": None,
@@ -333,12 +334,27 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
                             except (AttributeError, ValueError):
                                 depth = 1
 
+                        # ── Limpiar entidad: separar nivel pegado al nombre ──
+                        # Global Ledger a veces emite "High-risk exchangeHIGH"
+                        entity_clean = re.sub(
+                            r'\s*(HIGH|MEDIUM|LOW|CRITICAL|SEVERE)\s*$', '',
+                            entity, flags=re.IGNORECASE
+                        ).strip()
+                        if not risk_raw:
+                            # Intentar extraer nivel del final de la cadena entity
+                            _m_lvl = re.search(
+                                r'(HIGH|MEDIUM|LOW|CRITICAL|SEVERE)\s*$',
+                                entity, re.IGNORECASE,
+                            )
+                            if _m_lvl:
+                                risk_raw = _m_lvl.group(1).upper()
+
                         raw_rows.append({
-                            "entity":       entity,
-                            "exposure_pct": exposure,
-                            "flow_type":    flow_type,
+                            "entity":         entity_clean,
+                            "exposure_pct":   exposure,
+                            "flow_type":      flow_type,
                             "risk_level_raw": risk_raw,
-                            "depth":        depth,
+                            "depth":          depth,
                         })
 
     except Exception as exc:
@@ -408,21 +424,47 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
                 uof_top,
             )
 
-    top_entity = indicators[0]["entity"] if indicators else None
+    # ── Construir risk_exposure_list (vista "espejo" del reporte oficial) ──────
+    # Cada elemento: {"label", "level", "amount", "percentage", "type"}
+    _risk_level_map = {
+        "Crítico": "CRITICAL", "Alto": "HIGH", "Medio": "MEDIUM",
+        "Bajo": "LOW", "Sin Datos": "UNKNOWN",
+    }
+    risk_exposure_list: list[dict] = []
+    for ind in indicators:
+        _lvl_str = _risk_level_map.get(ind["risk_level"], "UNKNOWN")
+        # Determinar tipo SoF / UoF
+        _flow = ind.get("flow", "unknown")
+        if _flow in ("sof", "unknown"):
+            _types = ["SoF"]
+        elif _flow == "uof":
+            _types = ["UoF"]
+        else:
+            _types = ["SoF", "UoF"]   # mixed → aparece en ambos
+
+        for _t in _types:
+            risk_exposure_list.append({
+                "label":      ind["entity"],
+                "level":      _lvl_str,
+                "amount":     0.0,  # GL PDFs no siempre incluyen monto absoluto
+                "percentage": round(ind["total_pct"], 6),
+                "type":       _t,
+            })
 
     return {
-        "ok":                True,
-        "error":             None,
-        "total_rows":        len(raw_rows),
-        "high_risk_count":   len(high_risk),
-        "medium_risk_count": len(medium_risk),
-        "indicators":        indicators,
-        "sof_top":           sof_top,
-        "uof_top":           uof_top,
-        "top_entity":        top_entity,
-        "tables_found":      tables_inspected,
-        "wallet_detected":   wallet_detected,
-        "gl_score_detected": gl_score_detected,
+        "ok":                  True,
+        "error":               None,
+        "total_rows":          len(raw_rows),
+        "high_risk_count":     len(high_risk),
+        "medium_risk_count":   len(medium_risk),
+        "indicators":          indicators,
+        "risk_exposure_list":  risk_exposure_list,
+        "sof_top":             sof_top,
+        "uof_top":             uof_top,
+        "top_entity":          top_entity,
+        "tables_found":        tables_inspected,
+        "wallet_detected":     wallet_detected,
+        "gl_score_detected":   gl_score_detected,
     }
 
 
