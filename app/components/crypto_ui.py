@@ -20,7 +20,7 @@ from app.utils.crypto_logic import (
     calificar_labels, lookup_label, nivel_dominante,
     GL_ALL_LABELS_SORTED, GL_SCORES, calcular_score_sof_uof, score_gl_to_nivel,
 )
-from app.utils.crypto_parser import parse_gl_pdf
+from app.utils.crypto_parser import parse_gl_pdf, generate_weekly_delta
 
 logger = logging.getLogger(__name__)
 
@@ -1323,6 +1323,17 @@ def _tab_monitoreo_semanal(user: dict) -> None:
         st.error("Wallet no encontrada en la base de datos.")
         return
 
+    # Cargar snapshot previo del historial (cacheado por sesión)
+    _snap_key = f"_mon_prev_snap_{wallet_addr}"
+    if _snap_key not in st.session_state:
+        try:
+            _ss = next(get_session())
+            st.session_state[_snap_key] = CryptoRepository(_ss).get_previous_snapshot(wallet_addr)
+            _ss.close()
+        except Exception:
+            st.session_state[_snap_key] = None
+    _prev_snapshot = st.session_state.get(_snap_key)
+
     # Mostrar estado actual como "ciclo anterior a archivar"
     label_actual = "📊 Estado Actual (se archivará al guardar)"
     st.markdown(
@@ -1430,6 +1441,63 @@ def _tab_monitoreo_semanal(user: dict) -> None:
                         unsafe_allow_html=True,
                     )
 
+                # ── Métricas comparativas GL ───────────────────────────
+                _cur_score = current_record.get("gl_score")
+                _cur_cont  = (
+                    float(current_record.get("sof_cont_total") or 0)
+                    + float(current_record.get("uof_cont_total") or 0)
+                )
+                _det_score = _pr.get("gl_score_detected")
+                _det_cont  = (
+                    (_sof["total_pct"] if _sof else 0.0)
+                    + (_uof["total_pct"] if _uof else 0.0)
+                )
+
+                _mc1, _mc2, _mc3 = st.columns(3)
+                with _mc1:
+                    _sc_delta = (
+                        f"{_det_score - _cur_score:+d} vs actual"
+                        if _det_score is not None and _cur_score is not None
+                        else None
+                    )
+                    st.metric(
+                        "GL Score en PDF",
+                        str(_det_score) if _det_score is not None else "—",
+                        delta=_sc_delta,
+                        delta_color="inverse",
+                        help="Score extraído del texto del PDF vs. valor actual en BD.",
+                    )
+                with _mc2:
+                    _cont_delta = (
+                        f"{_det_cont - _cur_cont:+.4f}% vs actual"
+                        if _cur_cont > 0 else None
+                    )
+                    st.metric(
+                        "Contam. SoF+UoF detectada",
+                        f"{_det_cont:.4f}%",
+                        delta=_cont_delta,
+                        delta_color="inverse",
+                    )
+                with _mc3:
+                    st.metric(
+                        "Indicadores Crítico/Alto",
+                        str(_high),
+                        delta=f"+{_high} señales" if _high > 0 else "0 señales",
+                        delta_color="inverse" if _high > 0 else "off",
+                    )
+
+                # Top 3 rápido
+                _top3 = [
+                    i for i in _pr.get("indicators", [])
+                    if i["risk_level"] in ("Crítico", "Alto")
+                ][:3]
+                if _top3:
+                    _top3_txt = " | ".join(
+                        f"{i['entity']} ({i['risk_level']}, {i['total_pct']:.4f}%)"
+                        for i in _top3
+                    )
+                    st.caption(f"🔴 **Top 3 Crítico/Alto:** {_top3_txt}")
+
                 if _sof:
                     st.caption(
                         f"📤 **SoF sugerido:** {_sof['entity']} "
@@ -1445,32 +1513,56 @@ def _tab_monitoreo_semanal(user: dict) -> None:
                         f" | GL: {_uof.get('gl_score') or '—'}"
                     )
 
-                # Botón de pre-llenado
+                # Botón de pre-llenado extendido
                 if st.button(
-                    "📥 Pre-llenar Pasos 2-3 con estos datos",
+                    "📥 Pre-llenar Pasos 2-3-4 con estos datos",
                     key="mon_prefill_btn",
                     type="primary",
                     use_container_width=True,
                 ):
-                    # ── Pre-llenar SoF ────────────────────
+                    _sof_tipo_map = {
+                        "Crítico": "Critical", "Alto": "High",
+                        "Medio": "Medium", "Bajo": "Low",
+                    }
+                    # SoF
                     if _sof:
-                        st.session_state["mon_sof_ind"] = _find_gl_opt(_sof["entity"])
-                        st.session_state["mon_sof_dc"]  = float(_sof["direct_pct"])
-                        st.session_state["mon_sof_ic"]  = float(_sof["indirect_pct"])
-                        st.session_state["mon_sof_dep"] = int(_sof.get("depth") or 1)
-                        _sof_tipo_map = {
-                            "Crítico": "Critical", "Alto": "High",
-                            "Medio": "Medium", "Bajo": "Low",
-                        }
+                        st.session_state["mon_sof_ind"]  = _find_gl_opt(_sof["entity"])
+                        st.session_state["mon_sof_dc"]   = float(_sof["direct_pct"])
+                        st.session_state["mon_sof_ic"]   = float(_sof["indirect_pct"])
+                        st.session_state["mon_sof_dep"]  = int(_sof.get("depth") or 1)
                         st.session_state["mon_sof_tipo"] = _sof_tipo_map.get(
                             _sof.get("risk_level", ""), "Medium"
                         )
-                    # ── Pre-llenar UoF ────────────────────
+                    # UoF
                     if _uof:
-                        st.session_state["mon_uof_ind"] = _find_gl_opt(_uof["entity"])
-                        st.session_state["mon_uof_dc"]  = float(_uof["direct_pct"])
-                        st.session_state["mon_uof_ic"]  = float(_uof["indirect_pct"])
-                        st.session_state["mon_uof_dep"] = int(_uof.get("depth") or 1)
+                        st.session_state["mon_uof_ind"]  = _find_gl_opt(_uof["entity"])
+                        st.session_state["mon_uof_dc"]   = float(_uof["direct_pct"])
+                        st.session_state["mon_uof_ic"]   = float(_uof["indirect_pct"])
+                        st.session_state["mon_uof_dep"]  = int(_uof.get("depth") or 1)
+                    # GL Score + Nivel desde PDF
+                    if _det_score is not None:
+                        st.session_state["mon_gl_score"]    = _det_score
+                        _auto_nivel = (
+                            "Crítico" if _det_score < 20 else
+                            "Alto"    if _det_score < 40 else
+                            "Medio"   if _det_score < 70 else
+                            "Bajo"
+                        )
+                        st.session_state["mon_nivel_manual"] = _auto_nivel
+                    # Weekly delta (auto-generado vs historial)
+                    _auto_delta = generate_weekly_delta(_pr, _prev_snapshot)
+                    if _auto_delta:
+                        st.session_state["mon_weekly_delta"] = _auto_delta
+                    # Analyst observations (top-3 resumen)
+                    if _top3:
+                        _obs_lines = [
+                            f"• {i['entity']}: GL:{i.get('gl_score', '—')}, "
+                            f"Dir:{i['direct_pct']:.4f}%, Ind:{i['indirect_pct']:.4f}%"
+                            for i in _top3
+                        ]
+                        _obs_txt = "Top indicadores GL (PDF):\n" + "\n".join(_obs_lines)
+                        _obs_txt += f"\nContaminación total: {_det_cont:.4f}%"
+                        st.session_state["mon_analyst_obs"] = _obs_txt
                     st.rerun()
 
         elif _pr.get("error"):
@@ -1518,9 +1610,10 @@ def _tab_monitoreo_semanal(user: dict) -> None:
                 "🎯 GL Score (0-100)",
                 min_value=0, max_value=100,
                 value=init_score, placeholder="Ej: 47",
+                key="mon_gl_score",
             )
         with col_nv:
-            riesgo_manual = st.selectbox("Nivel GL", niveles, index=nivel_idx)
+            riesgo_manual = st.selectbox("Nivel GL", niveles, index=nivel_idx, key="mon_nivel_manual")
         with col_an:
             monitoring_analyst = st.selectbox("👤 Analista", analyst_opts)
         with col_fecha:
@@ -1629,6 +1722,7 @@ def _tab_monitoreo_semanal(user: dict) -> None:
                 "• High-Risk Exchange (ChangeNOW): 2.88%\n"
                 "• Reported Hack: 0.42% · Total Contam.: 3.3%"
             ),
+            key="mon_analyst_obs",
         )
         col_exp, col_cur = st.columns([3, 1])
         with col_exp:

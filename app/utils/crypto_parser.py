@@ -83,6 +83,22 @@ _COL_MAP: dict[str, list[str]] = {
     "depth":        ["depth", "distance", "hops", "profundidad", "saltos"],
 }
 
+# ── Patrones de detección de metadatos del reporte (anchor-based) ────────────
+# Detectan wallet address y GL Score en el texto libre del PDF.
+_WALLET_RE = re.compile(
+    r'\b('
+    r'0x[0-9a-fA-F]{40}'                    # EVM: ETH / BNB / MATIC
+    r'|[13][a-km-zA-HJ-NP-Z1-9]{25,34}'    # BTC legacy P2PKH / P2SH
+    r'|bc1[a-z0-9]{6,87}'                   # BTC bech32 / bech32m
+    r'|T[0-9A-Za-z]{33}'                    # TRX / TRON
+    r'|[1-9A-HJ-NP-Za-km-z]{44}'            # Solana (base58, 44 chars)
+    r')\b'
+)
+_GL_SCORE_RE = re.compile(
+    r'(?:gl[-\s]?score|risk[-\s]?score|score|puntuaci[o\u00f3]n)[:\s=]+(\d{1,3})\b',
+    re.IGNORECASE,
+)
+
 
 def _identify_columns(header: list) -> Optional[dict[str, int]]:
     """
@@ -255,6 +271,8 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "uof_top": None,
         "top_entity": None,
         "tables_found": 0,
+        "wallet_detected": None,
+        "gl_score_detected": None,
     }
 
     if not _PDFPLUMBER_OK:
@@ -266,12 +284,14 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
     gl_scores = _get_gl_scores()
     raw_rows: list[dict] = []
     tables_inspected = 0
+    full_text_pages: list[str] = []
 
     import io  # noqa: PLC0415
 
     try:
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             for page in pdf.pages:
+                full_text_pages.append(page.extract_text() or "")
                 tables = page.extract_tables()
                 if not tables:
                     continue
@@ -323,6 +343,22 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
 
     except Exception as exc:
         return {**_empty, "error": f"Error leyendo PDF: {exc}"}
+
+    # ── Detección de metadatos desde texto libre ──────────────────────────────
+    wallet_detected: Optional[str] = None
+    gl_score_detected: Optional[int] = None
+    if full_text_pages:
+        _full_text = "\n".join(full_text_pages)
+        _mw = _WALLET_RE.search(_full_text)
+        if _mw:
+            wallet_detected = _mw.group(1)
+        _ms = _GL_SCORE_RE.search(_full_text)
+        if _ms:
+            try:
+                _sc = int(_ms.group(1))
+                gl_score_detected = _sc if 0 <= _sc <= 100 else None
+            except ValueError:
+                pass
 
     if not raw_rows:
         # Intento fallback: texto plano con regex si las tablas no detectaron nada
@@ -385,6 +421,8 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "uof_top":           uof_top,
         "top_entity":        top_entity,
         "tables_found":      tables_inspected,
+        "wallet_detected":   wallet_detected,
+        "gl_score_detected": gl_score_detected,
     }
 
 
@@ -436,3 +474,82 @@ def _fallback_text_extraction(pdf_bytes: bytes, gl_scores: dict[str, int]) -> li
                 break  # una fila por indicador en el fallback
 
     return raw_rows
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Generador de nota delta automática (comparación con snapshot previo)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_weekly_delta(parsed: dict, prev_snapshot: Optional[dict]) -> str:
+    """
+    Compara el resultado de parse_gl_pdf() con el snapshot previo del historial
+    y genera el texto automático del campo weekly_delta.
+
+    Returns vacío si parsed no es ok. Nunca lanza excepción.
+    """
+    if not parsed.get("ok"):
+        return ""
+
+    import datetime  # noqa: PLC0415
+    now_label = datetime.date.today().isoformat()
+    lines: list[str] = []
+
+    # ── GL Score ──────────────────────────────────────────────
+    new_score  = parsed.get("gl_score_detected")
+    prev_score = (
+        int(prev_snapshot["gl_score"])
+        if prev_snapshot and prev_snapshot.get("gl_score") is not None
+        else None
+    )
+    if new_score is not None and prev_score is not None:
+        diff = new_score - prev_score
+        if diff == 0:
+            lines.append(f"GL Score sin cambio: {new_score}.")
+        elif diff > 0:
+            lines.append(
+                f"GL Score aumentó {diff:+d} pts ({prev_score} → {new_score}): riesgo en escalada."
+            )
+        else:
+            lines.append(
+                f"GL Score mejoró {diff:+d} pts ({prev_score} → {new_score}): riesgo a la baja."
+            )
+    elif new_score is not None:
+        lines.append(f"GL Score detectado en PDF: {new_score}.")
+
+    # ── Contaminación total ───────────────────────────────────
+    _sof = parsed.get("sof_top")
+    _uof = parsed.get("uof_top")
+    new_cont = (_sof["total_pct"] if _sof else 0.0) + (_uof["total_pct"] if _uof else 0.0)
+    prev_cont = 0.0
+    if prev_snapshot:
+        prev_cont = (
+            float(prev_snapshot.get("sof_cont_total") or 0)
+            + float(prev_snapshot.get("uof_cont_total") or 0)
+        )
+    if prev_cont > 0 and new_cont > 0:
+        diff_c = round(new_cont - prev_cont, 4)
+        if abs(diff_c) < 0.001:
+            lines.append(f"Contaminación total sin variación significativa: {new_cont:.4f}%.")
+        elif diff_c > 0:
+            lines.append(
+                f"Contaminación total aumentó {diff_c:+.4f}% ({prev_cont:.4f}% → {new_cont:.4f}%)."
+            )
+        else:
+            lines.append(
+                f"Contaminación total disminuyó {diff_c:+.4f}% ({prev_cont:.4f}% → {new_cont:.4f}%)."
+            )
+    elif new_cont > 0:
+        lines.append(f"Contaminación total detectada: {new_cont:.4f}%.")
+
+    # ── Indicadores críticos ──────────────────────────────────
+    high  = parsed.get("high_risk_count", 0)
+    top_e = parsed.get("top_entity") or "—"
+    if high > 0:
+        lines.append(
+            f"Se detectaron {high} indicadores Crítico/Alto. Indicador dominante: {top_e}."
+        )
+
+    if not lines:
+        return "Sin cambios significativos detectados respecto al periodo anterior."
+
+    return f"[Auto-delta {now_label}] " + " | ".join(lines)
