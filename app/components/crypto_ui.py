@@ -476,8 +476,21 @@ def _ficha_wallet(wallet: dict, user: dict) -> None:
 
     # ── Tab: Notas & Reporte ──────────────────────────────────
     with tab_notas:
-        notas = wallet.get("notas") or ""
-        pdf   = wallet.get("pdf_report_url") or ""
+        notas        = wallet.get("notas") or ""
+        pdf          = wallet.get("pdf_report_url") or ""
+        weekly_delta = wallet.get("weekly_delta") or ""
+
+        # Resumen evolutivo del ciclo semanal
+        if weekly_delta:
+            st.markdown(
+                "<span style='color:#9ca3af;font-size:0.78rem;letter-spacing:0.05em;'>"
+                "📈 EVOLUCIÓN SEMANAL</span>",
+                unsafe_allow_html=True,
+            )
+            with st.chat_message("assistant"):
+                st.markdown(weekly_delta)
+            st.markdown("")
+
         if pdf:
             st.markdown(f"**📄 Reporte PDF:** [{pdf}]({pdf})")
             st.link_button("⬇️ Descargar reporte PDF", pdf, use_container_width=False)
@@ -1068,11 +1081,16 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             session.close()
             _get_wallets_cached.clear()
             _get_clientes_cached.clear()
-            st.session_state.pop("show_vinculador", None)
-            st.session_state.pop(f"gl_parsed_nueva_{fk}", None)
-            short_addr = wallet_address.strip()[:20]
-            st.success(
-                f"✅ Wallet **{short_addr}...** vinculada a **{cliente_nombre}**."
+            # Limpiar TODOS los estados del vinculador para que el rerun
+            # muestre al usuario la vista de clientes limpia y la wallet
+            # nueva ya disponible en el Monitor.
+            for _k in ("show_vinculador", "vincular_cliente_id",
+                       "vincular_cliente_nombre", f"gl_parsed_nueva_{fk}"):
+                st.session_state.pop(_k, None)
+            short_addr = wallet_address.strip()[:16]
+            st.toast(
+                f"✅ Wallet {short_addr}… vinculada a {cliente_nombre}.",
+                icon="🔗",
             )
             st.rerun()
         except ValueError as exc:
@@ -1239,10 +1257,16 @@ def _tab_monitoreo_semanal(user: dict) -> None:
     for w in all_wallets:
         client = w.get("client_nombre") or "Sin cliente"
         addr   = w["wallet_address"]
-        nivel  = w.get("riesgo_nivel") or "Sin Datos"
         chain  = w.get("blockchain") or "?"
-        short  = addr[:16] + "…" + addr[-6:]
-        label  = f"{client} — {short} ({chain} · {nivel})"
+        nivel  = w.get("riesgo_nivel") or "Sin Datos"
+        nivel_icon = (
+            "🔴" if nivel == "Crítico" else
+            "🟠" if nivel == "Alto" else
+            "🟡" if nivel == "Medio" else
+            "🟢" if nivel == "Bajo" else "⚫"
+        )
+        short = addr[:12] + "…" + addr[-6:]
+        label = f"{client}  |  {short}  •  {chain}  {nivel_icon} {nivel}"
         wallet_opts.append(label)
         wallet_map[label] = w
 
