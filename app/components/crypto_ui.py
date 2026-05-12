@@ -20,6 +20,7 @@ from app.utils.crypto_logic import (
     calificar_labels, lookup_label, nivel_dominante,
     GL_ALL_LABELS_SORTED, GL_SCORES, calcular_score_sof_uof, score_gl_to_nivel,
 )
+from app.utils.crypto_parser import parse_gl_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,31 @@ def _parse_gl_opt(opt: str) -> Optional[str]:
     if not opt or opt == _GL_OPTS_NONE:
         return None
     return opt.split("  (GL:")[0].strip()
+
+
+def _find_gl_opt(entity: str) -> str:
+    """Busca la opción del selectbox que corresponde a un nombre de entidad GL.
+
+    Hace primero match exacto (case-insensitive) y luego match parcial.
+    Devuelve _GL_OPTS_NONE si no hay coincidencia.
+    """
+    if not entity:
+        return _GL_OPTS_NONE
+    entity_lower = entity.lower().strip()
+    # Exacto
+    for opt in _GL_SELECTBOX:
+        if opt == _GL_OPTS_NONE:
+            continue
+        if opt.split("  (GL:")[0].strip().lower() == entity_lower:
+            return opt
+    # Parcial
+    for opt in _GL_SELECTBOX:
+        if opt == _GL_OPTS_NONE:
+            continue
+        lbl = opt.split("  (GL:")[0].strip().lower()
+        if entity_lower in lbl or lbl in entity_lower:
+            return opt
+    return _GL_OPTS_NONE
 
 
 # ── Helpers de UI ────────────────────────────────────────────
@@ -1326,6 +1352,11 @@ def _tab_monitoreo_semanal(user: dict) -> None:
         if pdf_file:
             kb = pdf_file.size // 1024
             st.caption(f"✅ `{pdf_file.name}`  ({kb} KB)")
+            # ── Auto-parseo del PDF ───────────────────────
+            _pdf_key = f"mon_pdf_parsed_{pdf_file.name}_{pdf_file.size}"
+            if _pdf_key not in st.session_state:
+                with st.spinner("Analizando transacciones GL…"):
+                    st.session_state[_pdf_key] = parse_gl_pdf(pdf_file.getvalue())
     with col_delta:
         weekly_delta = st.text_area(
             "📝 Resumen de Cambios Semanales (Delta) *",
@@ -1336,6 +1367,114 @@ def _tab_monitoreo_semanal(user: dict) -> None:
             ),
             key="mon_weekly_delta",
         )
+
+    # ── Resultados del parseo (ancho completo, bajo las columnas) ──
+    if pdf_file:
+        _pdf_key = f"mon_pdf_parsed_{pdf_file.name}_{pdf_file.size}"
+        _pr = st.session_state.get(_pdf_key, {})
+        if _pr.get("ok"):
+            _high  = _pr["high_risk_count"]
+            _med   = _pr["medium_risk_count"]
+            _total = _pr["total_rows"]
+            _top   = _pr.get("top_entity") or "—"
+            _sof   = _pr.get("sof_top")
+            _uof   = _pr.get("uof_top")
+
+            _badge_color = "#ef4444" if _high > 0 else "#f59e0b" if _med > 0 else "#22c55e"
+            _summary = (
+                f"Se detectaron **{_total}** filas de transacciones — "
+                f"**{_high}** de riesgo Crítico/Alto, **{_med}** Medio. "
+                f"Indicador principal: **{_top}**."
+            )
+            with st.expander("🔬 Transacciones GL detectadas — ver detalle", expanded=True):
+                st.markdown(
+                    f"<div style='background:#1a1a2e;border-left:3px solid {_badge_color};"
+                    f"padding:10px 16px;border-radius:6px;margin-bottom:10px;'>"
+                    f"<span style='color:#e5e7eb;font-size:0.88rem;'>{_summary}</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+                # Tabla de top indicadores
+                _indicators = _pr.get("indicators", [])[:8]
+                if _indicators:
+                    _tbl_rows = ""
+                    for _ind in _indicators:
+                        _sc   = _ind.get("gl_score")
+                        _rl   = _ind.get("risk_level", "—")
+                        _rl_c = _COLOR_NIVEL.get(_rl, "#6b7280")
+                        _dp   = _ind.get("direct_pct", 0.0)
+                        _ip   = _ind.get("indirect_pct", 0.0)
+                        _tp   = _ind.get("total_pct", 0.0)
+                        _tbl_rows += (
+                            f"<tr>"
+                            f"<td style='color:#e5e7eb;padding:4px 8px;'>{_ind['entity']}</td>"
+                            f"<td style='color:{_rl_c};padding:4px 8px;font-weight:700;'>{_rl}</td>"
+                            f"<td style='color:#9ca3af;padding:4px 8px;text-align:right;'>{_sc or '—'}</td>"
+                            f"<td style='color:#93c5fd;padding:4px 8px;text-align:right;'>{_dp:.4f}%</td>"
+                            f"<td style='color:#86efac;padding:4px 8px;text-align:right;'>{_ip:.4f}%</td>"
+                            f"<td style='color:#fde68a;padding:4px 8px;text-align:right;font-weight:700;'>{_tp:.4f}%</td>"
+                            f"</tr>"
+                        )
+                    st.markdown(
+                        f"<table style='width:100%;border-collapse:collapse;"
+                        f"font-size:0.8rem;margin-bottom:10px;'>"
+                        f"<thead><tr style='color:#6b7280;border-bottom:1px solid #374151;'>"
+                        f"<th style='padding:4px 8px;text-align:left;'>Entidad</th>"
+                        f"<th style='padding:4px 8px;text-align:left;'>Nivel</th>"
+                        f"<th style='padding:4px 8px;text-align:right;'>GL Score</th>"
+                        f"<th style='padding:4px 8px;text-align:right;'>Directa %</th>"
+                        f"<th style='padding:4px 8px;text-align:right;'>Indirecta %</th>"
+                        f"<th style='padding:4px 8px;text-align:right;'>Total %</th>"
+                        f"</tr></thead><tbody>{_tbl_rows}</tbody></table>",
+                        unsafe_allow_html=True,
+                    )
+
+                if _sof:
+                    st.caption(
+                        f"📤 **SoF sugerido:** {_sof['entity']} "
+                        f"— Directa: {_sof['direct_pct']:.4f}% "
+                        f"/ Indirecta: {_sof['indirect_pct']:.4f}%"
+                        f" | GL: {_sof.get('gl_score') or '—'}"
+                    )
+                if _uof:
+                    st.caption(
+                        f"📥 **UoF sugerido:** {_uof['entity']} "
+                        f"— Directa: {_uof['direct_pct']:.4f}% "
+                        f"/ Indirecta: {_uof['indirect_pct']:.4f}%"
+                        f" | GL: {_uof.get('gl_score') or '—'}"
+                    )
+
+                # Botón de pre-llenado
+                if st.button(
+                    "📥 Pre-llenar Pasos 2-3 con estos datos",
+                    key="mon_prefill_btn",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    # ── Pre-llenar SoF ────────────────────
+                    if _sof:
+                        st.session_state["mon_sof_ind"] = _find_gl_opt(_sof["entity"])
+                        st.session_state["mon_sof_dc"]  = float(_sof["direct_pct"])
+                        st.session_state["mon_sof_ic"]  = float(_sof["indirect_pct"])
+                        st.session_state["mon_sof_dep"] = int(_sof.get("depth") or 1)
+                        _sof_tipo_map = {
+                            "Crítico": "Critical", "Alto": "High",
+                            "Medio": "Medium", "Bajo": "Low",
+                        }
+                        st.session_state["mon_sof_tipo"] = _sof_tipo_map.get(
+                            _sof.get("risk_level", ""), "Medium"
+                        )
+                    # ── Pre-llenar UoF ────────────────────
+                    if _uof:
+                        st.session_state["mon_uof_ind"] = _find_gl_opt(_uof["entity"])
+                        st.session_state["mon_uof_dc"]  = float(_uof["direct_pct"])
+                        st.session_state["mon_uof_ic"]  = float(_uof["indirect_pct"])
+                        st.session_state["mon_uof_dep"] = int(_uof.get("depth") or 1)
+                    st.rerun()
+
+        elif _pr.get("error"):
+            st.warning(f"⚠️ Parser GL: {_pr['error']}", icon="📄")
 
     st.markdown("---")
 
