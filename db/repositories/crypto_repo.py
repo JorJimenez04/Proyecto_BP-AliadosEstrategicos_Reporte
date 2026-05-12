@@ -342,7 +342,7 @@ class CryptoRepository:
                 ) VALUES (
                     :wallet_address, :blockchain,
                     :crypto_cliente_id, :client_id, :client_nombre,
-                    :gl_score, :riesgo_nivel, :risk_labels::jsonb,
+                    :gl_score, :riesgo_nivel, CAST(:risk_labels AS jsonb),
                     :total_exposure, :exposure_currency, :wallet_status,
                     :sof_tipo_riesgo, :sof_indicador, :sof_naturaleza, :sof_profundidad,
                     :sof_cont_directa, :sof_cont_indirecta, :sof_cont_total,
@@ -446,7 +446,7 @@ class CryptoRepository:
                 blockchain            = :blockchain,
                 gl_score              = :gl_score,
                 riesgo_nivel          = :riesgo_nivel,
-                risk_labels           = :risk_labels::jsonb,
+                risk_labels           = CAST(:risk_labels AS jsonb),
                 total_exposure        = :total_exposure,
                 exposure_currency     = :exposure_currency,
                 wallet_status         = :wallet_status,
@@ -595,7 +595,7 @@ class CryptoRepository:
             ) VALUES (
                 :wallet_address, :blockchain,
                 :crypto_cliente_id, :client_id, :client_nombre,
-                :gl_score, :riesgo_nivel, :risk_labels::jsonb,
+                :gl_score, :riesgo_nivel, CAST(:risk_labels AS jsonb),
                 :total_exposure, :exposure_currency,
                 :wallet_status,
                 :sof_tipo_riesgo, :sof_indicador, :sof_naturaleza, :sof_profundidad,
