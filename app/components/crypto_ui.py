@@ -852,21 +852,81 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         "Adrian Cardona", "Jorge Jiménez",
     ]))
 
-    # ── Opcional: pegar GL para pre-llenar ───────────────────
+    # ── Opcional: cargar PDF o pegar JSON GL para pre-llenar ─────────────────
     with st.expander(
-        "📄 Pegar Reporte Global Ledger (opcional — pre-rellena campos)",
+        "📄 Cargar Reporte Global Ledger (opcional — pre-rellena campos)",
         expanded=False,
     ):
-        gl_raw_pre = st.text_area(
-            "Reporte GL",
-            height=80,
-            placeholder='{"address":"TAHQWz...","score":47}',
-            key=f"gl_raw_nueva_{fk}",
-        )
-        if st.button("🔍 Extraer campos", key=f"parse_gl_nueva_{fk}"):
-            if gl_raw_pre.strip():
-                st.session_state[f"gl_parsed_nueva_{fk}"] = _parse_gl_report(gl_raw_pre)
-                st.rerun()
+        _pdf_nw_key   = f"pdf_nueva_{fk}"
+        _pdf_data_key = f"gl_parsed_pdf_nueva_{fk}"
+
+        tab_pdf, tab_json = st.tabs(["📎 PDF", "{ } JSON"])
+
+        with tab_pdf:
+            pdf_nw = st.file_uploader(
+                "Subir reporte PDF de Global Ledger",
+                type=["pdf"],
+                key=_pdf_nw_key,
+            )
+            if pdf_nw:
+                kb = pdf_nw.size // 1024
+                st.caption(f"✅ `{pdf_nw.name}`  ({kb} KB)")
+                _pdf_cache = f"gl_pdf_nueva_cache_{fk}_{pdf_nw.name}_{pdf_nw.size}"
+                if _pdf_cache not in st.session_state:
+                    with st.spinner("🔍 Analizando reporte PDF…"):
+                        _res = parse_gl_pdf(pdf_nw.getvalue())
+                    st.session_state[_pdf_cache] = _res
+                _res = st.session_state[_pdf_cache]
+                if _res.get("ok"):
+                    st.success(
+                        f"Parser GL: {_res['total_rows']} txs • "
+                        f"Alto riesgo: {_res['high_risk_count']} • "
+                        f"Score detectado: {_res.get('gl_score_detected') or '—'}"
+                    )
+                    if st.button("📥 Pre-llenar desde PDF", key=f"prefill_pdf_nueva_{fk}", type="primary"):
+                        _sof = _res.get("sof_top")
+                        _uof = _res.get("uof_top")
+                        _score = _res.get("gl_score_detected")
+                        _wallet = _res.get("wallet_detected")
+                        _pre: dict = {}
+                        if _wallet:
+                            _pre["wallet_address"] = _wallet
+                        if _score is not None:
+                            _pre["gl_score"] = _score
+                            _pre["riesgo_nivel"] = (
+                                "Crítico" if _score < 20 else
+                                "Alto"    if _score < 40 else
+                                "Medio"   if _score < 70 else
+                                "Bajo"
+                            )
+                        if _sof:
+                            _pre["sof_ind"]  = _find_gl_opt(_sof["entity"])
+                            _pre["sof_dc"]   = float(_sof["direct_pct"])
+                            _pre["sof_ic"]   = float(_sof["indirect_pct"])
+                            _pre["sof_dep"]  = int(_sof.get("depth") or 1)
+                        if _uof:
+                            _pre["uof_ind"]  = _find_gl_opt(_uof["entity"])
+                            _pre["uof_dc"]   = float(_uof["direct_pct"])
+                            _pre["uof_ic"]   = float(_uof["indirect_pct"])
+                            _pre["uof_dep"]  = int(_uof.get("depth") or 1)
+                        st.session_state[f"gl_parsed_nueva_{fk}"] = _pre
+                        st.rerun()
+                elif _res.get("error"):
+                    st.warning(f"⚠️ {_res['error']}", icon="📄")
+            else:
+                st.session_state.pop(f"gl_pdf_nueva_cache_{fk}_" + "", None)
+
+        with tab_json:
+            gl_raw_pre = st.text_area(
+                "Reporte GL (JSON)",
+                height=80,
+                placeholder='{"address":"TAHQWz...","score":47}',
+                key=f"gl_raw_nueva_{fk}",
+            )
+            if st.button("🔍 Extraer campos", key=f"parse_gl_nueva_{fk}"):
+                if gl_raw_pre.strip():
+                    st.session_state[f"gl_parsed_nueva_{fk}"] = _parse_gl_report(gl_raw_pre)
+                    st.rerun()
 
     parsed_pre      = st.session_state.get(f"gl_parsed_nueva_{fk}", {})
     init_addr       = parsed_pre.get("wallet_address") or ""
