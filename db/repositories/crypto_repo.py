@@ -303,6 +303,229 @@ class CryptoRepository:
             logger.warning("archive_current_to_history error: %s", exc)
             return False
 
+    # ── Crear wallet por primera vez (desde flujo Cliente) ───────
+    def create_wallet(self, data: WalletMonitorCreate) -> dict:
+        """
+        Inserta una nueva wallet (primer registro, desde Clientes → Vincular Wallet).
+        No archiva historial — es el estado inicial.
+        Lanza ValueError si la wallet ya existe (unicidad).
+        """
+        labels_list = [lbl.model_dump() for lbl in data.risk_labels]
+        calificacion   = calificar_labels(labels_list)
+        nivel_catalogo = calificacion["nivel_final"]
+        nivel_base     = data.riesgo_nivel
+        if nivel_base == "Sin Datos" and data.gl_score is not None:
+            nivel_base = score_a_nivel_riesgo(data.gl_score)
+        nivel = nivel_dominante(nivel_catalogo, nivel_base)
+        if data.gl_score is not None and data.gl_score < 30:
+            nivel = "Crítico"
+
+        risk_labels_json = json.dumps(labels_list)
+        last_report = data.last_report_date.isoformat() if data.last_report_date else None
+
+        try:
+            row = self.session.execute(text("""
+                INSERT INTO crypto_monitoreo (
+                    wallet_address, blockchain,
+                    crypto_cliente_id, client_id, client_nombre,
+                    gl_score, riesgo_nivel, risk_labels,
+                    total_exposure, exposure_currency, wallet_status,
+                    sof_tipo_riesgo, sof_indicador, sof_naturaleza, sof_profundidad,
+                    sof_cont_directa, sof_cont_indirecta, sof_cont_total,
+                    sof_score, sof_nivel, sof_monto,
+                    uof_indicador, uof_naturaleza, uof_profundidad,
+                    uof_cont_directa, uof_cont_indirecta, uof_cont_total,
+                    uof_score, uof_nivel, uof_monto,
+                    analyst_observations, monitoring_analyst,
+                    final_risk_score, final_risk_level,
+                    pdf_report_url, last_report_date, registrado_por, notas
+                ) VALUES (
+                    :wallet_address, :blockchain,
+                    :crypto_cliente_id, :client_id, :client_nombre,
+                    :gl_score, :riesgo_nivel, :risk_labels::jsonb,
+                    :total_exposure, :exposure_currency, :wallet_status,
+                    :sof_tipo_riesgo, :sof_indicador, :sof_naturaleza, :sof_profundidad,
+                    :sof_cont_directa, :sof_cont_indirecta, :sof_cont_total,
+                    :sof_score, :sof_nivel, :sof_monto,
+                    :uof_indicador, :uof_naturaleza, :uof_profundidad,
+                    :uof_cont_directa, :uof_cont_indirecta, :uof_cont_total,
+                    :uof_score, :uof_nivel, :uof_monto,
+                    :analyst_observations, :monitoring_analyst,
+                    :final_risk_score, :final_risk_level,
+                    :pdf_report_url, :last_report_date, :registrado_por, :notas
+                )
+                RETURNING *
+            """), {
+                "wallet_address":       data.wallet_address,
+                "blockchain":           data.blockchain,
+                "crypto_cliente_id":    data.crypto_cliente_id,
+                "client_id":            data.client_id,
+                "client_nombre":        data.client_nombre,
+                "gl_score":             data.gl_score,
+                "riesgo_nivel":         nivel,
+                "risk_labels":          risk_labels_json,
+                "total_exposure":       data.total_exposure,
+                "exposure_currency":    data.exposure_currency,
+                "wallet_status":        data.wallet_status,
+                "sof_tipo_riesgo":      data.sof_tipo_riesgo,
+                "sof_indicador":        data.sof_indicador,
+                "sof_naturaleza":       data.sof_naturaleza,
+                "sof_profundidad":      data.sof_profundidad,
+                "sof_cont_directa":     data.sof_cont_directa,
+                "sof_cont_indirecta":   data.sof_cont_indirecta,
+                "sof_cont_total":       data.sof_cont_total,
+                "sof_score":            data.sof_score,
+                "sof_nivel":            data.sof_nivel,
+                "sof_monto":            data.sof_monto,
+                "uof_indicador":        data.uof_indicador,
+                "uof_naturaleza":       data.uof_naturaleza,
+                "uof_profundidad":      data.uof_profundidad,
+                "uof_cont_directa":     data.uof_cont_directa,
+                "uof_cont_indirecta":   data.uof_cont_indirecta,
+                "uof_cont_total":       data.uof_cont_total,
+                "uof_score":            data.uof_score,
+                "uof_nivel":            data.uof_nivel,
+                "uof_monto":            data.uof_monto,
+                "analyst_observations": data.analyst_observations,
+                "monitoring_analyst":   data.monitoring_analyst,
+                "final_risk_score":     data.final_risk_score,
+                "final_risk_level":     data.final_risk_level,
+                "pdf_report_url":       data.pdf_report_url,
+                "last_report_date":     last_report,
+                "registrado_por":       data.registrado_por,
+                "notas":                data.notas,
+            }).mappings().first()
+            self.session.commit()
+            logger.info("crypto.create_wallet: %s → %s", data.wallet_address, nivel)
+            return dict(row)
+        except Exception as exc:
+            self.session.rollback()
+            msg = str(exc).lower()
+            if "unique" in msg or "duplicate" in msg:
+                raise ValueError(
+                    f"La wallet {data.wallet_address[:24]}… ya está registrada. "
+                    "Usa la pestaña 📈 Monitoreo Semanal para actualizar sus métricas."
+                ) from exc
+            raise
+
+    # ── Monitoreo semanal (wallet existente) ──────────────────
+    def monitor_wallet(self, data: WalletMonitorCreate) -> dict:
+        """
+        Ciclo de monitoreo semanal de una wallet ya existente.
+        SIEMPRE archiva el estado previo en crypto_monitoreo_historial (trazabilidad).
+        Lanza ValueError si la wallet NO existe aún.
+        """
+        existing = self.get_by_address(data.wallet_address)
+        if not existing:
+            raise ValueError(
+                f"La wallet {data.wallet_address[:24]}… no existe en la base de datos. "
+                "Vincúlala primero desde la pestaña 👥 Clientes."
+            )
+
+        # Forzar archivo — nunca omitir en monitoreo
+        if not self.archive_current_to_history(data.wallet_address, data.weekly_delta):
+            raise RuntimeError(
+                f"No se pudo archivar el estado previo de {data.wallet_address[:24]}…"
+            )
+
+        labels_list = [lbl.model_dump() for lbl in data.risk_labels]
+        calificacion   = calificar_labels(labels_list)
+        nivel_catalogo = calificacion["nivel_final"]
+        nivel_base     = data.riesgo_nivel
+        if nivel_base == "Sin Datos" and data.gl_score is not None:
+            nivel_base = score_a_nivel_riesgo(data.gl_score)
+        nivel = nivel_dominante(nivel_catalogo, nivel_base)
+        if data.gl_score is not None and data.gl_score < 30:
+            nivel = "Crítico"
+
+        risk_labels_json = json.dumps(labels_list)
+        last_report = data.last_report_date.isoformat() if data.last_report_date else None
+
+        row = self.session.execute(text("""
+            UPDATE crypto_monitoreo SET
+                blockchain            = :blockchain,
+                gl_score              = :gl_score,
+                riesgo_nivel          = :riesgo_nivel,
+                risk_labels           = :risk_labels::jsonb,
+                total_exposure        = :total_exposure,
+                exposure_currency     = :exposure_currency,
+                wallet_status         = :wallet_status,
+                sof_tipo_riesgo       = :sof_tipo_riesgo,
+                sof_indicador         = :sof_indicador,
+                sof_naturaleza        = :sof_naturaleza,
+                sof_profundidad       = :sof_profundidad,
+                sof_cont_directa      = :sof_cont_directa,
+                sof_cont_indirecta    = :sof_cont_indirecta,
+                sof_cont_total        = :sof_cont_total,
+                sof_score             = :sof_score,
+                sof_nivel             = :sof_nivel,
+                sof_monto             = :sof_monto,
+                uof_indicador         = :uof_indicador,
+                uof_naturaleza        = :uof_naturaleza,
+                uof_profundidad       = :uof_profundidad,
+                uof_cont_directa      = :uof_cont_directa,
+                uof_cont_indirecta    = :uof_cont_indirecta,
+                uof_cont_total        = :uof_cont_total,
+                uof_score             = :uof_score,
+                uof_nivel             = :uof_nivel,
+                uof_monto             = :uof_monto,
+                analyst_observations  = :analyst_observations,
+                monitoring_analyst    = :monitoring_analyst,
+                final_risk_score      = :final_risk_score,
+                final_risk_level      = :final_risk_level,
+                weekly_delta          = :weekly_delta,
+                pdf_report_url        = COALESCE(:pdf_report_url, pdf_report_url),
+                last_report_date      = :last_report_date,
+                registrado_por        = :registrado_por,
+                notas                 = COALESCE(:notas, notas),
+                updated_at            = NOW()
+            WHERE wallet_address = :wallet_address
+            RETURNING *
+        """), {
+            "wallet_address":       data.wallet_address,
+            "blockchain":           data.blockchain,
+            "gl_score":             data.gl_score,
+            "riesgo_nivel":         nivel,
+            "risk_labels":          risk_labels_json,
+            "total_exposure":       data.total_exposure,
+            "exposure_currency":    data.exposure_currency,
+            "wallet_status":        data.wallet_status,
+            "sof_tipo_riesgo":      data.sof_tipo_riesgo,
+            "sof_indicador":        data.sof_indicador,
+            "sof_naturaleza":       data.sof_naturaleza,
+            "sof_profundidad":      data.sof_profundidad,
+            "sof_cont_directa":     data.sof_cont_directa,
+            "sof_cont_indirecta":   data.sof_cont_indirecta,
+            "sof_cont_total":       data.sof_cont_total,
+            "sof_score":            data.sof_score,
+            "sof_nivel":            data.sof_nivel,
+            "sof_monto":            data.sof_monto,
+            "uof_indicador":        data.uof_indicador,
+            "uof_naturaleza":       data.uof_naturaleza,
+            "uof_profundidad":      data.uof_profundidad,
+            "uof_cont_directa":     data.uof_cont_directa,
+            "uof_cont_indirecta":   data.uof_cont_indirecta,
+            "uof_cont_total":       data.uof_cont_total,
+            "uof_score":            data.uof_score,
+            "uof_nivel":            data.uof_nivel,
+            "uof_monto":            data.uof_monto,
+            "analyst_observations": data.analyst_observations,
+            "monitoring_analyst":   data.monitoring_analyst,
+            "final_risk_score":     data.final_risk_score,
+            "final_risk_level":     data.final_risk_level,
+            "weekly_delta":         data.weekly_delta,
+            "pdf_report_url":       data.pdf_report_url,
+            "last_report_date":     last_report,
+            "registrado_por":       data.registrado_por,
+            "notas":                data.notas,
+        }).mappings().first()
+        self.session.commit()
+        logger.info(
+            "crypto.monitor_wallet: %s → %s (archived prev)",
+            data.wallet_address, nivel,
+        )
+        return dict(row)
+
     # ── Upsert (registro desde JSON de Global Ledger) ─────────
     def upsert_from_gl(self, data: WalletMonitorCreate) -> dict:
         """
