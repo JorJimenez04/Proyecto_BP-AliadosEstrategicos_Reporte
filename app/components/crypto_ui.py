@@ -836,10 +836,11 @@ def _render_comparativo(prev: dict, new_gl_score: Optional[int] = None,
 # ── Formulario de primera vinculación (desde Clientes) ─────
 def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None:
     """
-    Formulario simplificado para crear la primera entrada de una wallet.
-    El cliente ya está fijado; no requiere delta ni archivo histórico.
+    Formulario para vincular una nueva wallet.
+    El PDF de Global Ledger es la fuente de verdad principal.
+    Los campos clave se bloquean y se rellenan automáticamente desde el reporte.
     """
-    fk = str(cliente_id)   # sufijo de keys para evitar colisiones
+    fk = str(cliente_id)
 
     chain_opts       = ["ETH", "BTC", "BNB", "TRX", "SOL", "MATIC", "Otro"]
     niveles          = ["Sin Datos", "Bajo", "Medio", "Alto", "Crítico"]
@@ -852,90 +853,179 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         "Adrian Cardona", "Jorge Jiménez",
     ]))
 
-    # ── Opcional: cargar PDF o pegar JSON GL para pre-llenar ─────────────────
-    with st.expander(
-        "📄 Cargar Reporte Global Ledger (opcional — pre-rellena campos)",
-        expanded=False,
-    ):
-        _pdf_nw_key   = f"pdf_nueva_{fk}"
-        _pdf_data_key = f"gl_parsed_pdf_nueva_{fk}"
+    def _infer_chain(addr: str) -> str:
+        if addr.startswith("0x") and len(addr) == 42:
+            return "ETH"
+        if addr.startswith("bc1"):
+            return "BTC"
+        if addr and addr[0] in ("1", "3") and 25 <= len(addr) <= 34:
+            return "BTC"
+        if addr.startswith("T") and len(addr) == 34:
+            return "TRX"
+        if len(addr) == 44:
+            return "SOL"
+        return "ETH"
 
-        tab_pdf, tab_json = st.tabs(["📎 PDF", "{ } JSON"])
+    def _score_to_nivel_local(s: int) -> str:
+        if s < 20: return "Crítico"
+        if s < 40: return "Alto"
+        if s < 70: return "Medio"
+        return "Bajo"
 
-        with tab_pdf:
-            pdf_nw = st.file_uploader(
-                "Subir reporte PDF de Global Ledger",
-                type=["pdf"],
-                key=_pdf_nw_key,
-            )
-            if pdf_nw:
-                kb = pdf_nw.size // 1024
-                st.caption(f"✅ `{pdf_nw.name}`  ({kb} KB)")
-                _pdf_cache = f"gl_pdf_nueva_cache_{fk}_{pdf_nw.name}_{pdf_nw.size}"
-                if _pdf_cache not in st.session_state:
-                    with st.spinner("🔍 Analizando reporte PDF…"):
-                        _res = parse_gl_pdf(pdf_nw.getvalue())
-                    st.session_state[_pdf_cache] = _res
-                _res = st.session_state[_pdf_cache]
-                if _res.get("ok"):
-                    st.success(
-                        f"Parser GL: {_res['total_rows']} txs • "
-                        f"Alto riesgo: {_res['high_risk_count']} • "
-                        f"Score detectado: {_res.get('gl_score_detected') or '—'}"
-                    )
-                    if st.button("📥 Pre-llenar desde PDF", key=f"prefill_pdf_nueva_{fk}", type="primary"):
-                        _sof = _res.get("sof_top")
-                        _uof = _res.get("uof_top")
-                        _score = _res.get("gl_score_detected")
-                        _wallet = _res.get("wallet_detected")
-                        _pre: dict = {}
-                        if _wallet:
-                            _pre["wallet_address"] = _wallet
-                        if _score is not None:
-                            _pre["gl_score"] = _score
-                            _pre["riesgo_nivel"] = (
-                                "Crítico" if _score < 20 else
-                                "Alto"    if _score < 40 else
-                                "Medio"   if _score < 70 else
-                                "Bajo"
-                            )
-                        if _sof:
-                            _pre["sof_ind"]  = _find_gl_opt(_sof["entity"])
-                            _pre["sof_dc"]   = float(_sof["direct_pct"])
-                            _pre["sof_ic"]   = float(_sof["indirect_pct"])
-                            _pre["sof_dep"]  = int(_sof.get("depth") or 1)
-                        if _uof:
-                            _pre["uof_ind"]  = _find_gl_opt(_uof["entity"])
-                            _pre["uof_dc"]   = float(_uof["direct_pct"])
-                            _pre["uof_ic"]   = float(_uof["indirect_pct"])
-                            _pre["uof_dep"]  = int(_uof.get("depth") or 1)
-                        st.session_state[f"gl_parsed_nueva_{fk}"] = _pre
-                        st.rerun()
-                elif _res.get("error"):
-                    st.warning(f"⚠️ {_res['error']}", icon="📄")
+    # ── Session-state keys ────────────────────────────────────────────────────
+    _gl_key      = f"nw_gl_data_{fk}"
+    _uploader_k  = f"pdf_nw_{fk}"
+    _active_k    = f"_nw_pdf_active_{fk}"
+
+    # ── PASO 0: Cargar PDF (fuente de verdad) ─────────────────────────────────
+    st.markdown(
+        "<div style='background:#0f172a;border-left:4px solid #22d3ee;"
+        "padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
+        "<b style='color:#67e8f9;'>📎 PASO 0 — Reporte Global Ledger PDF</b>"
+        "<span style='color:#94a3b8;font-size:0.8rem;margin-left:8px;'>"
+        "El PDF es la fuente de verdad. Los campos clave se extraen automáticamente.</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    pdf_nw = st.file_uploader(
+        "Seleccionar PDF de Global Ledger",
+        type=["pdf"],
+        key=_uploader_k,
+        help="Carga el reporte GL para autocompletar todos los campos.",
+    )
+
+    _gl: dict = {}
+    _from_pdf = False
+
+    if pdf_nw:
+        _cache_key = f"_nw_pdf_c_{fk}_{pdf_nw.name}_{pdf_nw.size}"
+        if _cache_key not in st.session_state:
+            with st.spinner("🔍 Analizando reporte GL…"):
+                st.session_state[_cache_key] = parse_gl_pdf(pdf_nw.getvalue())
+            st.session_state[_gl_key]    = st.session_state[_cache_key]
+            st.session_state[_active_k]  = _cache_key
+        _gl       = st.session_state.get(_gl_key, {})
+        _from_pdf = _gl.get("ok", False)
+
+        if _gl.get("ok"):
+            _w       = _gl.get("wallet_detected") or ""
+            _sc      = _gl.get("gl_score_detected")
+            _tot     = _gl.get("total_rows", 0)
+            _hi      = _gl.get("high_risk_count", 0)
+            _med     = _gl.get("medium_risk_count", 0)
+            _pdf_sof_snap = _gl.get("sof_top")
+            _dir_pct = float(_pdf_sof_snap["direct_pct"]) if _pdf_sof_snap else 0.0
+
+            if not _w:
+                st.warning(
+                    "⚠️ **El reporte no coincide con los parámetros de seguridad.** "
+                    "No se detectó ninguna dirección de wallet en el PDF. "
+                    "Verifique que el documento corresponde a este cliente.",
+                    icon="🔒",
+                )
+                _from_pdf = False
             else:
-                st.session_state.pop(f"gl_pdf_nueva_cache_{fk}_" + "", None)
+                st.success(f"✅ Reporte analizado · `{pdf_nw.name}` ({pdf_nw.size // 1024} KB)")
+                # Foto Actual
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("📊 Total Txs", f"{_tot:,}")
+                c2.metric("🔴 Alto Riesgo", f"{_hi:,}")
+                c3.metric("🟡 Medio Riesgo", f"{_med:,}")
+                c4.metric("🎯 GL Score", _sc if _sc is not None else "—")
+                st.info(
+                    f"📸 **Foto Actual de la Wallet:** Se detectaron **{_tot:,} transacciones** "
+                    f"con una exposición directa inicial de **{_dir_pct:.4f}%** "
+                    f"(SoF: `{_pdf_sof_snap['entity'] if _pdf_sof_snap else '—'}`)."
+                )
+        elif _gl.get("error"):
+            st.warning(f"⚠️ Parser GL: {_gl['error']}", icon="📄")
+    else:
+        # Limpiar datos de parseo cuando se quita el PDF
+        if _active_k in st.session_state:
+            _stale = st.session_state.pop(_active_k)
+            st.session_state.pop(_stale, None)
+        st.session_state.pop(_gl_key, None)
 
-        with tab_json:
+    st.markdown("---")
+
+    # ── JSON como alternativa (colapsado) ─────────────────────────────────────
+    if not _from_pdf:
+        with st.expander("{ } Pegar JSON GL (alternativa al PDF)", expanded=False):
             gl_raw_pre = st.text_area(
                 "Reporte GL (JSON)",
-                height=80,
+                height=70,
                 placeholder='{"address":"TAHQWz...","score":47}',
                 key=f"gl_raw_nueva_{fk}",
             )
             if st.button("🔍 Extraer campos", key=f"parse_gl_nueva_{fk}"):
                 if gl_raw_pre.strip():
-                    st.session_state[f"gl_parsed_nueva_{fk}"] = _parse_gl_report(gl_raw_pre)
+                    st.session_state[f"gl_parsed_json_{fk}"] = _parse_gl_report(gl_raw_pre)
                     st.rerun()
 
-    parsed_pre      = st.session_state.get(f"gl_parsed_nueva_{fk}", {})
-    init_addr       = parsed_pre.get("wallet_address") or ""
-    init_chain      = parsed_pre.get("blockchain") or "ETH"
-    init_score      = parsed_pre.get("gl_score")
-    init_nivel      = parsed_pre.get("riesgo_nivel") or "Sin Datos"
-    init_labels_raw = json.dumps(parsed_pre.get("risk_labels") or [], ensure_ascii=False)
-    chain_idx       = chain_opts.index(init_chain) if init_chain in chain_opts else 0
-    nivel_idx       = niveles.index(init_nivel) if init_nivel in niveles else 0
+    _parsed_json = (
+        st.session_state.get(f"gl_parsed_json_{fk}", {}) if not _from_pdf else {}
+    )
+    _src = _gl if _from_pdf else _parsed_json
+
+    # ── Valores derivados del parser ──────────────────────────────────────────
+    _pdf_wallet = _gl.get("wallet_detected") or "" if _from_pdf else ""
+    _pdf_score  = _gl.get("gl_score_detected")     if _from_pdf else None
+    _pdf_sof    = _gl.get("sof_top")               if _from_pdf else None
+    _pdf_uof    = _gl.get("uof_top")               if _from_pdf else None
+    _pdf_tots   = _gl.get("total_rows", 0)          if _from_pdf else 0
+
+    init_addr   = _pdf_wallet or _src.get("wallet_address") or ""
+    init_chain  = (
+        _infer_chain(_pdf_wallet) if (_from_pdf and _pdf_wallet)
+        else _src.get("blockchain") or "ETH"
+    )
+    init_score  = _pdf_score if _pdf_score is not None else _src.get("gl_score")
+    init_nivel  = (
+        _score_to_nivel_local(_pdf_score) if _pdf_score is not None
+        else _src.get("riesgo_nivel") or "Sin Datos"
+    )
+    init_labels = json.dumps(_src.get("risk_labels") or [], ensure_ascii=False)
+
+    chain_idx = chain_opts.index(init_chain) if init_chain in chain_opts else 0
+    nivel_idx = niveles.index(init_nivel) if init_nivel in niveles else 0
+
+    # Pre-llenar session_state para SoF/UoF ANTES de renderizar el form
+    # (los widgets con key= usarán estos valores como su "valor actual")
+    if _from_pdf:
+        _risk_map = {"Crítico": "Critical", "Alto": "High", "Medio": "Medium", "Bajo": "Low"}
+        if _pdf_sof:
+            _sof_ind_v = _find_gl_opt(_pdf_sof["entity"]) or _GL_SELECTBOX[0]
+            st.session_state[f"sof_ind_nw_{fk}"]  = _sof_ind_v
+            st.session_state[f"sof_dc_nw_{fk}"]   = float(_pdf_sof["direct_pct"])
+            st.session_state[f"sof_ic_nw_{fk}"]   = float(_pdf_sof["indirect_pct"])
+            st.session_state[f"sof_dep_nw_{fk}"]  = int(_pdf_sof.get("depth") or 1)
+            st.session_state[f"sof_tipo_nw_{fk}"] = _risk_map.get(
+                _pdf_sof.get("risk_level", ""), "Medium"
+            )
+        if _pdf_uof:
+            _uof_ind_v = _find_gl_opt(_pdf_uof["entity"]) or _GL_SELECTBOX[0]
+            st.session_state[f"uof_ind_nw_{fk}"]  = _uof_ind_v
+            st.session_state[f"uof_dc_nw_{fk}"]   = float(_pdf_uof["direct_pct"])
+            st.session_state[f"uof_ic_nw_{fk}"]   = float(_pdf_uof["indirect_pct"])
+            st.session_state[f"uof_dep_nw_{fk}"]  = int(_pdf_uof.get("depth") or 1)
+
+    # Bloquear si PDF inválido (cargado pero sin wallet detectada)
+    if _from_pdf is False and pdf_nw and _gl.get("ok"):
+        # ok=True pero wallet not found → ya mostramos warning arriba, no renderizar form
+        return
+
+    # ── Header del formulario ─────────────────────────────────────────────────
+    _lbl_btn = "✅ Confirmar y Vincular Wallet" if _from_pdf else "💾 Vincular Wallet"
+    st.markdown(
+        "<div style='background:#0f172a;border-left:4px solid #6366f1;"
+        "padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
+        "<b style='color:#a5b4fc;'>📋 PASO 1 — Datos de Vinculación</b>"
+        f"<span style='color:#94a3b8;font-size:0.8rem;margin-left:8px;'>"
+        f"{'Campos clave bloqueados — extraídos del PDF.' if _from_pdf else 'Ingreso manual.'}"
+        "</span></div>",
+        unsafe_allow_html=True,
+    )
 
     with st.form(f"form_nueva_wallet_{fk}", clear_on_submit=True):
         col_wa, col_chain, col_status = st.columns([4, 1, 1])
@@ -943,10 +1033,14 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             wallet_address = st.text_input(
                 "💳 Dirección de Wallet *",
                 value=init_addr,
+                disabled=_from_pdf,
                 placeholder="0x... · T... · bc1q...",
             )
         with col_chain:
-            blockchain = st.selectbox("Blockchain", chain_opts, index=chain_idx)
+            if _from_pdf:
+                blockchain = st.text_input("Blockchain", value=init_chain, disabled=True)
+            else:
+                blockchain = st.selectbox("Blockchain", chain_opts, index=chain_idx)
         with col_status:
             wallet_status = st.selectbox("Estado", status_opts)
 
@@ -956,18 +1050,26 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
                 "🎯 GL Score",
                 min_value=0, max_value=100,
                 value=init_score, placeholder="Ej: 47",
+                disabled=(_from_pdf and _pdf_score is not None),
             )
         with col_nv:
-            riesgo_manual = st.selectbox("Nivel GL", niveles, index=nivel_idx)
+            if _from_pdf and _pdf_score is not None:
+                riesgo_manual = st.text_input("Nivel GL", value=init_nivel, disabled=True)
+            else:
+                riesgo_manual = st.selectbox("Nivel GL", niveles, index=nivel_idx)
         with col_an:
             monitoring_analyst = st.selectbox("👤 Analista", analyst_opts)
         with col_fecha:
             report_date = st.date_input("📅 Fecha Reporte", value=None)
 
         st.markdown("---")
+        _sof_uof_lbl = (
+            "Pre-llenado desde PDF — ajustable." if _from_pdf and (_pdf_sof or _pdf_uof)
+            else "(opcional en creación)"
+        )
         st.markdown(
-            "<span style='color:#86efac;font-weight:700;'>🔄 Análisis SoF / UoF</span> "
-            "<span style='color:#6b7280;font-size:0.78rem;'>(opcional en creación)</span>",
+            f"<span style='color:#86efac;font-weight:700;'>🔄 Análisis SoF / UoF</span> "
+            f"<span style='color:#6b7280;font-size:0.78rem;'>{_sof_uof_lbl}</span>",
             unsafe_allow_html=True,
         )
         col_sof, col_uof = st.columns(2, gap="large")
@@ -1052,12 +1154,12 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
 
         st.markdown("**Risk Labels JSON** *(del reporte GL)*")
         labels_raw = st.text_area(
-            "Risk Labels", value=init_labels_raw, height=60,
+            "Risk Labels", value=init_labels, height=60,
             label_visibility="collapsed",
         )
 
         submitted = st.form_submit_button(
-            "💾 Vincular Wallet", type="primary", use_container_width=True,
+            _lbl_btn, type="primary", use_container_width=True,
         )
 
     if submitted:
@@ -1170,9 +1272,19 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             # Limpiar TODOS los estados del vinculador para que el rerun
             # muestre al usuario la vista de clientes limpia y la wallet
             # nueva ya disponible en el Monitor.
-            for _k in ("show_vinculador", "vincular_cliente_id",
-                       "vincular_cliente_nombre", f"gl_parsed_nueva_{fk}"):
+            _keys_to_clear = (
+                "show_vinculador", "vincular_cliente_id",
+                "vincular_cliente_nombre",
+                f"gl_parsed_nueva_{fk}", f"gl_parsed_json_{fk}",
+                f"nw_gl_data_{fk}",
+            )
+            for _k in _keys_to_clear:
                 st.session_state.pop(_k, None)
+            # Limpiar cache activo del PDF
+            _active_key_ref = f"_nw_pdf_active_{fk}"
+            if _active_key_ref in st.session_state:
+                _stale = st.session_state.pop(_active_key_ref)
+                st.session_state.pop(_stale, None)
             short_addr = wallet_address.strip()[:16]
             st.toast(
                 f"✅ Wallet {short_addr}… vinculada a {cliente_nombre}.",
