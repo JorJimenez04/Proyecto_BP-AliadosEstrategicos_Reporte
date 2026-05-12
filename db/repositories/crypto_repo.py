@@ -219,10 +219,96 @@ class CryptoRepository:
             self.session.rollback()
             return {}
 
+    # ── Historial de monitoreo semanal ───────────────────────
+    def get_previous_snapshot(self, wallet_address: str) -> Optional[dict]:
+        """Último snapshot histórico de la wallet (antes del ciclo actual)."""
+        try:
+            row = self.session.execute(
+                text("""
+                    SELECT * FROM crypto_monitoreo_historial
+                    WHERE wallet_address = :addr
+                    ORDER BY snapshot_date DESC
+                    LIMIT 1
+                """),
+                {"addr": wallet_address.strip()},
+            ).mappings().first()
+            return dict(row) if row else None
+        except Exception as exc:
+            logger.warning("get_previous_snapshot error: %s", exc)
+            return None
+
+    def archive_current_to_history(
+        self, wallet_address: str, weekly_delta: Optional[str] = None
+    ) -> bool:
+        """
+        Archiva el estado ACTUAL de la wallet antes de sobrescribirlo.
+        Llamar justo antes de upsert_from_gl cuando ya existe el registro.
+        """
+        try:
+            existing = self.get_by_address(wallet_address)
+            if not existing:
+                return False
+            self.session.execute(
+                text("""
+                    INSERT INTO crypto_monitoreo_historial (
+                        original_id, wallet_address,
+                        gl_score, riesgo_nivel,
+                        sof_indicador, sof_cont_total, sof_score, sof_nivel, sof_monto,
+                        uof_indicador, uof_cont_total, uof_score, uof_nivel, uof_monto,
+                        final_risk_score, final_risk_level,
+                        weekly_delta, analyst_observations, monitoring_analyst,
+                        registrado_por, pdf_report_url,
+                        total_exposure, exposure_currency
+                    ) VALUES (
+                        :original_id, :wallet_address,
+                        :gl_score, :riesgo_nivel,
+                        :sof_indicador, :sof_cont_total, :sof_score, :sof_nivel, :sof_monto,
+                        :uof_indicador, :uof_cont_total, :uof_score, :uof_nivel, :uof_monto,
+                        :final_risk_score, :final_risk_level,
+                        :weekly_delta, :analyst_observations, :monitoring_analyst,
+                        :registrado_por, :pdf_report_url,
+                        :total_exposure, :exposure_currency
+                    )
+                """),
+                {
+                    "original_id":          existing["id"],
+                    "wallet_address":       existing["wallet_address"],
+                    "gl_score":             existing.get("gl_score"),
+                    "riesgo_nivel":         existing.get("riesgo_nivel"),
+                    "sof_indicador":        existing.get("sof_indicador"),
+                    "sof_cont_total":       existing.get("sof_cont_total"),
+                    "sof_score":            existing.get("sof_score"),
+                    "sof_nivel":            existing.get("sof_nivel"),
+                    "sof_monto":            existing.get("sof_monto"),
+                    "uof_indicador":        existing.get("uof_indicador"),
+                    "uof_cont_total":       existing.get("uof_cont_total"),
+                    "uof_score":            existing.get("uof_score"),
+                    "uof_nivel":            existing.get("uof_nivel"),
+                    "uof_monto":            existing.get("uof_monto"),
+                    "final_risk_score":     existing.get("final_risk_score"),
+                    "final_risk_level":     existing.get("final_risk_level"),
+                    "weekly_delta":         weekly_delta,
+                    "analyst_observations": existing.get("analyst_observations"),
+                    "monitoring_analyst":   existing.get("monitoring_analyst"),
+                    "registrado_por":       existing.get("registrado_por"),
+                    "pdf_report_url":       existing.get("pdf_report_url"),
+                    "total_exposure":       existing.get("total_exposure"),
+                    "exposure_currency":    existing.get("exposure_currency"),
+                },
+            )
+            self.session.commit()
+            return True
+        except Exception as exc:
+            self.session.rollback()
+            logger.warning("archive_current_to_history error: %s", exc)
+            return False
+
     # ── Upsert (registro desde JSON de Global Ledger) ─────────
     def upsert_from_gl(self, data: WalletMonitorCreate) -> dict:
         """
         Crea o actualiza una wallet a partir de la respuesta de Global Ledger.
+        Si la wallet ya existe, archiva el estado previo en historial antes de
+        sobrescribir (trazabilidad de monitoreo semanal).
 
         Logica de calificacion (prioridad descendente):
         1. Si alguna label esta en el catalogo GL → nivel = indicador mas alto
@@ -230,6 +316,9 @@ class CryptoRepository:
         3. Si solo viene gl_score → score_a_nivel_riesgo()
         Politica AdamoServices: score < 30 siempre eleva a CRITICO.
         """
+        # Archivar estado previo si ya existe
+        self.archive_current_to_history(data.wallet_address, data.weekly_delta)
+
         labels_list = [lbl.model_dump() for lbl in data.risk_labels]
 
         # Calificacion por catalogo de indicadores GL
@@ -277,6 +366,7 @@ class CryptoRepository:
                 uof_score, uof_nivel, uof_monto,
                 analyst_observations, monitoring_analyst,
                 final_risk_score, final_risk_level,
+                weekly_delta,
                 pdf_report_url, last_report_date,
                 registrado_por, notas
             ) VALUES (
@@ -293,6 +383,7 @@ class CryptoRepository:
                 :uof_score, :uof_nivel, :uof_monto,
                 :analyst_observations, :monitoring_analyst,
                 :final_risk_score, :final_risk_level,
+                :weekly_delta,
                 :pdf_report_url, :last_report_date,
                 :registrado_por, :notas
             )
@@ -330,6 +421,7 @@ class CryptoRepository:
                 monitoring_analyst    = EXCLUDED.monitoring_analyst,
                 final_risk_score      = EXCLUDED.final_risk_score,
                 final_risk_level      = EXCLUDED.final_risk_level,
+                weekly_delta          = EXCLUDED.weekly_delta,
                 pdf_report_url        = COALESCE(EXCLUDED.pdf_report_url, crypto_monitoreo.pdf_report_url),
                 last_report_date      = EXCLUDED.last_report_date,
                 registrado_por        = EXCLUDED.registrado_por,
@@ -371,6 +463,7 @@ class CryptoRepository:
             "monitoring_analyst":   data.monitoring_analyst,
             "final_risk_score":     data.final_risk_score,
             "final_risk_level":     data.final_risk_level,
+            "weekly_delta":         data.weekly_delta,
             "pdf_report_url":       data.pdf_report_url,
             "last_report_date":     last_report,
             "registrado_por":       data.registrado_por,

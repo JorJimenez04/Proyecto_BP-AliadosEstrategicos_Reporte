@@ -482,6 +482,9 @@ class WalletMonitorCreate(BaseModel):
     final_risk_score:     Optional[float] = None   # promedio SoF/UoF score
     final_risk_level:     Optional[str]   = None   # "Bajo" / "Medio" / "Alto" / "Crítico"
 
+    # Monitoreo semanal
+    weekly_delta:     Optional[str]  = None   # Resumen de cambios vs semana anterior
+
     # Reporte
     pdf_report_url:   Optional[str]  = None
     last_report_date: Optional[datetime] = None
