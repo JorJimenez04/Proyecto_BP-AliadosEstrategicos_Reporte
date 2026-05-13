@@ -51,6 +51,12 @@ ALL_MIGRATIONS: list[str] = [
     "015_rename_carpeta_riesgos.sql",
     "016_add_nuevas_carpetas.sql",
     "017_add_partner_jurisdictions.sql",
+    "018_ficha_tecnica_riel.sql",
+    "019_create_crypto_compliance_schema.sql",
+    "020_create_crypto_clients_table.sql",
+    "021_sof_uof_fields.sql",
+    "022_weekly_monitoring_historial.sql",
+    "023_document_history.sql",
 ]
 
 # Tablas / columnas a validar tras las migraciones

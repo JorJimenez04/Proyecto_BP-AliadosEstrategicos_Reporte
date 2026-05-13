@@ -237,7 +237,47 @@ class ComplianceRepository:
         return new_id
 
     def actualizar(self, doc_id: int, data: dict, actualizado_por: str) -> None:
-        """Actualiza campos editables de un documento."""
+        """
+        Actualiza campos editables de un documento.
+        Antes de aplicar el UPDATE congela la versión actual en
+        compliance_documentos_historial (versionamiento inmutable).
+        """
+        # ── 1. Congelar versión actual ─────────────────────────────────
+        anterior = self.get_by_id(doc_id)
+        if anterior:
+            self.session.execute(text("""
+                INSERT INTO compliance_documentos_historial
+                    (documento_raiz_id, carpeta, codigo, nombre, descripcion,
+                     version, estado, formato, url_documento,
+                     fecha_emision, fecha_vencimiento, empresa,
+                     creado_por, actualizado_por,
+                     descripcion_cambio, snapshot_por, snapshot_at)
+                VALUES
+                    (:documento_raiz_id, :carpeta, :codigo, :nombre, :descripcion,
+                     :version, :estado, :formato, :url_documento,
+                     :fecha_emision, :fecha_vencimiento, :empresa,
+                     :creado_por, :actualizado_por,
+                     :descripcion_cambio, :snapshot_por, CURRENT_TIMESTAMP)
+            """), {
+                "documento_raiz_id":  doc_id,
+                "carpeta":            anterior.get("carpeta"),
+                "codigo":             anterior.get("codigo"),
+                "nombre":             anterior.get("nombre"),
+                "descripcion":        anterior.get("descripcion"),
+                "version":            anterior.get("version"),
+                "estado":             anterior.get("estado"),
+                "formato":            anterior.get("formato"),
+                "url_documento":      anterior.get("url_documento"),
+                "fecha_emision":      anterior.get("fecha_emision"),
+                "fecha_vencimiento":  anterior.get("fecha_vencimiento"),
+                "empresa":            anterior.get("empresa"),
+                "creado_por":         anterior.get("creado_por"),
+                "actualizado_por":    anterior.get("actualizado_por"),
+                "descripcion_cambio": data.get("descripcion"),
+                "snapshot_por":       actualizado_por,
+            })
+
+        # ── 2. Aplicar cambios en la tabla principal ───────────────────
         self.session.execute(text("""
             UPDATE compliance_documentos
             SET carpeta          = :carpeta,
@@ -255,7 +295,21 @@ class ComplianceRepository:
             WHERE id = :id
         """), {**data, "id": doc_id, "actualizado_por": actualizado_por})
         self.session.commit()
-        logger.info("[Compliance] Documento id=%s actualizado por %s", doc_id, actualizado_por)
+        logger.info("[Compliance] Documento id=%s actualizado por %s (snapshot guardado)", doc_id, actualizado_por)
+
+    def get_historial(self, doc_id: int) -> list[dict]:
+        """
+        Devuelve todas las versiones históricas de un documento,
+        ordenadas por snapshot_at descendente (más reciente primero).
+        """
+        rows = self.session.execute(text("""
+            SELECT id, version, fecha_emision, descripcion_cambio,
+                   url_documento, estado, snapshot_por, snapshot_at
+            FROM compliance_documentos_historial
+            WHERE documento_raiz_id = :doc_id
+            ORDER BY snapshot_at DESC
+        """), {"doc_id": doc_id}).mappings().fetchall()
+        return [dict(r) for r in rows]
 
     def nueva_version(
         self,

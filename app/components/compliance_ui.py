@@ -268,6 +268,40 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
     if puede_editar and st.session_state.get(nv_open_key):
         _form_editar(doc, key_prefix=key_prefix)
 
+    # ── Historial de versiones ──────────────────────────────────────────────
+    try:
+        with next(get_session()) as _hist_sess:
+            _historial = ComplianceRepository(_hist_sess).get_historial(doc_id)
+    except Exception:
+        _historial = []
+
+    if _historial:
+        with st.expander(f"📜 Historial de versiones (Auditoría) — {len(_historial)} snapshot(s)", expanded=False):
+            for _snap in _historial:
+                _sv   = _snap.get("version") or "—"
+                _sfe  = str(_snap.get("fecha_emision") or "—")[:10]
+                _sdesc = _snap.get("descripcion_cambio") or "Sin descripción"
+                _surl  = _snap.get("url_documento")
+                _sat   = str(_snap.get("snapshot_at") or "")[:16]
+                _sby   = _snap.get("snapshot_por") or "sistema"
+                _sid   = _snap["id"]
+                _scol1, _scol2 = st.columns([5, 1])
+                with _scol1:
+                    st.markdown(
+                        f"<div style='background:#0f172a;border-left:3px solid #374151;"
+                        f"padding:8px 12px;border-radius:6px;margin-bottom:6px;'>"
+                        f"<span style='color:#9ca3af;font-size:0.7rem;font-family:monospace;'>v{_sv}</span>"
+                        f"&nbsp;&nbsp;<span style='color:#5fe9d0;font-size:0.72rem;'>📅 {_sfe}</span>"
+                        f"&nbsp;&nbsp;<span style='color:#64748b;font-size:0.7rem;'>· {_sat} por {_sby}</span>"
+                        f"<div style='color:#d1d5db;font-size:0.77rem;margin-top:3px;'>{_html.escape(_sdesc)}</div>"
+                        f"</div>",
+                        unsafe_allow_html=True,
+                    )
+                with _scol2:
+                    if _surl:
+                        st.link_button("🔗 Abrir", url=_surl, use_container_width=True,
+                                       help=f"Abrir versión v{_sv} en nueva pestaña")
+
     st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
 
 
@@ -286,6 +320,16 @@ def _form_editar(doc: dict, key_prefix: str = "") -> None:
     carp_actual = doc.get("carpeta", _CARPETAS_ORDEN[0])
     carp_idx    = _CARPETAS_ORDEN.index(carp_actual) if carp_actual in _CARPETAS_ORDEN else 0
 
+    # Parsear fecha_emision existente para el date_input
+    from datetime import date as _date  # noqa: PLC0415
+    _fe_raw = doc.get("fecha_emision")
+    _fe_val = None
+    if _fe_raw:
+        try:
+            _fe_val = _fe_raw if isinstance(_fe_raw, _date) else _date.fromisoformat(str(_fe_raw)[:10])
+        except (ValueError, TypeError):
+            _fe_val = None
+
     with st.form(form_key, clear_on_submit=False):
         st.markdown(f"**Editar:** `{doc.get('nombre', '')}`", unsafe_allow_html=False)
         c1, c2 = st.columns(2)
@@ -302,6 +346,11 @@ def _form_editar(doc: dict, key_prefix: str = "") -> None:
                 format_func=lambda x: x if x else "Compartido",
             )
             nueva_version = st.text_input("Versión", value=doc.get("version", "1.0"))
+            nueva_fecha_emision = st.date_input(
+                "📅 Fecha de Emisión",
+                value=_fe_val,
+                help="Corrección de la fecha oficial de emisión del documento.",
+            )
         nueva_url = st.text_input(
             "URL del documento",
             value=doc.get("url_documento") or "",
@@ -329,7 +378,7 @@ def _form_editar(doc: dict, key_prefix: str = "") -> None:
                 "estado":            nuevo_estado,
                 "formato":           doc.get("formato", "PDF"),
                 "url_documento":     nueva_url.strip() or None,
-                "fecha_emision":     doc.get("fecha_emision"),
+                "fecha_emision":     str(nueva_fecha_emision) if nueva_fecha_emision else doc.get("fecha_emision"),
                 "fecha_vencimiento": doc.get("fecha_vencimiento"),
                 "empresa":           nueva_empresa or None,
             }
