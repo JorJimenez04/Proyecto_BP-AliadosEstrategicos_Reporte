@@ -276,31 +276,84 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         _historial = []
 
     if _historial:
-        with st.expander(f"📜 Historial de versiones (Auditoría) — {len(_historial)} snapshot(s)", expanded=False):
-            for _snap in _historial:
-                _sv   = _snap.get("version") or "—"
-                _sfe  = str(_snap.get("fecha_emision") or "—")[:10]
-                _sdesc = _snap.get("descripcion_cambio") or "Sin descripción"
-                _surl  = _snap.get("url_documento")
-                _sat   = str(_snap.get("snapshot_at") or "")[:16]
-                _sby   = _snap.get("snapshot_por") or "sistema"
-                _sid   = _snap["id"]
-                _scol1, _scol2 = st.columns([5, 1])
-                with _scol1:
-                    st.markdown(
-                        f"<div style='background:#0f172a;border-left:3px solid #374151;"
-                        f"padding:8px 12px;border-radius:6px;margin-bottom:6px;'>"
-                        f"<span style='color:#9ca3af;font-size:0.7rem;font-family:monospace;'>v{_sv}</span>"
-                        f"&nbsp;&nbsp;<span style='color:#5fe9d0;font-size:0.72rem;'>📅 {_sfe}</span>"
-                        f"&nbsp;&nbsp;<span style='color:#64748b;font-size:0.7rem;'>· {_sat} por {_sby}</span>"
-                        f"<div style='color:#d1d5db;font-size:0.77rem;margin-top:3px;'>{_html.escape(_sdesc)}</div>"
-                        f"</div>",
-                        unsafe_allow_html=True,
+        _MESES_ES = {
+            1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+            5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+            9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+        }
+
+        def _fmt_narrativa(dt_str: str) -> str:
+            try:
+                from datetime import datetime as _dtt  # noqa: PLC0415
+                _d = _dtt.fromisoformat(str(dt_str)[:19])
+                return f"el {_d.day} de {_MESES_ES[_d.month]} de {_d.year}"
+            except Exception:
+                return str(dt_str)[:10]
+
+        _DIFF_CAMPOS = {
+            "version":       "versión",
+            "estado":        "estado",
+            "nombre":        "título",
+            "carpeta":       "carpeta",
+            "empresa":       "empresa",
+            "url_documento": "URL",
+            "fecha_emision": "fecha de emisión",
+            "codigo":        "código",
+            "descripcion":   "descripción",
+        }
+
+        def _diff_campos(antes: dict, despues: dict) -> list:
+            cambios = []
+            for _campo, _label in _DIFF_CAMPOS.items():
+                _va = str(antes.get(_campo) or "").strip()
+                _vd = str(despues.get(_campo) or "").strip()
+                if _va == _vd:
+                    continue
+                if _campo == "url_documento":
+                    if _va and _vd:
+                        cambios.append("URL actualizada")
+                    elif not _va and _vd:
+                        cambios.append("URL añadida")
+                    else:
+                        cambios.append("URL eliminada")
+                elif _campo == "descripcion":
+                    cambios.append("descripción editada")
+                else:
+                    cambios.append(
+                        f"{_label}: \u201c{_va or '\u2014'}\u201d \u2192 \u201c{_vd or '\u2014'}\u201d"
                     )
-                with _scol2:
-                    if _surl:
-                        st.link_button("🔗 Abrir", url=_surl, use_container_width=True,
-                                       help=f"Abrir versión v{_sv} en nueva pestaña")
+            return cambios
+
+        # cadena newest→oldest: [doc_actual, snap0, snap1, ...]
+        _chain: list[dict] = [doc] + list(_historial)
+        _n = len(_historial)
+        _lbl = "edición" if _n == 1 else "ediciones"
+        with st.expander(f"📜 Historial de cambios — {_n} {_lbl}", expanded=False):
+            for _i, _snap in enumerate(_historial):
+                _sby   = _snap.get("snapshot_por") or "sistema"
+                _sat   = str(_snap.get("snapshot_at") or "")
+                _sdesc = (_snap.get("descripcion_cambio") or "").strip()
+                _fecha = _fmt_narrativa(_sat)
+                _cambios = _diff_campos(_snap, _chain[_i])
+                _cambios_txt = " · ".join(_cambios) if _cambios else "metadatos revisados"
+
+                st.markdown(
+                    f"<div style='border-left:2px solid #334155;padding:6px 14px;margin-bottom:8px;'>"
+                    f"<div style='color:#94a3b8;font-size:0.73rem;margin-bottom:3px;'>"
+                    f"\U0001f550 {_html.escape(_fecha)}, "
+                    f"<strong style='color:#cbd5e1;'>{_html.escape(_sby)}</strong> "
+                    f"editó este documento."
+                    f"</div>"
+                    + (
+                        f"<div style='color:#e2e8f0;font-size:0.77rem;font-style:italic;"
+                        f"margin-bottom:3px;'>\u201c{_html.escape(_sdesc)}\u201d</div>"
+                        if _sdesc else ""
+                    )
+                    + f"<div style='color:#64748b;font-size:0.70rem;'>"
+                    f"\u21b3 {_html.escape(_cambios_txt)}</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
     st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
 
