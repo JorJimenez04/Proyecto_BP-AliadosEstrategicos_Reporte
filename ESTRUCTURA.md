@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-05-12 (rev. 15)
+> Última actualización: 2026-05-13 (rev. 16)
 
 ---
 
@@ -154,7 +154,23 @@ Proyecto_PartnersStatus/
 │   │   │                              # Helpers internos:
 │   │   │                              #   _form_nueva_wallet(user, cliente_id, cliente_nombre):
 │   │   │                              #     Formulario de PRIMERA vinculación (cliente pre-fijado)
-│   │   │                              #     Expander opcional GL paste para pre-llenar campos
+│   │                                  #     📤 Carga PDF GL → crypto_parser.parse_gl_pdf() → auto-fill:
+│   │                                  #       📅 Fecha Reporte: ISO detectada del texto o del
+│   │                                  #         nombre de archivo (DD-MM-YYYY / YYYY-MM-DD)
+│   │                                  #         widget deshabilitado si detectado desde PDF
+│   │                                  #       Nivel GL: derivado del score o nivel texto;
+│   │                                  #         st.text_input disabled si viene del PDF,
+│   │                                  #         st.selectbox si no hay detección PDF
+│   │                                  #       📥 Source of Funds (Global): campo read-only
+│   │                                  #         muestra monto USD (>0) o % exposición
+│   │                                  #       📤 Use of Funds (Global): campo read-only
+│   │                                  #     Risk Exposure — dos tablas lado a lado:
+│   │                                  #       _render_exposure_table(rows, title, color)
+│   │                                  #       📥 SoF (col izq) · 📤 UoF (col der)
+│   │                                  #       st.dataframe sin columna "type" · 0.0 → None
+│   │                                  #       emoji de nivel en columna level
+│   │                                  #     Métricas SoF/UoF: % como valor primario,
+│   │                                  #       monto USD como delta (delta_color="off")
 │   │   │                              #     Llama CryptoRepository.create_wallet() — INSERT puro
 │   │   │                              #     Captura ValueError en duplicado · borra show_vinculador al éxito
 │   │   │                              #     Widget keys sufijadas _{cliente_id} para soporte multi-cliente
@@ -261,6 +277,27 @@ Proyecto_PartnersStatus/
 │       │                              # raise_if_insecure() · run_checks()
 │       │                              # SECRET_KEY ≥ 43 chars · ADMIN_PASSWORD ≥ 16 chars
 │       │                              # DATABASE_URL debe ser PostgreSQL · ADMIN_USERNAME/EMAIL presentes
+│       ├── 📄 crypto_parser.py        # Parser PDF — Reportes Global Ledger (pdfplumber)
+│       │                              # parse_gl_pdf(file_like) → dict con claves:
+│       │                              #   gl_score · riesgo_nivel · risk_labels[]
+│       │                              #   sof_total_amount · sof_total_pct
+│       │                              #   uof_total_amount · uof_total_pct
+│       │                              #   risk_exposure[] — lista de rows con type/indicator/
+│       │                              #     depth/direct_pct/indirect_pct/total_pct/amount/level
+│       │                              #   report_date (ISO str YYYY-MM-DD o None)
+│       │                              #   gl_level (str: Bajo/Medio/Alto/Crítico/Sin Datos o None)
+│       │                              #   gl_risk_level_text — detección raw desde texto
+│       │                              # Regexes de módulo:
+│       │                              #   _GL_SCORE_RE — captura "gl score: 47" / "47/100"
+│       │                              #   _GL_SCORE_FRACTION_RE — fallback "47/100"
+│       │                              #   _GL_RISK_LEVEL_RE — critical/high/medium/low/
+│       │                              #     bajo/medio/alto/crítico + variantes i18n
+│       │                              #   _REPORT_DATE_RE — fecha en múltiples formatos
+│       │                              #     (ISO, DD/MM/YY, nombre de mes EN/ES)
+│       │                              # _parse_report_date(raw) → str|None — normaliza a ISO
+│       │                              # GL Level derivado de score (≤30→Bajo, ≤60→Medio, >60→Alto)
+│       │                              #   fallback: texto detectado por _GL_RISK_LEVEL_RE
+│       │                              # flow mapping: unknown → ["SoF","UoF"] (ambas tablas)
 │       └── 📄 ai_handler.py           # Motor centralizado de IA — Gemini / OpenAI
 │                                      # AI_PROVIDER · GEMINI_KEY · OPENAI_KEY (desde .env)
 │                                      # anonymize_text() — elimina NIT, CC, teléfonos, emails,
@@ -442,6 +479,10 @@ Proyecto_PartnersStatus/
 │       │                              # list_log() · get_actividad_usuario()
 │       ├── 📄 crypto_repo.py          # Repositorio Cripto Compliance — Clientes + VASP Monitor
 │       │                              # CryptoRepository(session):
+│       │                              # ⚠️ Todas las queries usan exec_driver_sql(sql, params)
+│       │                              #   con placeholders %(param)s — nunca SQLAlchemy text()
+│       │                              #   JSONB: %(risk_labels)s::jsonb — sin CAST() wrapper
+│       │                              #   sof_monto / uof_monto: None pass-through (nullable)
 │       │                              # — Clientes Corporativos:
 │       │                              #   crear_cliente(CryptoClienteCreate) → dict
 │       │                              #   get_clientes(search='') → list[dict]

@@ -6,6 +6,7 @@ Acceso restringido a roles: admin, compliance.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from datetime import datetime
@@ -235,6 +236,11 @@ def _parse_labels(raw) -> list[dict]:
         except Exception:
             return []
     return raw if isinstance(raw, list) else []
+
+
+def _field_label(text: str, from_pdf: bool) -> str:
+    """Prefija el label con 🟢 (dato extraído del PDF) o 🟡 (captura manual)."""
+    return f"{'🟢' if from_pdf else '🟡'} {text}"
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -938,6 +944,13 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
                     f"con una exposición directa inicial de **{_dir_pct:.4f}%** "
                     f"(SoF: `{_pdf_sof_snap['entity'] if _pdf_sof_snap else '—'}`)."
                 )
+                # ── Gap-04: Banner de vinculación ─────────────────────────
+                if _w:
+                    _w_short = f"{_w[:16]}…{_w[-8:]}" if len(_w) > 24 else _w
+                    st.success(
+                        f"✅ Wallet `{_w_short}` será vinculada al cliente **{cliente_nombre}**.",
+                        icon="🔗",
+                    )
         elif _gl.get("error"):
             st.warning(f"⚠️ Parser GL: {_gl['error']}", icon="📄")
     else:
@@ -948,25 +961,6 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         st.session_state.pop(_gl_key, None)
 
     st.markdown("---")
-
-    # ── JSON como alternativa (colapsado) ─────────────────────────────────────
-    if not _from_pdf:
-        with st.expander("{ } Pegar JSON GL (alternativa al PDF)", expanded=False):
-            gl_raw_pre = st.text_area(
-                "Reporte GL (JSON)",
-                height=70,
-                placeholder='{"address":"TAHQWz...","score":47}',
-                key=f"gl_raw_nueva_{fk}",
-            )
-            if st.button("🔍 Extraer campos", key=f"parse_gl_nueva_{fk}"):
-                if gl_raw_pre.strip():
-                    st.session_state[f"gl_parsed_json_{fk}"] = _parse_gl_report(gl_raw_pre)
-                    st.rerun()
-
-    _parsed_json = (
-        st.session_state.get(f"gl_parsed_json_{fk}", {}) if not _from_pdf else {}
-    )
-    _src = _gl if _from_pdf else _parsed_json
 
     # ── Valores derivados del parser ──────────────────────────────────────────
     _pdf_wallet      = _gl.get("wallet_detected") or "" if _from_pdf else ""
@@ -1011,24 +1005,20 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
                 except ValueError:
                     pass
 
-    init_addr   = _pdf_wallet or _src.get("wallet_address") or ""
+    init_addr   = _pdf_wallet or _gl.get("wallet_address") or ""
     init_chain  = (
         _infer_chain(_pdf_wallet) if (_from_pdf and _pdf_wallet)
-        else _src.get("blockchain") or "ETH"
+        else _gl.get("blockchain") or "ETH"
     )
-    init_score  = _pdf_score if _pdf_score is not None else _src.get("gl_score")
+    init_score  = _pdf_score if _pdf_score is not None else _gl.get("gl_score")
     # Nivel: 1) derivado del score; 2) detectado desde texto PDF; 3) manual / sin datos
     init_nivel  = (
         _score_to_nivel_local(_pdf_score) if _pdf_score is not None
-        else _pdf_gl_level or _src.get("riesgo_nivel") or "Sin Datos"
+        else _pdf_gl_level or _gl.get("riesgo_nivel") or "Sin Datos"
     )
-    init_labels = json.dumps(_src.get("risk_labels") or [], ensure_ascii=False)
 
     chain_idx = chain_opts.index(init_chain) if init_chain in chain_opts else 0
     nivel_idx = niveles.index(init_nivel) if init_nivel in niveles else 0
-
-    # Pre-llenar session_state para SoF/UoF — guardados en _gl para la lógica de submit
-    # (no se usan widgets de form para SoF/UoF; se calculan directamente desde risk_exposure_list)
 
     # Bloquear si PDF inválido (cargado pero sin wallet detectada)
     if _from_pdf is False and pdf_nw and _gl.get("ok"):
@@ -1258,8 +1248,13 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         st.markdown("---")
         col_exp, col_cur, col_url = st.columns(3)
         with col_exp:
+            _exp_pdf = max(_pdf_sof_amt_g, _pdf_uof_amt_g) if _from_pdf else 0.0
+            _exp_locked = _from_pdf and _exp_pdf > 0
+            _exp_label = _field_label("💰 Exposición Total", _exp_locked)
             exposure = st.number_input(
-                "💰 Exposición Total", min_value=0.0, value=0.0, step=1000.0,
+                _exp_label, min_value=0.0, value=_exp_pdf, step=1000.0,
+                disabled=_exp_locked,
+                help="🟢 Extraído del PDF (máximo entre SoF y UoF)" if _exp_locked else "🟡 Captura manual",
             )
         with col_cur:
             exposure_currency = st.selectbox("Moneda", currency_opts)
@@ -1267,10 +1262,42 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             pdf_url = st.text_input("📄 URL Reporte PDF", placeholder="https://...")
 
         analyst_observations = st.text_area(
-            "📝 Observaciones", height=80,
+            _field_label("📝 Observaciones", False), height=80,
             placeholder="Ej: Wallet corporativa, bajo riesgo inicial.",
         )
         notas = st.text_area("Notas internas", height=60)
+
+        # ── Gap-01: Vista previa de campos calculados ─────────────────────────
+        if _from_pdf and _risk_expo:
+            with st.expander("🔍 Vista previa: campos calculados", expanded=False):
+                import pandas as _pd_prev  # noqa: PLC0415
+                _prev_rows = []
+                for _flow in ("SoF", "UoF"):
+                    _frows = [r for r in _risk_expo if r.get("type") == _flow]
+                    if _frows:
+                        _best = max(_frows, key=lambda r: r["percentage"])
+                        _ind = _parse_gl_opt(_find_gl_opt(_best["label"]))
+                        _ind_score_p = GL_SCORES.get(_ind, 50) if _ind else 50
+                        _pct_p = float(_best["percentage"])
+                        _s_p = round((_pct_p / 100.0) * _ind_score_p)
+                        _n_p = score_gl_to_nivel(_s_p)
+                        _nat_p = "Directa" if int(_best.get("depth") or 1) <= 1 else "Indirecta"
+                        _prev_rows.append({
+                            "Flujo": _flow,
+                            "Indicador": _ind or "—",
+                            "Naturaleza": _nat_p,
+                            "% Exposición": f"{_pct_p:.4f}%",
+                            "Score": _s_p,
+                            "Nivel": _n_p,
+                        })
+                if _prev_rows:
+                    st.dataframe(
+                        _pd_prev.DataFrame(_prev_rows),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.caption("Sin datos SoF/UoF en el PDF.")
 
         submitted = st.form_submit_button(
             _lbl_btn, type="primary", use_container_width=True,
@@ -1281,8 +1308,15 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             st.error("La dirección de wallet es obligatoria.")
             return
 
-        # ── Calcular SoF / UoF desde risk_exposure_list (PDF) ──────────────
+        # ── Bug-01: Construir risk_labels desde risk_exposure_list (PDF) ──────
         risk_labels: list = []
+        if _from_pdf and _risk_expo:
+            for _row in _risk_expo:
+                _rl = _row.get("label") or ""
+                _rp = min(float(_row.get("percentage", 0)), 100.0)
+                _rs = _row.get("type") or ""
+                risk_labels.append(RiskLabel(label=_rl, exposure_pct=_rp, source=_rs))
+
         _sof_indicador = _uof_indicador = None
         _sof_direct = _sof_indirect = _uof_direct = _uof_indirect = 0.0
         _sof_profundidad = _uof_profundidad = 1
@@ -1409,6 +1443,28 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             session = next(get_session())
             CryptoRepository(session).create_wallet(payload)
             session.close()
+
+            # ── Gap-05: Auditoría técnica ────────────────────────────────
+            _pdf_info = ""
+            if pdf_nw:
+                _pdf_hash = hashlib.sha256(pdf_nw.getvalue()).hexdigest()[:16]
+                _pdf_info = f" · PDF: {pdf_nw.name} (sha256:{_pdf_hash})"
+            from db.repositories.audit_repo import AuditRepository  # noqa: PLC0415
+            _a_sess = next(get_session())
+            AuditRepository(_a_sess).registrar(
+                username=user.get("username") or "sistema",
+                accion="CREATE",
+                entidad="crypto_monitoreo",
+                descripcion=(
+                    f"Wallet vinculada: {wallet_address.strip()} · "
+                    f"Cliente: {cliente_nombre}{_pdf_info}"
+                ),
+                usuario_id=user.get("id"),
+                valores_nuevos=payload.model_dump(mode="json"),
+                resultado="exitoso",
+            )
+            _a_sess.close()
+
             _get_wallets_cached.clear()
             _get_clientes_cached.clear()
             # Limpiar TODOS los estados del vinculador para que el rerun
@@ -1437,136 +1493,6 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             st.error(str(exc))
         except Exception as exc:
             st.error(f"Error al crear wallet: {exc}")
-
-
-# ── Parser de reporte Global Ledger ─────────────────────────
-def _parse_gl_report(texto: str) -> dict:
-    """
-    Extrae campos clave de un texto/JSON pegado desde Global Ledger.
-    Retorna dict con claves: wallet_address, blockchain, gl_score,
-    riesgo_nivel, total_exposure, risk_labels (lista de dicts).
-    Los campos no encontrados quedan en None o [].
-    """
-    import re
-
-    result: dict = {
-        "wallet_address": None,
-        "blockchain":     None,
-        "gl_score":       None,
-        "riesgo_nivel":   None,
-        "total_exposure": None,
-        "risk_labels":    [],
-    }
-
-    # ── Intentar parseo JSON primero ──────────────────────────
-    stripped = texto.strip()
-    if stripped.startswith("{"):
-        try:
-            data = json.loads(stripped)
-            result["wallet_address"] = (
-                data.get("address") or data.get("wallet_address") or data.get("wallet")
-            )
-            result["blockchain"] = (
-                data.get("blockchain") or data.get("chain") or data.get("network")
-            )
-            score_raw = data.get("score") or data.get("gl_score") or data.get("risk_score")
-            if score_raw is not None:
-                result["gl_score"] = int(float(score_raw))
-            exp_raw = (
-                data.get("total_exposure") or data.get("exposure") or
-                data.get("totalExposure") or data.get("volume")
-            )
-            if exp_raw is not None:
-                result["total_exposure"] = float(str(exp_raw).replace(",", ""))
-            risk_raw = data.get("labels") or data.get("risk_labels") or data.get("riskLabels") or []
-            if isinstance(risk_raw, list):
-                for item in risk_raw:
-                    if isinstance(item, dict):
-                        result["risk_labels"].append({
-                            "label":        item.get("name") or item.get("label") or "",
-                            "exposure_pct": float(item.get("exposure_pct") or item.get("exposurePct") or 0),
-                            "source":       item.get("source") or "",
-                        })
-                    elif isinstance(item, str):
-                        result["risk_labels"].append({"label": item, "exposure_pct": 0.0, "source": ""})
-        except Exception:
-            pass  # Fallback a regex
-
-    # ── Regex sobre texto plano (cubre PDFs copiados) ─────────
-    # Wallet address — TRX (34 chars base58), ETH (0x...), BTC (bc1/1/3...)
-    if not result["wallet_address"]:
-        m = re.search(r'\b(T[A-HJ-NP-Za-km-z1-9]{33})\b', texto)  # TRX
-        if not m:
-            m = re.search(r'\b(0x[0-9a-fA-F]{40})\b', texto)       # ETH/BNB
-        if not m:
-            m = re.search(r'\b(bc1[a-zA-HJ-NP-Z0-9]{6,87})\b', texto)  # BTC bech32
-        if m:
-            result["wallet_address"] = m.group(1)
-
-    # Blockchain
-    if not result["blockchain"]:
-        bc_map = {
-            r'\bTRON\b|\bTRX\b': "TRX",
-            r'\bEthereum\b|\bETH\b': "ETH",
-            r'\bBitcoin\b|\bBTC\b': "BTC",
-            r'\bBNB\b|\bBinance Smart Chain\b|\bBSC\b': "BNB",
-            r'\bSolana\b|\bSOL\b': "SOL",
-            r'\bPolygon\b|\bMATIC\b': "MATIC",
-        }
-        for pattern, chain in bc_map.items():
-            if re.search(pattern, texto, re.IGNORECASE):
-                result["blockchain"] = chain
-                break
-
-    # Score — busca "Score: 47", "GL Score 47", "Risk Score: 47"
-    if result["gl_score"] is None:
-        m = re.search(r'(?:gl[- ]?score|risk[- ]?score|score)[:\s]+(\d{1,3})', texto, re.IGNORECASE)
-        if m:
-            result["gl_score"] = int(m.group(1))
-
-    # Nivel de riesgo — HIGH, MEDIUM, LOW, CRITICAL
-    if not result["riesgo_nivel"]:
-        nivel_map = {
-            r'\bCRITICAL\b|\bCRITICO\b': "Crítico",
-            r'\bHIGH\b|\bALTO\b': "Alto",
-            r'\bMEDIUM\b|\bMODERATE\b|\bMEDIO\b': "Medio",
-            r'\bLOW\b|\bBAJO\b': "Bajo",
-        }
-        for pattern, nivel in nivel_map.items():
-            if re.search(pattern, texto, re.IGNORECASE):
-                result["riesgo_nivel"] = nivel
-                break
-
-    # Exposure total — busca "2,340,897.66 USD" o "Total Exposure: 2340897.66"
-    if result["total_exposure"] is None:
-        m = re.search(
-            r'(?:total[_ ]?exposure|exposure|volume)[:\s]+\$?([\d,]+\.?\d*)',
-            texto, re.IGNORECASE,
-        )
-        if not m:
-            # Formato numérico grande standalone con USD nearby
-            m = re.search(r'\$?([\d]{1,3}(?:,\d{3})+(?:\.\d+)?)\s*USD', texto, re.IGNORECASE)
-        if m:
-            result["total_exposure"] = float(m.group(1).replace(",", ""))
-
-    # Risk labels en texto libre — busca nombres conocidos
-    if not result["risk_labels"]:
-        known_labels = [
-            "Sanctioned Exchange", "OFAC Sanctioned", "Blacklisted Wallet",
-            "High-Risk Exchange", "Darknet Market", "Ransomware",
-            "Scam", "Terrorism Financing", "Mixer", "Child Abuse Material",
-        ]
-        found = []
-        for lbl in known_labels:
-            if lbl.lower() in texto.lower():
-                found.append({"label": lbl, "exposure_pct": 0.0, "source": ""})
-        result["risk_labels"] = found
-
-    # Política interna: score < 30 → CRÍTICO siempre
-    if result["gl_score"] is not None and result["gl_score"] < 30:
-        result["riesgo_nivel"] = "Crítico"
-
-    return result
 
 
 # ── Tab Monitoreo Semanal ─────────────────────────────────────
@@ -2028,18 +1954,12 @@ def _tab_monitoreo_semanal(user: dict) -> None:
         st.markdown("---")
 
         # ── Paso 4: Validación GL + Conclusión ───────────
-        step4_label = "📄 Paso 4 — Validación GL y Conclusión"
+        step4_label = "📄 Paso 4 — Conclusión"
         st.markdown(
             f"<div style='background:#0f172a;border-left:4px solid #f59e0b;"
             f"padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
             f"<b style='color:#fde68a;'>{step4_label}</b></div>",
             unsafe_allow_html=True,
-        )
-        gl_raw = st.text_area(
-            "Reporte Global Ledger (JSON o texto)",
-            height=90,
-            placeholder='{"address":"TAHQWz...","score":47,"labels":[...]}',
-            key="mon_gl_raw",
         )
         analyst_observations = st.text_area(
             "📝 Analyst Observations", height=90,
@@ -2062,10 +1982,6 @@ def _tab_monitoreo_semanal(user: dict) -> None:
             pdf_url = st.text_input("📄 URL Reporte PDF (cloud)", placeholder="https://...")
         with col_notas:
             notas = st.text_area("Notas internas", height=68)
-        st.markdown("**Risk Labels JSON** *(del reporte GL)*")
-        labels_raw = st.text_area(
-            "Risk Labels", value="", height=70, label_visibility="collapsed",
-        )
 
         submitted = st.form_submit_button(
             "💾 Guardar Ciclo de Monitoreo", type="primary", use_container_width=True,
@@ -2077,23 +1993,16 @@ def _tab_monitoreo_semanal(user: dict) -> None:
             st.warning("⚠️ El campo 'Resumen de Cambios Semanales (Delta)' es obligatorio.")
             return
 
-        gl_parsed: dict = {}
-        if gl_raw.strip():
-            gl_parsed = _parse_gl_report(gl_raw)
-
-        init_labels_raw = (
-            labels_raw.strip() or
-            json.dumps(gl_parsed.get("risk_labels") or [], ensure_ascii=False)
-        )
-        try:
-            labels_parsed = json.loads(init_labels_raw) if init_labels_raw.strip() else []
-            risk_labels   = [
-                RiskLabel(**lbl) if isinstance(lbl, dict) else lbl
-                for lbl in labels_parsed
-            ]
-        except Exception as exc:
-            st.error(f"JSON de Risk Labels inválido: {exc}")
-            return
+        # ── Construir risk_labels desde el PDF del monitoreo ──────────────
+        risk_labels: list = []
+        _active_pdf_ref = st.session_state.get(f"mon_pdf_active_{wallet_addr}")
+        _pr_mon = st.session_state.get(_active_pdf_ref, {}) if _active_pdf_ref else {}
+        if _pr_mon.get("ok"):
+            for _row in _pr_mon.get("risk_exposure_list", []):
+                _rl = _row.get("label") or ""
+                _rp = min(float(_row.get("percentage", 0)), 100.0)
+                _rs = _row.get("type") or ""
+                risk_labels.append(RiskLabel(label=_rl, exposure_pct=_rp, source=_rs))
 
         sof_indicador  = _parse_gl_opt(sof_ind_opt)
         sof_ind_score  = GL_SCORES.get(sof_indicador, 50) if sof_indicador else 50
@@ -2134,16 +2043,6 @@ def _tab_monitoreo_semanal(user: dict) -> None:
         if gl_score_int is not None and gl_score_int < 30:
             nivel_gl = "Crítico"
         riesgo_nivel_final = nivel_dominante(nivel_gl, final_risk_level_calc)
-
-        if gl_parsed and gl_parsed.get("gl_score") is not None:
-            score_diff = abs((gl_score_int or 0) - gl_parsed["gl_score"])
-            if score_diff >= 10:
-                gl_reported = gl_parsed["gl_score"]
-                st.warning(
-                    f"⚠️ Discrepancia GL: score manual ({gl_score_int}) difiere "
-                    f"{score_diff} puntos del reporte GL ({gl_reported}). "
-                    "Se guardará el valor manual."
-                )
 
         if is_critico_locked:
             st.error(
