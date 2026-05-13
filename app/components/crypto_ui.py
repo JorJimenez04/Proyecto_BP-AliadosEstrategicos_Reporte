@@ -1107,7 +1107,7 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
     st.markdown("---")
 
     # ── BLOQUE 1: Datos de Vinculación (Extraídos del PDF) ────────────────────
-    _lbl_btn = "✅ Confirmar y Vincular Wallet" if _from_pdf else "💾 Vincular Wallet"
+    _lbl_btn = "✅ Confirmar y Vincular Wallet"
     if _from_pdf:
         st.markdown(
             "<div style='background:#0f172a;border-left:4px solid #6366f1;"
@@ -1174,39 +1174,15 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             )
         st.markdown("")
 
-    with st.form(f"form_nueva_wallet_{fk}", clear_on_submit=True):
-        # ── Captura manual (solo cuando no hay PDF) ───────────────────────────
-        if not _from_pdf:
-            st.markdown(
-                "<div style='background:#0f172a;border-left:4px solid #6366f1;"
-                "padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
-                "<b style='color:#a5b4fc;'>📋 Datos de Vinculación</b>"
-                "<span style='color:#94a3b8;font-size:0.8rem;margin-left:8px;'>"
-                "Ingreso manual.</span></div>",
-                unsafe_allow_html=True,
-            )
-            col_wa, col_chain, col_status = st.columns([4, 1, 1])
-            with col_wa:
-                wallet_address_w = st.text_input(
-                    _field_label("💳 Dirección de Wallet *", False),
-                    value="",
-                    placeholder="0x... · T... · bc1q...",
-                )
-            with col_chain:
-                blockchain_w = st.selectbox(_field_label("Blockchain", False), chain_opts, index=chain_idx)
-            with col_status:
-                wallet_status_w = st.selectbox(_field_label("Estado", False), status_opts)
-            col_sc, col_nv, col_fecha = st.columns(3)
-            with col_sc:
-                gl_score_w = st.number_input(
-                    _field_label("🎯 GL Score", False), min_value=0, max_value=100,
-                    value=None, placeholder="Ej: 47",
-                )
-            with col_nv:
-                riesgo_manual_w = st.selectbox(_field_label("Nivel GL", False), niveles, index=nivel_idx)
-            with col_fecha:
-                report_date_w = st.date_input(_field_label("📅 Fecha Reporte", False), value=None)
+    if not _from_pdf:
+        st.info(
+            "📎 Carga el reporte PDF de Global Ledger para habilitar el formulario "
+            "de vinculación. Todos los campos se extraen automáticamente del reporte.",
+            icon="🔒",
+        )
+        return
 
+    with st.form(f"form_nueva_wallet_{fk}", clear_on_submit=True):
         # ── Analista (siempre visible) ─────────────────────────────────────────
         monitoring_analyst = st.selectbox(_field_label("👤 Analista", False), analyst_opts)
         analyst_observations = st.text_area(
@@ -1369,13 +1345,6 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             gl_score_val   = init_score
             riesgo_manual  = init_nivel
             report_date    = _pdf_date_val
-        else:
-            wallet_address = wallet_address_w
-            blockchain     = blockchain_w
-            wallet_status  = wallet_status_w
-            gl_score_val   = gl_score_w
-            riesgo_manual  = riesgo_manual_w
-            report_date    = report_date_w
 
         if not wallet_address.strip():
             st.error("La dirección de wallet es obligatoria.")
