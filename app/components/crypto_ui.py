@@ -1026,143 +1026,381 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         # ok=True pero wallet not found → ya mostramos warning arriba, no renderizar form
         return
 
-    # ── GL-Score Hero Component (estilo Global Ledger) ───────────────────────
+    # ── GL-Score Hero Component v2 (diseño profesional) ─────────────────────
     if _from_pdf and _pdf_score is not None:
         _s = _pdf_score
 
-        # Colores por nivel
         if _s < 20:
-            _score_color, _nivel_lbl = "#ef4444", "CRITICAL"
+            _score_color  = "#ef4444"
+            _nivel_lbl    = "CRITICAL RISK"
+            _glow_color   = "rgba(239,68,68,0.22)"
+            _arc_start    = "#ef4444"
+            _arc_end      = "#f97316"
         elif _s < 40:
-            _score_color, _nivel_lbl = "#f97316", "HIGH RISK"
+            _score_color  = "#f97316"
+            _nivel_lbl    = "HIGH RISK"
+            _glow_color   = "rgba(249,115,22,0.2)"
+            _arc_start    = "#f97316"
+            _arc_end      = "#f59e0b"
         elif _s <= 60:
-            _score_color, _nivel_lbl = "#f59e0b", "MEDIUM RISK"
+            _score_color  = "#f59e0b"
+            _nivel_lbl    = "MEDIUM RISK"
+            _glow_color   = "rgba(245,158,11,0.18)"
+            _arc_start    = "#3b82f6"
+            _arc_end      = "#f59e0b"
         else:
-            _score_color, _nivel_lbl = "#22c55e", "LOW RISK"
+            _score_color  = "#22c55e"
+            _nivel_lbl    = "LOW RISK"
+            _glow_color   = "rgba(34,197,94,0.18)"
+            _arc_start    = "#22c55e"
+            _arc_end      = "#3b82f6"
 
-        _NIVEL_COLOR_MAP = {
-            "HIGH":     "#ef4444",
-            "CRITICAL": "#ef4444",
-            "MEDIUM":   "#f59e0b",
-            "LOW":      "#22c55e",
-            "UNKNOWN":  "#6b7280",
+        # ── Metadata para el header ───────────────────────────────────────────
+        _chain_val    = init_chain or "ETH"
+        _chain_icons  = {"ETH": "⟠", "BTC": "₿", "BNB": "🔶", "TRX": "🔴", "SOL": "◎", "MATIC": "🟣"}
+        _chain_icon   = _chain_icons.get(_chain_val, "🔗")
+        _report_dt    = str(_pdf_date_val) if _pdf_date_val else "—"
+        _last_tx_val  = _gl.get("last_transaction_date") if _from_pdf else None
+        _last_tx_str  = str(_last_tx_val) if _last_tx_val else "—"
+        _total_txs    = _gl.get("total_transactions") or _pdf_tots or 0
+        _wallet_short = (init_addr[:10] + "…" + init_addr[-6:]) if len(init_addr) > 16 else init_addr
+
+        # ── Badge HTML helper ─────────────────────────────────────────────────
+        _BADGE_STYLES = {
+            "HIGH":     "background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.35);",
+            "CRITICAL": "background:rgba(239,68,68,0.22);color:#ef4444;border:1px solid rgba(239,68,68,0.5);",
+            "MEDIUM":   "background:rgba(245,158,11,0.13);color:#fbbf24;border:1px solid rgba(245,158,11,0.3);",
+            "LOW":      "background:rgba(34,197,94,0.1);color:#4ade80;border:1px solid rgba(34,197,94,0.25);",
+            "UNKNOWN":  "background:rgba(107,114,128,0.15);color:#9ca3af;border:1px solid rgba(107,114,128,0.3);",
         }
-
-        # SoF labels (izquierda) — top 5 por %
-        _sof_label_rows = [r for r in (_gl.get("risk_exposure_list") or []) if r.get("type") == "SoF"]
-        _seen_sof: dict = {}
-        for _r in _sof_label_rows:
-            _lbl_key = _r.get("label", "")
-            if _lbl_key not in _seen_sof or _r.get("percentage", 0) > _seen_sof[_lbl_key].get("percentage", 0):
-                _seen_sof[_lbl_key] = _r
-        _sof_label_rows = sorted(_seen_sof.values(), key=lambda x: x.get("percentage", 0), reverse=True)[:5]
-
-        _sof_labels_html = ""
-        for _r in _sof_label_rows:
-            _lbl_txt   = _r.get("label", "")
-            _lbl_nivel = _r.get("level", "MEDIUM").upper()
-            _lbl_color = _NIVEL_COLOR_MAP.get(_lbl_nivel, "#f59e0b")
-            _lbl_pct   = _r.get("percentage", 0)
-            _pct_txt   = f"{_lbl_pct:.2f}%" if _lbl_pct >= 0.01 else "< 0.01%"
-            _sof_labels_html += (
-                "<div style='display:flex;align-items:center;justify-content:flex-end;"
-                "gap:8px;margin-bottom:7px;'>"
-                f"<span style='color:#d1d5db;font-size:0.8rem;'>{_lbl_txt}</span>"
-                f"<span style='color:#9ca3af;font-size:0.72rem;'>{_pct_txt}</span>"
-                f"<span style='background:{_lbl_color};color:white;font-size:0.68rem;"
-                "font-weight:700;padding:2px 8px;border-radius:10px;"
-                f"min-width:44px;text-align:center;'>{_lbl_nivel}</span>"
-                "</div>"
-            )
-
-        # UoF labels (derecha) — top 5 por %
-        _uof_label_rows = [r for r in (_gl.get("risk_exposure_list") or []) if r.get("type") == "UoF"]
-        _seen_uof: dict = {}
-        for _r in _uof_label_rows:
-            _lbl_key = _r.get("label", "")
-            if _lbl_key not in _seen_uof or _r.get("percentage", 0) > _seen_uof[_lbl_key].get("percentage", 0):
-                _seen_uof[_lbl_key] = _r
-        _uof_label_rows = sorted(_seen_uof.values(), key=lambda x: x.get("percentage", 0), reverse=True)[:5]
-
-        _uof_labels_html = ""
-        for _r in _uof_label_rows:
-            _lbl_txt   = _r.get("label", "")
-            _lbl_nivel = _r.get("level", "MEDIUM").upper()
-            _lbl_color = _NIVEL_COLOR_MAP.get(_lbl_nivel, "#f59e0b")
-            _lbl_pct   = _r.get("percentage", 0)
-            _pct_txt   = f"{_lbl_pct:.2f}%" if _lbl_pct >= 0.01 else "< 0.01%"
-            _uof_labels_html += (
-                "<div style='display:flex;align-items:center;gap:8px;margin-bottom:7px;'>"
-                f"<span style='background:{_lbl_color};color:white;font-size:0.68rem;"
-                "font-weight:700;padding:2px 8px;border-radius:10px;"
-                f"min-width:44px;text-align:center;'>{_lbl_nivel}</span>"
-                f"<span style='color:#d1d5db;font-size:0.8rem;'>{_lbl_txt}</span>"
-                f"<span style='color:#9ca3af;font-size:0.72rem;'>{_pct_txt}</span>"
-                "</div>"
-            )
-
-        # Donut SVG — arco proporcional al score (0-100 → circunferencia r=46 ≈ 289)
-        _circ   = 289
-        _filled = round((_s / 100) * _circ, 1)
-        _empty  = round(_circ - _filled, 1)
-        _dash_offset_ring  = round(_circ * 0.25, 1)
-        _dash_offset_trail = round(_circ * 0.25 - _filled, 1)
-        _nivel_word = _nivel_lbl.split()[0]
-        _svg_donut = (
-            "<svg width='130' height='130' viewBox='0 0 130 130' xmlns='http://www.w3.org/2000/svg'>"
-            "<circle cx='65' cy='65' r='46' fill='none' stroke='#1e293b' stroke-width='14'/>"
-            f"<circle cx='65' cy='65' r='46' fill='none' stroke='#3b82f6' stroke-width='14'"
-            f" stroke-dasharray='{_filled} {_empty}'"
-            f" stroke-dashoffset='{_dash_offset_ring}'"
-            " transform='rotate(-90 65 65)'/>"
-            f"<circle cx='65' cy='65' r='46' fill='none' stroke='{_score_color}' stroke-width='14'"
-            f" stroke-dasharray='{_empty} {_filled}'"
-            f" stroke-dashoffset='{_dash_offset_trail}'"
-            " transform='rotate(-90 65 65)' opacity='0.85'/>"
-            f"<text x='65' y='59' text-anchor='middle' fill='#f9fafb'"
-            " font-size='26' font-weight='900' font-family='Inter,sans-serif'"
-            f">{_s}</text>"
-            f"<text x='65' y='76' text-anchor='middle' fill='#9ca3af'"
-            " font-size='10' font-weight='600' font-family='Inter,sans-serif'"
-            f" letter-spacing='0.5'>{_nivel_word}</text>"
-            "</svg>"
+        _BADGE_BASE = (
+            "font-size:0.62rem;font-weight:800;padding:2px 9px;"
+            "border-radius:20px;letter-spacing:0.05em;white-space:nowrap;"
         )
 
-        _no_sof = "<span style='color:#6b7280;font-size:0.8rem;font-style:italic;'>Sin labels SoF</span>"
-        _no_uof = "<span style='color:#6b7280;font-size:0.8rem;font-style:italic;'>Sin labels UoF</span>"
-        _sof_content = _sof_labels_html if _sof_labels_html else _no_sof
-        _uof_content = _uof_labels_html if _uof_labels_html else _no_uof
+        def _make_badge(nivel: str) -> str:
+            _bstyle = _BADGE_STYLES.get(nivel.upper(), _BADGE_STYLES["UNKNOWN"])
+            return f"<span style='{_BADGE_BASE}{_bstyle}'>{nivel.upper()}</span>"
 
+        # ── Labels SoF (izquierda) — top 6 por % con HIGH/CRITICAL primero ───
+        _risk_expo_hero = _gl.get("risk_exposure_list") or []
+        _sof_rows_h = [r for r in _risk_expo_hero if r.get("type") == "SoF"]
+        _seen_sof_h: dict = {}
+        for _r in _sof_rows_h:
+            _k = _r.get("label", "")
+            if _k not in _seen_sof_h or _r.get("percentage", 0) > _seen_sof_h[_k].get("percentage", 0):
+                _seen_sof_h[_k] = _r
+        _sof_sorted = sorted(_seen_sof_h.values(), key=lambda x: (
+            0 if x.get("level", "").upper() in ("HIGH", "CRITICAL") else 1,
+            -x.get("percentage", 0),
+        ))[:6]
+
+        _sof_html = ""
+        for _r in _sof_sorted:
+            _lname  = _r.get("label", "")
+            _lnivel = _r.get("level", "MEDIUM").upper()
+            _lpct   = _r.get("percentage", 0)
+            _lpct_s = f"{_lpct:.2f}%" if _lpct >= 0.01 else "&lt;0.01%"
+            _badge  = _make_badge(_lnivel)
+            _sof_html += (
+                f"<div style='display:flex;align-items:center;justify-content:flex-end;"
+                f"gap:7px;margin-bottom:8px;'>"
+                f"<span style='color:#cbd5e1;font-size:0.78rem;white-space:nowrap;"
+                f"overflow:hidden;text-overflow:ellipsis;max-width:160px;'>{_lname}</span>"
+                f"<span style='color:#475569;font-size:0.69rem;min-width:42px;"
+                f"text-align:right;'>{_lpct_s}</span>"
+                f"{_badge}"
+                f"</div>"
+            )
+        if not _sof_html:
+            _sof_html = "<span style='color:#475569;font-size:0.78rem;font-style:italic;'>Sin indicadores</span>"
+
+        # ── Labels UoF (derecha) — top 6 por % con HIGH/CRITICAL primero ────
+        _uof_rows_h = [r for r in _risk_expo_hero if r.get("type") == "UoF"]
+        _seen_uof_h: dict = {}
+        for _r in _uof_rows_h:
+            _k = _r.get("label", "")
+            if _k not in _seen_uof_h or _r.get("percentage", 0) > _seen_uof_h[_k].get("percentage", 0):
+                _seen_uof_h[_k] = _r
+        _uof_sorted = sorted(_seen_uof_h.values(), key=lambda x: (
+            0 if x.get("level", "").upper() in ("HIGH", "CRITICAL") else 1,
+            -x.get("percentage", 0),
+        ))[:6]
+
+        _uof_html = ""
+        for _r in _uof_sorted:
+            _lname  = _r.get("label", "")
+            _lnivel = _r.get("level", "MEDIUM").upper()
+            _lpct   = _r.get("percentage", 0)
+            _lpct_s = f"{_lpct:.2f}%" if _lpct >= 0.01 else "&lt;0.01%"
+            _badge  = _make_badge(_lnivel)
+            _uof_html += (
+                f"<div style='display:flex;align-items:center;gap:7px;margin-bottom:8px;'>"
+                f"{_badge}"
+                f"<span style='color:#cbd5e1;font-size:0.78rem;white-space:nowrap;"
+                f"overflow:hidden;text-overflow:ellipsis;max-width:160px;'>{_lname}</span>"
+                f"<span style='color:#475569;font-size:0.69rem;'>{_lpct_s}</span>"
+                f"</div>"
+            )
+        if not _uof_html:
+            _uof_html = "<span style='color:#475569;font-size:0.78rem;font-style:italic;'>Sin indicadores</span>"
+
+        # ── Donut SVG con gradiente — r=54, circunferencia ≈ 339.3 ───────────
+        _circ_v2   = 339.3
+        _filled_v2 = round((_s / 100) * _circ_v2, 1)
+        _empty_v2  = round(_circ_v2 - _filled_v2, 1)
+        _offset_v2 = round(_circ_v2 * 0.25, 1)
+        _grad_id   = f"arcGrad_{_s}"
+        _nivel_word = _nivel_lbl.split()[0].upper()
+
+        _donut_svg = (
+            f"<svg width='152' height='152' viewBox='0 0 152 152'"
+            f" xmlns='http://www.w3.org/2000/svg'"
+            f" style='filter:drop-shadow(0 0 16px {_glow_color});'>"
+            f"<defs>"
+            f"<linearGradient id='{_grad_id}' x1='0%' y1='0%' x2='100%' y2='100%'>"
+            f"<stop offset='0%' stop-color='{_arc_start}'/>"
+            f"<stop offset='100%' stop-color='{_arc_end}'/>"
+            f"</linearGradient>"
+            f"</defs>"
+            f"<circle cx='76' cy='76' r='54' fill='none' stroke='#1e293b' stroke-width='13'/>"
+            f"<circle cx='76' cy='76' r='54' fill='none'"
+            f" stroke='url(#{_grad_id})' stroke-width='13'"
+            f" stroke-dasharray='{_filled_v2} {_empty_v2}'"
+            f" stroke-dashoffset='{_offset_v2}'"
+            f" transform='rotate(-90 76 76)'"
+            f" stroke-linecap='round'/>"
+            f"<text x='76' y='70' text-anchor='middle' fill='#f9fafb'"
+            f" font-size='30' font-weight='900' font-family='Inter,sans-serif'>{_s}</text>"
+            f"<text x='76' y='88' text-anchor='middle' fill='#64748b'"
+            f" font-size='10' font-weight='700' font-family='Inter,sans-serif'"
+            f" letter-spacing='1.5'>{_nivel_word}</text>"
+            f"</svg>"
+        )
+
+        # ── Footer stats ──────────────────────────────────────────────────────
+        _sof_amt_fmt = f"${_sof_amt:,.0f}" if _sof_amt > 0 else "—"
+        _uof_amt_fmt = f"${_uof_amt:,.0f}" if _uof_amt > 0 else "—"
+
+        def _stat_block(label: str, value: str, color: str = "#94a3b8") -> str:
+            return (
+                f"<div style='display:flex;flex-direction:column;gap:2px;'>"
+                f"<span style='font-size:0.62rem;font-weight:700;letter-spacing:0.1em;"
+                f"color:#334155;text-transform:uppercase;'>{label}</span>"
+                f"<span style='font-size:0.86rem;font-weight:700;color:{color};'>{value}</span>"
+                f"</div>"
+            )
+
+        _footer_html = (
+            _stat_block("Wallet",       _wallet_short,         "#5fe9d0") +
+            _stat_block("SoF evaluado", f"{_sof_amt_fmt} USD", "#f59e0b") +
+            _stat_block("UoF evaluado", f"{_uof_amt_fmt} USD", "#f59e0b") +
+            _stat_block("Total Txs",    str(_total_txs),        "#94a3b8") +
+            _stat_block("Última Tx",    _last_tx_str,           "#4ade80")
+        )
+
+        # ── Render final ──────────────────────────────────────────────────────
         st.markdown(
-            "<div style='background:#0a0f1a;border:1px solid #1e293b;border-radius:14px;"
-            "padding:20px 24px;margin-bottom:16px;'>"
-            "<div style='color:#6b7280;font-size:0.72rem;font-weight:700;"
-            "letter-spacing:0.08em;margin-bottom:16px;'>GL-SCORE</div>"
-            "<div style='display:flex;align-items:center;gap:0;'>"
-            "<div style='flex:1;'>"
-            "<div style='color:#6b7280;font-size:0.72rem;font-weight:600;"
-            "letter-spacing:0.05em;margin-bottom:10px;text-align:right;'>Source of Funds</div>"
-            f"{_sof_content}"
-            "</div>"
-            "<div style='width:36px;display:flex;align-items:center;justify-content:center;'>"
-            "<span style='color:#ef4444;font-size:1.4rem;'>&#8594;</span>"
-            "</div>"
-            "<div style='display:flex;flex-direction:column;align-items:center;"
-            "justify-content:center;min-width:130px;'>"
-            f"{_svg_donut}"
-            f"<div style='color:{_score_color};font-size:0.75rem;font-weight:700;"
-            f"margin-top:4px;letter-spacing:0.05em;'>{_nivel_lbl}</div>"
-            "</div>"
-            "<div style='width:36px;display:flex;align-items:center;justify-content:center;'>"
-            "<span style='color:#f59e0b;font-size:1.4rem;'>&#8594;</span>"
-            "</div>"
-            "<div style='flex:1;'>"
-            "<div style='color:#6b7280;font-size:0.72rem;font-weight:600;"
-            "letter-spacing:0.05em;margin-bottom:10px;'>Use of Funds</div>"
-            f"{_uof_content}"
-            "</div>"
-            "</div>"
-            "</div>",
+            f"<div style='"
+            f"background:linear-gradient(135deg,#0d1b2a 0%,#0a1628 50%,#0d1b2a 100%);"
+            f"border:1px solid rgba(255,255,255,0.07);border-radius:18px;"
+            f"padding:24px 28px;margin-bottom:16px;"
+            f"box-shadow:0 0 60px rgba(0,0,0,0.5),0 0 100px {_glow_color};'>"
+
+            # Header
+            f"<div style='display:flex;align-items:center;justify-content:space-between;"
+            f"margin-bottom:20px;'>"
+            f"<div style='display:flex;align-items:center;gap:10px;'>"
+            f"<span style='font-size:0.67rem;font-weight:700;letter-spacing:0.14em;"
+            f"color:#475569;text-transform:uppercase;'>GL-Score</span>"
+            f"<div style='width:4px;height:4px;border-radius:50%;background:#334155;'></div>"
+            f"<span style='background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);"
+            f"color:#818cf8;font-size:0.68rem;font-weight:700;padding:3px 10px;"
+            f"border-radius:20px;'>{_chain_icon} {_chain_val}</span>"
+            f"<div style='width:4px;height:4px;border-radius:50%;background:#334155;'></div>"
+            f"<span style='font-size:0.67rem;color:#475569;'>Global Ledger</span>"
+            f"</div>"
+            f"<span style='font-size:0.7rem;color:#475569;'>Reporte: {_report_dt}</span>"
+            f"</div>"
+
+            # Body: SoF | arrow | donut | arrow | UoF
+            f"<div style='display:flex;align-items:center;gap:0;'>"
+
+            # SoF column
+            f"<div style='flex:1;'>"
+            f"<div style='font-size:0.66rem;font-weight:700;letter-spacing:0.1em;"
+            f"color:#475569;text-transform:uppercase;margin-bottom:11px;text-align:right;'>"
+            f"Source of Funds</div>"
+            f"{_sof_html}"
+            f"</div>"
+
+            # Arrow SoF →
+            f"<div style='width:44px;display:flex;align-items:center;justify-content:center;"
+            f"padding-bottom:20px;flex-shrink:0;'>"
+            f"<svg width='40' height='22' viewBox='0 0 40 22'>"
+            f"<defs><linearGradient id='agl1' x1='0%' y1='0%' x2='100%' y2='0%'>"
+            f"<stop offset='0%' stop-color='#ef4444' stop-opacity='0.15'/>"
+            f"<stop offset='100%' stop-color='#ef4444' stop-opacity='0.75'/>"
+            f"</linearGradient></defs>"
+            f"<line x1='0' y1='11' x2='33' y2='11' stroke='url(#agl1)' stroke-width='1.5'/>"
+            f"<polygon points='33,5 40,11 33,17' fill='#ef4444' opacity='0.65'/>"
+            f"</svg></div>"
+
+            # Donut central
+            f"<div style='display:flex;flex-direction:column;align-items:center;flex-shrink:0;'>"
+            f"{_donut_svg}"
+            f"<span style='font-size:0.67rem;font-weight:800;letter-spacing:0.1em;"
+            f"color:{_score_color};margin-top:6px;text-transform:uppercase;'>{_nivel_lbl}</span>"
+            f"</div>"
+
+            # Arrow → UoF
+            f"<div style='width:44px;display:flex;align-items:center;justify-content:center;"
+            f"padding-bottom:20px;flex-shrink:0;'>"
+            f"<svg width='40' height='22' viewBox='0 0 40 22'>"
+            f"<defs><linearGradient id='agl2' x1='0%' y1='0%' x2='100%' y2='0%'>"
+            f"<stop offset='0%' stop-color='#f59e0b' stop-opacity='0.75'/>"
+            f"<stop offset='100%' stop-color='#f59e0b' stop-opacity='0.15'/>"
+            f"</linearGradient></defs>"
+            f"<line x1='7' y1='11' x2='40' y2='11' stroke='url(#agl2)' stroke-width='1.5'/>"
+            f"<polygon points='7,5 0,11 7,17' fill='#f59e0b' opacity='0.65'/>"
+            f"</svg></div>"
+
+            # UoF column
+            f"<div style='flex:1;'>"
+            f"<div style='font-size:0.66rem;font-weight:700;letter-spacing:0.1em;"
+            f"color:#475569;text-transform:uppercase;margin-bottom:11px;'>"
+            f"Use of Funds</div>"
+            f"{_uof_html}"
+            f"</div>"
+            f"</div>"
+
+            # Footer strip
+            f"<div style='margin-top:20px;padding-top:14px;"
+            f"border-top:1px solid rgba(255,255,255,0.05);"
+            f"display:flex;gap:24px;flex-wrap:wrap;'>"
+            f"{_footer_html}"
+            f"</div>"
+
+            ff"</defs>"
+            f"<circle cx='76' cy='76' r='54' fill='none' stroke='#1e293b' stroke-width='13'/>"
+            f"<circle cx='76' cy='76' r='54' fill='none'"
+            f" stroke='url(#{_grad_id})' stroke-width='13'"
+            f" stroke-dasharray='{_filled_v2} {_empty_v2}'"
+            f" stroke-dashoffset='{_offset_v2}'"
+            f" transform='rotate(-90 76 76)'"
+            f" stroke-linecap='round'/>"
+            f"<text x='76' y='70' text-anchor='middle' fill='#f9fafb'"
+            f" font-size='30' font-weight='900' font-family='Inter,sans-serif'>{_s}</text>"
+            f"<text x='76' y='88' text-anchor='middle' fill='#64748b'"
+            f" font-size='10' font-weight='700' font-family='Inter,sans-serif'"
+            f" letter-spacing='1.5'>{_nivel_word}</text>"
+            f"</svg>"
+        )
+
+        # ── Footer stats ──────────────────────────────────────────────────────
+        _sof_amt_fmt = f"${_sof_amt:,.0f}" if _sof_amt > 0 else "—"
+        _uof_amt_fmt = f"${_uof_amt:,.0f}" if _uof_amt > 0 else "—"
+
+        def _stat_block(label: str, value: str, color: str = "#94a3b8") -> str:
+            return (
+                f"<div style='display:flex;flex-direction:column;gap:2px;'>"
+                f"<span style='font-size:0.62rem;font-weight:700;letter-spacing:0.1em;"
+                f"color:#334155;text-transform:uppercase;'>{label}</span>"
+                f"<span style='font-size:0.86rem;font-weight:700;color:{color};'>{value}</span>"
+                f"</div>"
+            )
+
+        _footer_html = (
+            _stat_block("Wallet",       _wallet_short,         "#5fe9d0") +
+            _stat_block("SoF evaluado", f"{_sof_amt_fmt} USD", "#f59e0b") +
+            _stat_block("UoF evaluado", f"{_uof_amt_fmt} USD", "#f59e0b") +
+            _stat_block("Total Txs",    str(_total_txs),        "#94a3b8") +
+            _stat_block("Última Tx",    _last_tx_str,           "#4ade80")
+        )
+
+        # ── Render final ──────────────────────────────────────────────────────
+        st.markdown(
+            f"<div style='"
+            f"background:linear-gradient(135deg,#0d1b2a 0%,#0a1628 50%,#0d1b2a 100%);"
+            f"border:1px solid rgba(255,255,255,0.07);border-radius:18px;"
+            f"padding:24px 28px;margin-bottom:16px;"
+            f"box-shadow:0 0 60px rgba(0,0,0,0.5),0 0 100px {_glow_color};'>"
+
+            # Header
+            f"<div style='display:flex;align-items:center;justify-content:space-between;"
+            f"margin-bottom:20px;'>"
+            f"<div style='display:flex;align-items:center;gap:10px;'>"
+            f"<span style='font-size:0.67rem;font-weight:700;letter-spacing:0.14em;"
+            f"color:#475569;text-transform:uppercase;'>GL-Score</span>"
+            f"<div style='width:4px;height:4px;border-radius:50%;background:#334155;'></div>"
+            f"<span style='background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);"
+            f"color:#818cf8;font-size:0.68rem;font-weight:700;padding:3px 10px;"
+            f"border-radius:20px;'>{_chain_icon} {_chain_val}</span>"
+            f"<div style='width:4px;height:4px;border-radius:50%;background:#334155;'></div>"
+            f"<span style='font-size:0.67rem;color:#475569;'>Global Ledger</span>"
+            f"</div>"
+            f"<span style='font-size:0.7rem;color:#475569;'>Reporte: {_report_dt}</span>"
+            f"</div>"
+
+            # Body: SoF | arrow | donut | arrow | UoF
+            f"<div style='display:flex;align-items:center;gap:0;'>"
+
+            # SoF column
+            f"<div style='flex:1;'>"
+            f"<div style='font-size:0.66rem;font-weight:700;letter-spacing:0.1em;"
+            f"color:#475569;text-transform:uppercase;margin-bottom:11px;text-align:right;'>"
+            f"Source of Funds</div>"
+            f"{_sof_html}"
+            f"</div>"
+
+            # Arrow SoF →
+            f"<div style='width:44px;display:flex;align-items:center;justify-content:center;"
+            f"padding-bottom:20px;flex-shrink:0;'>"
+            f"<svg width='40' height='22' viewBox='0 0 40 22'>"
+            f"<defs><linearGradient id='agl1' x1='0%' y1='0%' x2='100%' y2='0%'>"
+            f"<stop offset='0%' stop-color='#ef4444' stop-opacity='0.15'/>"
+            f"<stop offset='100%' stop-color='#ef4444' stop-opacity='0.75'/>"
+            f"</linearGradient></defs>"
+            f"<line x1='0' y1='11' x2='33' y2='11' stroke='url(#agl1)' stroke-width='1.5'/>"
+            f"<polygon points='33,5 40,11 33,17' fill='#ef4444' opacity='0.65'/>"
+            f"</svg></div>"
+
+            # Donut central
+            f"<div style='display:flex;flex-direction:column;align-items:center;flex-shrink:0;'>"
+            f"{_donut_svg}"
+            f"<span style='font-size:0.67rem;font-weight:800;letter-spacing:0.1em;"
+            f"color:{_score_color};margin-top:6px;text-transform:uppercase;'>{_nivel_lbl}</span>"
+            f"</div>"
+
+            # Arrow → UoF
+            f"<div style='width:44px;display:flex;align-items:center;justify-content:center;"
+            f"padding-bottom:20px;flex-shrink:0;'>"
+            f"<svg width='40' height='22' viewBox='0 0 40 22'>"
+            f"<defs><linearGradient id='agl2' x1='0%' y1='0%' x2='100%' y2='0%'>"
+            f"<stop offset='0%' stop-color='#f59e0b' stop-opacity='0.75'/>"
+            f"<stop offset='100%' stop-color='#f59e0b' stop-opacity='0.15'/>"
+            f"</linearGradient></defs>"
+            f"<line x1='7' y1='11' x2='40' y2='11' stroke='url(#agl2)' stroke-width='1.5'/>"
+            f"<polygon points='7,5 0,11 7,17' fill='#f59e0b' opacity='0.65'/>"
+            f"</svg></div>"
+
+            # UoF column
+            f"<div style='flex:1;'>"
+            f"<div style='font-size:0.66rem;font-weight:700;letter-spacing:0.1em;"
+            f"color:#475569;text-transform:uppercase;margin-bottom:11px;'>"
+            f"Use of Funds</div>"
+            f"{_uof_html}"
+            f"</div>"
+            f"</div>"
+
+            # Footer strip
+            f"<div style='margin-top:20px;padding-top:14px;"
+            f"border-top:1px solid rgba(255,255,255,0.05);"
+            f"display:flex;gap:24px;flex-wrap:wrap;'>"
+            f"{_footer_html}"
+            f"</div>"
+
+            f"</div>",
             unsafe_allow_html=True,
         )
 
