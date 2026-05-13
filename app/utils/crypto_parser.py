@@ -137,6 +137,16 @@ _LAST_TX_DATE_RE = re.compile(
     r'(?:\s+\d{4})?)',
     re.IGNORECASE,
 )
+# Detecta montos totales SoF/UoF en el formato:
+#   "Source of Funds Evaluated Transactions\n2,340,897.66 USD 48"
+_SOF_TOTAL_AMOUNT_RE = re.compile(
+    r'Source\s+of\s+Funds\s+Evaluated\s+Transactions\s*\n\s*([\d,]+\.?\d*)\s+USD',
+    re.IGNORECASE,
+)
+_UOF_TOTAL_AMOUNT_RE = re.compile(
+    r'Use\s+of\s+Funds\s+Evaluated\s+Transactions\s*\n\s*([\d,]+\.?\d*)\s+USD',
+    re.IGNORECASE,
+)
 
 
 def _identify_columns(header: list) -> Optional[dict[str, int]]:
@@ -298,7 +308,10 @@ def _parse_report_date(raw: str) -> Optional[str]:
         "november": 11, "december": 12,
     }
     # Intentar formatos estrictos
+    # Quitar posible sufijo de hora ("11.05.2026 08:39" → "11.05.2026")
+    raw = re.sub(r'\s+\d{1,2}:\d{2}(?::\d{2})?\s*$', '', raw).strip()
     for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y",
+                "%d.%m.%Y", "%m.%d.%Y",
                 "%B %d, %Y", "%B %d %Y", "%d %B %Y", "%d %B %Y"):
         try:
             return _dt.strptime(raw, fmt).date().isoformat()
@@ -458,6 +471,8 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
     # ── Detección de metadatos desde texto libre ──────────────────────────────
     wallet_detected: Optional[str] = None
     gl_score_detected: Optional[int] = None
+    _sof_amt_override: Optional[float] = None
+    _uof_amt_override: Optional[float] = None
     gl_risk_level_text: Optional[str] = None  # detectado desde texto libre
     report_date_detected: Optional[str] = None
     last_tx_date_detected: Optional[str] = None
@@ -483,6 +498,19 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
                     gl_score_detected = _sc2 if 0 <= _sc2 <= 100 else None
                 except ValueError:
                     pass
+        # Fallback: score como línea aislada (ej. "...\n47\nHigh-Risk Exchange...")
+        if gl_score_detected is None:
+            _SCORE_ISOLATED_RE = re.compile(r'(?:^|\n)\s*(\d{1,3})\s*\n', re.MULTILINE)
+            for _mi in _SCORE_ISOLATED_RE.finditer(_full_text):
+                _candidate = int(_mi.group(1))
+                if 1 <= _candidate <= 100:
+                    _ctx = _full_text[max(0, _mi.start() - 50):_mi.end() + 100]
+                    if re.search(
+                        r'\b(MEDIUM|HIGH|LOW|CRITICAL|Bajo|Medio|Alto|Crítico)\b',
+                        _ctx, re.IGNORECASE,
+                    ):
+                        gl_score_detected = _candidate
+                        break
         # Nivel de riesgo desde texto ("HIGH RISK", "Risk Level: High")
         _ml = _GL_RISK_LEVEL_RE.search(_full_text)
         if _ml:
@@ -498,11 +526,45 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         _md = _REPORT_DATE_RE.search(_full_text)
         if _md:
             report_date_detected = _parse_report_date(_md.group(1))
+        # Fallback fecha reporte: formato DD.MM.YYYY HH:MM (timestamp del reporte)
+        if report_date_detected is None:
+            _DOT_DT_RE = re.compile(r'\b(\d{2}\.\d{2}\.\d{4})\s+\d{1,2}:\d{2}\b')
+            _mdt = _DOT_DT_RE.search(_full_text)
+            if _mdt:
+                report_date_detected = _parse_report_date(_mdt.group(1))
         # Fecha de última transacción
         last_tx_date_detected: Optional[str] = None
         _mlt = _LAST_TX_DATE_RE.search(_full_text)
         if _mlt:
             last_tx_date_detected = _parse_report_date(_mlt.group(1))
+        # Fallback: max de todas las DD.MM.YYYY en el PDF (excluye fecha de reporte)
+        if last_tx_date_detected is None:
+            from datetime import datetime as _dt_p  # noqa: PLC0415
+            _ALL_DATES_RE = re.compile(r'\b(\d{2}\.\d{2}\.\d{4})\b')
+            _tx_dates = []
+            for _d in _ALL_DATES_RE.findall(_full_text):
+                try:
+                    _parsed_d = _dt_p.strptime(_d, "%d.%m.%Y").date()
+                    if report_date_detected and str(_parsed_d) == report_date_detected:
+                        continue
+                    _tx_dates.append(_parsed_d)
+                except ValueError:
+                    pass
+            if _tx_dates:
+                last_tx_date_detected = str(max(_tx_dates))
+        # Montos totales SoF / UoF desde texto estructurado (override sobre suma de rows)
+        _ms_sof_a = _SOF_TOTAL_AMOUNT_RE.search(_full_text)
+        if _ms_sof_a:
+            try:
+                _sof_amt_override = float(_ms_sof_a.group(1).replace(',', ''))
+            except ValueError:
+                pass
+        _ms_uof_a = _UOF_TOTAL_AMOUNT_RE.search(_full_text)
+        if _ms_uof_a:
+            try:
+                _uof_amt_override = float(_ms_uof_a.group(1).replace(',', ''))
+            except ValueError:
+                pass
 
     if not raw_rows:
         # Intento fallback: texto plano con regex si las tablas no detectaron nada
@@ -643,6 +705,11 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
     _uof_total_amt = sum(
         r["amount"] for r in _consolidated.values() if r["type"] == "UoF"
     )
+    # Aplicar montos desde texto estructurado si se extrajeron (más precisos que la suma de rows)
+    if _sof_amt_override is not None:
+        _sof_total_amt = _sof_amt_override
+    if _uof_amt_override is not None:
+        _uof_total_amt = _uof_amt_override
 
     top_entity = indicators[0]["entity"] if indicators else None
 
@@ -653,8 +720,10 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
             _gl_level_detected = "Bajo"
         elif gl_score_detected <= 60:
             _gl_level_detected = "Medio"
-        else:
+        elif gl_score_detected <= 80:
             _gl_level_detected = "Alto"
+        else:
+            _gl_level_detected = "Crítico"
     elif gl_risk_level_text:
         _gl_level_detected = gl_risk_level_text
     return {
