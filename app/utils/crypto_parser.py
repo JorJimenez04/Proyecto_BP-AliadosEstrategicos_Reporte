@@ -121,6 +121,22 @@ _REPORT_DATE_RE = re.compile(
     r'(?:\s+\d{4})?)',
     re.IGNORECASE,
 )
+# Detecta fecha de última transacción en el PDF
+_LAST_TX_DATE_RE = re.compile(
+    r'(?:last\s+(?:activity|transaction|tx)\s*(?:date)?'
+    r'|most\s+recent\s+(?:activity|transaction)'
+    r'|\u00faltima\s+transacci\u00f3n'
+    r'|last\s+seen)'
+    r'[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}'
+    r'|\d{4}-\d{2}-\d{2}'
+    r'|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?'
+    r'|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
+    r'\s+\d{1,2}(?:,\s*|\s+)\d{4}'
+    r'|\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?'
+    r'|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)'
+    r'(?:\s+\d{4})?)',
+    re.IGNORECASE,
+)
 
 
 def _identify_columns(header: list) -> Optional[dict[str, int]]:
@@ -350,8 +366,9 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "tables_found": 0,
         "wallet_detected": None,
         "gl_score_detected": None,
-        "report_date": None,       # ISO str "YYYY-MM-DD" si se detecta
-        "gl_level": None,           # str: Bajo/Medio/Alto/Crítico/Sin Datos
+        "report_date": None,            # ISO str "YYYY-MM-DD" si se detecta
+        "last_transaction_date": None,  # ISO str "YYYY-MM-DD" de última tx
+        "gl_level": None,               # str: Bajo/Medio/Alto/Crítico/Sin Datos
     }
 
     if not _PDFPLUMBER_OK:
@@ -443,6 +460,7 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
     gl_score_detected: Optional[int] = None
     gl_risk_level_text: Optional[str] = None  # detectado desde texto libre
     report_date_detected: Optional[str] = None
+    last_tx_date_detected: Optional[str] = None
     if full_text_pages:
         _full_text = "\n".join(full_text_pages)
         _mw = _WALLET_RE.search(_full_text)
@@ -480,6 +498,11 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         _md = _REPORT_DATE_RE.search(_full_text)
         if _md:
             report_date_detected = _parse_report_date(_md.group(1))
+        # Fecha de última transacción
+        last_tx_date_detected: Optional[str] = None
+        _mlt = _LAST_TX_DATE_RE.search(_full_text)
+        if _mlt:
+            last_tx_date_detected = _parse_report_date(_mlt.group(1))
 
     if not raw_rows:
         # Intento fallback: texto plano con regex si las tablas no detectaron nada
@@ -653,9 +676,10 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
         "tables_found":        tables_inspected,
         "wallet_detected":     wallet_detected,
         "gl_score_detected":   gl_score_detected,
-        "report_date":         report_date_detected,
-        "gl_level":            _gl_level_detected,
-        "gl_risk_level_text":  gl_risk_level_text,  # nivel desde texto (sin score)
+        "report_date":           report_date_detected,
+        "last_transaction_date": last_tx_date_detected,
+        "gl_level":              _gl_level_detected,
+        "gl_risk_level_text":    gl_risk_level_text,  # nivel desde texto (sin score)
     }
 
 

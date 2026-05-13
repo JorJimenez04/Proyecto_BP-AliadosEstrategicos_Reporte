@@ -1056,28 +1056,6 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
     _sof_rows = [r for r in _risk_expo if r.get("type") == "SoF"]
     _uof_rows = [r for r in _risk_expo if r.get("type") == "UoF"]
 
-    if _from_pdf and (_sof_pct > 0 or _uof_pct > 0):
-        _mc1, _mc2 = st.columns(2)
-        with _mc1:
-            # Mostrar % como valor principal; monto como delta si existe
-            _sof_main  = f"{_sof_pct:.4f}% exposición"
-            _sof_delta = f"$ {_sof_amt:,.2f}" if _sof_amt > 0 else None
-            st.metric(
-                "📥 Total SoF Analizado",
-                _sof_main,
-                delta=_sof_delta,
-                delta_color="off",
-            )
-        with _mc2:
-            _uof_main  = f"{_uof_pct:.4f}% exposición"
-            _uof_delta = f"$ {_uof_amt:,.2f}" if _uof_amt > 0 else None
-            st.metric(
-                "📤 Total UoF Analizado",
-                _uof_main,
-                delta=_uof_delta,
-                delta_color="off",
-            )
-
     def _render_exposure_table(rows: list[dict], title: str, color: str) -> None:
         """Renderiza una tabla de Risk Exposure para SoF o UoF."""
         import pandas as _pd  # noqa: PLC0415
@@ -1106,7 +1084,6 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         _df["Risk Level"] = _df["Risk Level"].map(
             lambda v: f"{_level_colors.get(v, '⚪')} {v}"
         )
-        # Monto: reemplazar 0.0 por None para que no muestre "$ 0.00"
         _df["Monto (USD)"] = _df["Monto (USD)"].apply(
             lambda v: v if v > 0 else None
         )
@@ -1126,184 +1103,264 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             },
         )
 
-    # ── Risk Exposure: dos tablas lado a lado ─────────────────────────────────
-    if _risk_expo:
-        _tc1, _tc2 = st.columns(2, gap="medium")
-        with _tc1:
-            _render_exposure_table(_sof_rows, "📥 Source of Funds (SoF)", "#93c5fd")
-        with _tc2:
-            _render_exposure_table(_uof_rows, "📤 Use of Funds (UoF)", "#86efac")
-
-        # ── Nota de Cumplimiento ──────────────────────────────────────────────
-        _high_shown = sum(
-            1 for r in _risk_expo if r["level"] in ("CRITICAL", "HIGH")
-        )
-        _note_parts = []
-        if _residual_count > 0:
-            _note_parts.append(
-                f"Se han detectado **{_residual_count}** indicador(es) adicional(es) "
-                f"de riesgo Medio/Bajo con exposición < 5% (omitidos por política de "
-                f"relevancia analítica)."
-            )
-        if _high_shown > 0:
-            _note_parts.append(
-                f"Todos los **{_high_shown}** indicador(es) de riesgo **ALTO / CRÍTICO** "
-                f"han sido detallados independientemente de su porcentaje de exposición."
-            )
-        if _note_parts:
-            st.info("📋 **Nota de Cumplimiento:** " + " ".join(_note_parts))
-    else:
-        st.info(
-            "📄 Cargue un reporte PDF para visualizar la exposición.",
-            icon="📊",
-        )
-
-
     st.markdown("---")
 
-    # ── Header del formulario ─────────────────────────────────────────────────
+    # ── BLOQUE 1: Datos de Vinculación (Extraídos del PDF) ────────────────────
     _lbl_btn = "✅ Confirmar y Vincular Wallet" if _from_pdf else "💾 Vincular Wallet"
-    st.markdown(
-        "<div style='background:#0f172a;border-left:4px solid #6366f1;"
-        "padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
-        "<b style='color:#a5b4fc;'>📋 Datos de Vinculación</b>"
-        f"<span style='color:#94a3b8;font-size:0.8rem;margin-left:8px;'>"
-        f"{'Campos clave bloqueados — extraídos del PDF.' if _from_pdf else 'Ingreso manual.'}"
-        "</span></div>",
-        unsafe_allow_html=True,
-    )
+    if _from_pdf:
+        st.markdown(
+            "<div style='background:#0f172a;border-left:4px solid #6366f1;"
+            "padding:10px 16px;border-radius:6px;margin-bottom:14px;'>"
+            "<b style='color:#a5b4fc;'>📋 Datos de Vinculación (Extraídos del PDF)</b>"
+            "<span style='color:#94a3b8;font-size:0.8rem;margin-left:8px;'>"
+            "Campos bloqueados — fuente de verdad: reporte GL.</span></div>",
+            unsafe_allow_html=True,
+        )
+        # Row 1: dirección de wallet (ancho completo, bloqueada)
+        st.text_input(
+            "💳 Dirección de Wallet *",
+            value=init_addr,
+            disabled=True,
+            key=f"_b1_addr_{fk}",
+        )
+        # Row 2: blockchain · estado · GL score · nivel GL
+        _b1c1, _b1c2, _b1c3, _b1c4 = st.columns(4)
+        _b1c1.text_input("🔗 Blockchain", value=init_chain, disabled=True,
+                         key=f"_b1_bc_{fk}")
+        _b1c2.text_input("🟢 Estado", value="Active", disabled=True,
+                         key=f"_b1_st_{fk}")
+        _b1c3.text_input("🎯 GL Score",
+                         value=str(init_score) if init_score is not None else "—",
+                         disabled=True, key=f"_b1_sc_{fk}")
+        _b1c4.text_input("📊 Nivel GL", value=init_nivel, disabled=True,
+                         key=f"_b1_nv_{fk}")
+        # Row 3: fecha reporte · fecha última transacción
+        _b1d1, _b1d2 = st.columns(2)
+        _b1d1.text_input(
+            "📅 Fecha Reporte",
+            value=str(_pdf_date_val) if _pdf_date_val else "—",
+            disabled=True, key=f"_b1_rd_{fk}",
+        )
+        _pdf_last_tx = _gl.get("last_transaction_date") if _from_pdf else None
+        _b1d2.text_input(
+            "📅 Fecha última Transacción",
+            value=str(_pdf_last_tx) if _pdf_last_tx else "—",
+            disabled=True, key=f"_b1_lt_{fk}",
+        )
+        # KPI cards: SoF / UoF con formato moneda USD y resaltado visual
+        _kc1, _kc2 = st.columns(2)
+        _sof_kpi = f"${_sof_amt:,.2f} USD" if _sof_amt > 0 else f"{_sof_pct:.4f}% exposición"
+        _uof_kpi = f"${_uof_amt:,.2f} USD" if _uof_amt > 0 else f"{_uof_pct:.4f}% exposición"
+        with _kc1:
+            st.markdown(
+                f"<div style='background:rgba(147,197,253,0.08);border:2px solid #93c5fd;"
+                f"border-radius:10px;padding:14px 18px;text-align:center;margin-bottom:8px;'>"
+                f"<div style='color:#93c5fd;font-size:0.72rem;font-weight:700;"
+                f"letter-spacing:0.07em;margin-bottom:6px;'>📥 SOURCE OF FUNDS (GLOBAL)</div>"
+                f"<div style='color:#f0f9ff;font-size:1.3rem;font-weight:800;'>{_sof_kpi}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with _kc2:
+            st.markdown(
+                f"<div style='background:rgba(134,239,172,0.08);border:2px solid #86efac;"
+                f"border-radius:10px;padding:14px 18px;text-align:center;margin-bottom:8px;'>"
+                f"<div style='color:#86efac;font-size:0.72rem;font-weight:700;"
+                f"letter-spacing:0.07em;margin-bottom:6px;'>📤 USE OF FUNDS (GLOBAL)</div>"
+                f"<div style='color:#f0fdf4;font-size:1.3rem;font-weight:800;'>{_uof_kpi}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        st.markdown("")
 
     with st.form(f"form_nueva_wallet_{fk}", clear_on_submit=True):
-        col_wa, col_chain, col_status = st.columns([4, 1, 1])
-        with col_wa:
-            wallet_address = st.text_input(
-                "💳 Dirección de Wallet *",
-                value=init_addr,
-                disabled=_from_pdf,
-                placeholder="0x... · T... · bc1q...",
+        # ── Captura manual (solo cuando no hay PDF) ───────────────────────────
+        if not _from_pdf:
+            st.markdown(
+                "<div style='background:#0f172a;border-left:4px solid #6366f1;"
+                "padding:10px 16px;border-radius:6px;margin-bottom:12px;'>"
+                "<b style='color:#a5b4fc;'>📋 Datos de Vinculación</b>"
+                "<span style='color:#94a3b8;font-size:0.8rem;margin-left:8px;'>"
+                "Ingreso manual.</span></div>",
+                unsafe_allow_html=True,
             )
-        with col_chain:
-            if _from_pdf:
-                blockchain = st.text_input("Blockchain", value=init_chain, disabled=True)
-            else:
-                blockchain = st.selectbox("Blockchain", chain_opts, index=chain_idx)
-        with col_status:
-            wallet_status = st.selectbox("Estado", status_opts)
-
-        col_sc, col_nv, col_an, col_fecha = st.columns(4)
-        with col_sc:
-            gl_score_val = st.number_input(
-                "🎯 GL Score",
-                min_value=0, max_value=100,
-                value=init_score, placeholder="Ej: 47",
-                disabled=(_from_pdf and _pdf_score is not None),
-            )
-        with col_nv:
-            # Bloquear si el PDF aportó score o nivel de texto
-            _nivel_from_pdf = _from_pdf and (
-                _pdf_score is not None or _pdf_gl_level is not None
-            )
-            if _nivel_from_pdf:
-                riesgo_manual = st.text_input("Nivel GL", value=init_nivel, disabled=True)
-            else:
-                riesgo_manual = st.selectbox("Nivel GL", niveles, index=nivel_idx)
-        with col_an:
-            monitoring_analyst = st.selectbox("👤 Analista", analyst_opts)
-        with col_fecha:
-            if _from_pdf and _pdf_date_val is not None:
-                report_date = st.date_input(
-                    "📅 Fecha Reporte", value=_pdf_date_val, disabled=True
+            col_wa, col_chain, col_status = st.columns([4, 1, 1])
+            with col_wa:
+                wallet_address_w = st.text_input(
+                    "💳 Dirección de Wallet *",
+                    value="",
+                    placeholder="0x... · T... · bc1q...",
                 )
-            else:
-                report_date = st.date_input("📅 Fecha Reporte", value=None)
-
-        # ── SoF / UoF globales (solo lectura desde PDF) ───────────────────────
-        if _from_pdf:
-            _sof_g_str = (
-                f"{_pdf_sof_amt_g:,.2f} USD"
-                if _pdf_sof_amt_g > 0
-                else f"{_pdf_sof_pct_g:.4f}% de exposición detectada"
-            )
-            _uof_g_str = (
-                f"{_pdf_uof_amt_g:,.2f} USD"
-                if _pdf_uof_amt_g > 0
-                else f"{_pdf_uof_pct_g:.4f}% de exposición detectada"
-            )
-            _col_sof_g, _col_uof_g = st.columns(2)
-            with _col_sof_g:
-                st.text_input(
-                    "📥 Source of Funds (Global)",
-                    value=_sof_g_str,
-                    disabled=True,
-                    help="Total SoF acumulado del reporte PDF.",
+            with col_chain:
+                blockchain_w = st.selectbox("Blockchain", chain_opts, index=chain_idx)
+            with col_status:
+                wallet_status_w = st.selectbox("Estado", status_opts)
+            col_sc, col_nv, col_fecha = st.columns(3)
+            with col_sc:
+                gl_score_w = st.number_input(
+                    "🎯 GL Score", min_value=0, max_value=100,
+                    value=None, placeholder="Ej: 47",
                 )
-            with _col_uof_g:
-                st.text_input(
-                    "📤 Use of Funds (Global)",
-                    value=_uof_g_str,
-                    disabled=True,
-                    help="Total UoF acumulado del reporte PDF.",
-                )
+            with col_nv:
+                riesgo_manual_w = st.selectbox("Nivel GL", niveles, index=nivel_idx)
+            with col_fecha:
+                report_date_w = st.date_input("📅 Fecha Reporte", value=None)
 
-        st.markdown("---")
-        col_exp, col_cur, col_url = st.columns(3)
-        with col_exp:
-            _exp_pdf = max(_pdf_sof_amt_g, _pdf_uof_amt_g) if _from_pdf else 0.0
-            _exp_locked = _from_pdf and _exp_pdf > 0
-            _exp_label = _field_label("💰 Exposición Total", _exp_locked)
-            exposure = st.number_input(
-                _exp_label, min_value=0.0, value=_exp_pdf, step=1000.0,
-                disabled=_exp_locked,
-                help="🟢 Extraído del PDF (máximo entre SoF y UoF)" if _exp_locked else "🟡 Captura manual",
-            )
-        with col_cur:
-            exposure_currency = st.selectbox("Moneda", currency_opts)
-        with col_url:
-            pdf_url = st.text_input("📄 URL Reporte PDF", placeholder="https://...")
-
+        # ── Analista (siempre visible) ─────────────────────────────────────────
+        monitoring_analyst = st.selectbox("👤 Analista", analyst_opts)
         analyst_observations = st.text_area(
-            _field_label("📝 Observaciones", False), height=80,
+            "📝 Observaciones", height=80,
             placeholder="Ej: Wallet corporativa, bajo riesgo inicial.",
         )
-        notas = st.text_area("Notas internas", height=60)
 
-        # ── Gap-01: Vista previa de campos calculados ─────────────────────────
-        if _from_pdf and _risk_expo:
-            with st.expander("🔍 Vista previa: campos calculados", expanded=False):
-                import pandas as _pd_prev  # noqa: PLC0415
-                _prev_rows = []
-                for _flow in ("SoF", "UoF"):
-                    _frows = [r for r in _risk_expo if r.get("type") == _flow]
-                    if _frows:
-                        _best = max(_frows, key=lambda r: r["percentage"])
-                        _ind = _parse_gl_opt(_find_gl_opt(_best["label"]))
-                        _ind_score_p = GL_SCORES.get(_ind, 50) if _ind else 50
-                        _pct_p = float(_best["percentage"])
-                        _s_p = round((_pct_p / 100.0) * _ind_score_p)
-                        _n_p = score_gl_to_nivel(_s_p)
-                        _nat_p = "Directa" if int(_best.get("depth") or 1) <= 1 else "Indirecta"
-                        _prev_rows.append({
-                            "Flujo": _flow,
-                            "Indicador": _ind or "—",
-                            "Naturaleza": _nat_p,
-                            "% Exposición": f"{_pct_p:.4f}%",
-                            "Score": _s_p,
-                            "Nivel": _n_p,
-                        })
-                if _prev_rows:
+        # ── Vista previa: corazón analítico del formulario ────────────────────
+        _indicators_vp = _gl.get("indicators", []) if _from_pdf else []
+        if _from_pdf and (_risk_expo or _indicators_vp):
+            with st.expander("🔍 Vista previa: campos calculados", expanded=True):
+                import pandas as _pd_vp  # noqa: PLC0415
+
+                # ── Sección 1: Exposición Directa ─────────────────────────────
+                st.markdown(
+                    "<span style='color:#93c5fd;font-size:0.78rem;font-weight:700;"
+                    "letter-spacing:0.05em;'>🔴 EXPOSICIÓN DIRECTA</span>",
+                    unsafe_allow_html=True,
+                )
+                _direct_items = sorted(
+                    [i for i in _indicators_vp if i.get("direct_pct", 0) > 0],
+                    key=lambda x: x.get("direct_pct", 0), reverse=True,
+                )
+                if _direct_items:
+                    _df_dir = _pd_vp.DataFrame([{
+                        "Entidad":   i["entity"],
+                        "% Directo": round(i["direct_pct"], 4),
+                        "Riesgo GL": i.get("risk_level", "—"),
+                        "Score GL":  i.get("gl_score") if i.get("gl_score") is not None else "—",
+                    } for i in _direct_items])
                     st.dataframe(
-                        _pd_prev.DataFrame(_prev_rows),
-                        use_container_width=True,
-                        hide_index=True,
+                        _df_dir, use_container_width=True, hide_index=True,
+                        column_config={
+                            "% Directo": st.column_config.NumberColumn(format="%.4f%%"),
+                        },
                     )
                 else:
-                    st.caption("Sin datos SoF/UoF en el PDF.")
+                    st.caption("Sin exposición directa detectada.")
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # ── Sección 2: Exposición Indirecta (Saltos / Hops) ───────────
+                st.markdown(
+                    "<span style='color:#fcd34d;font-size:0.78rem;font-weight:700;"
+                    "letter-spacing:0.05em;'>🟡 EXPOSICIÓN INDIRECTA (SALTOS / HOPS)</span>",
+                    unsafe_allow_html=True,
+                )
+                _indirect_items = sorted(
+                    [i for i in _indicators_vp
+                     if i.get("indirect_pct", 0) > 0 or i.get("depth", 1) > 1],
+                    key=lambda x: (x.get("depth", 1), x.get("indirect_pct", 0)),
+                    reverse=True,
+                )
+                if _indirect_items:
+                    _df_ind = _pd_vp.DataFrame([{
+                        "Entidad":            i["entity"],
+                        "% Indirecto":        round(i.get("indirect_pct", 0), 4),
+                        "Profundidad (Hops)": i.get("depth", 1),
+                        "Riesgo GL":          i.get("risk_level", "—"),
+                    } for i in _indirect_items])
+                    st.dataframe(
+                        _df_ind, use_container_width=True, hide_index=True,
+                        column_config={
+                            "% Indirecto": st.column_config.NumberColumn(format="%.4f%%"),
+                        },
+                    )
+                else:
+                    st.caption("Sin exposición indirecta / hops detectados.")
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # ── Sección 3: Matching Operativo ──────────────────────────────
+                st.markdown(
+                    "<span style='color:#86efac;font-size:0.78rem;font-weight:700;"
+                    "letter-spacing:0.05em;'>🎯 MATCHING OPERATIVO</span>",
+                    unsafe_allow_html=True,
+                )
+                _match_rows = []
+                for _fl, _frows_m in [("📥 SoF", _sof_rows), ("📤 UoF", _uof_rows)]:
+                    if _frows_m:
+                        _bm = max(_frows_m, key=lambda r: r["percentage"])
+                        _ind_m = _parse_gl_opt(_find_gl_opt(_bm["label"]))
+                        _gl_ref_m = GL_SCORES.get(_ind_m, 50) if _ind_m else 50
+                        _pct_m = float(_bm["percentage"])
+                        _s_m = round((_pct_m / 100.0) * _gl_ref_m)
+                        _n_m = score_gl_to_nivel(_s_m)
+                        _match_rows.append({
+                            "Flujo":         _fl,
+                            "Indicador GL":  _ind_m or "—",
+                            "Score Ref. GL": _gl_ref_m,
+                            "% Exposición":  round(_pct_m, 4),
+                            "Score Final":   _s_m,
+                            "Nivel":         _n_m,
+                            "Criterio":      "Mayor % × Score GL",
+                        })
+                if _match_rows:
+                    st.dataframe(
+                        _pd_vp.DataFrame(_match_rows),
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "% Exposición": st.column_config.NumberColumn(format="%.4f%%"),
+                        },
+                    )
+                else:
+                    st.caption("Sin indicadores para matching operativo.")
+
+                # ── Tablas de exposición detallada (SoF / UoF) ────────────────
+                if _risk_expo:
+                    st.markdown(
+                        "<hr style='border:none;border-top:1px solid #374151;margin:14px 0;'>",
+                        unsafe_allow_html=True,
+                    )
+                    _tc1, _tc2 = st.columns(2, gap="medium")
+                    with _tc1:
+                        _render_exposure_table(_sof_rows, "📥 Source of Funds (SoF)", "#93c5fd")
+                    with _tc2:
+                        _render_exposure_table(_uof_rows, "📤 Use of Funds (UoF)", "#86efac")
+                    _high_shown = sum(1 for r in _risk_expo if r["level"] in ("CRITICAL", "HIGH"))
+                    _note_parts = []
+                    if _residual_count > 0:
+                        _note_parts.append(
+                            f"Se han detectado **{_residual_count}** indicador(es) adicional(es) "
+                            f"de riesgo Medio/Bajo con exposición < 5% (omitidos por política de "
+                            f"relevancia analítica)."
+                        )
+                    if _high_shown > 0:
+                        _note_parts.append(
+                            f"Todos los **{_high_shown}** indicador(es) de riesgo **ALTO / CRÍTICO** "
+                            f"han sido detallados independientemente de su porcentaje de exposición."
+                        )
+                    if _note_parts:
+                        st.info("📋 **Nota de Cumplimiento:** " + " ".join(_note_parts))
 
         submitted = st.form_submit_button(
             _lbl_btn, type="primary", use_container_width=True,
         )
 
     if submitted:
+        # ── Resolver variables según modo ─────────────────────────────────────
+        if _from_pdf:
+            wallet_address = init_addr
+            blockchain     = init_chain
+            wallet_status  = "Active"
+            gl_score_val   = init_score
+            riesgo_manual  = init_nivel
+            report_date    = _pdf_date_val
+        else:
+            wallet_address = wallet_address_w
+            blockchain     = blockchain_w
+            wallet_status  = wallet_status_w
+            gl_score_val   = gl_score_w
+            riesgo_manual  = riesgo_manual_w
+            report_date    = report_date_w
+
         if not wallet_address.strip():
             st.error("La dirección de wallet es obligatoria.")
             return
@@ -1407,8 +1464,8 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             gl_score              = gl_score_int,
             riesgo_nivel          = riesgo_nivel_final,
             risk_labels           = risk_labels,
-            total_exposure        = float(exposure),
-            exposure_currency     = exposure_currency,
+            total_exposure        = max(_pdf_sof_amt_g, _pdf_uof_amt_g) if _from_pdf else 0.0,
+            exposure_currency     = "USD",
             wallet_status         = wallet_status,
             sof_tipo_riesgo       = _sof_tipo,
             sof_indicador         = _sof_indicador,
@@ -1433,10 +1490,10 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             monitoring_analyst    = monitoring_analyst,
             final_risk_score      = final_risk_score_calc,
             final_risk_level      = final_risk_level_calc,
-            pdf_report_url        = pdf_url.strip() or None,
+            pdf_report_url        = None,
             last_report_date      = datetime.combine(report_date, datetime.min.time()) if report_date else None,
             registrado_por        = user.get("username"),
-            notas                 = notas.strip() or None,
+            notas                 = None,
         )
 
         try:
