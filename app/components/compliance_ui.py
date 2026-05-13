@@ -319,8 +319,9 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
                 elif _campo == "descripcion":
                     cambios.append("descripción editada")
                 else:
+                    _dash = "—"
                     cambios.append(
-                        f"{_label}: \u201c{_va or '\u2014'}\u201d \u2192 \u201c{_vd or '\u2014'}\u201d"
+                        f"{_label}: \u201c{_va or _dash}\u201d \u2192 \u201c{_vd or _dash}\u201d"
                     )
             return cambios
 
