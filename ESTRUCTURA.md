@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-05-13 (rev. 16)
+> Última actualización: 2026-05-13 (rev. 17)
 
 ---
 
@@ -171,13 +171,19 @@ Proyecto_PartnersStatus/
 │   │                                  #       emoji de nivel en columna level
 │   │                                  #     Métricas SoF/UoF: % como valor primario,
 │   │                                  #       monto USD como delta (delta_color="off")
+│   │                                  #     💰 Exposición Total (_exp_pdf = max(sof_amt, uof_amt)):
+│   │                                  #       🟢 deshabilitado y pre-rellenado si PDF tiene montos
+│   │                                  #       🟡 captura manual si PDF no reporta montos
+│   │                                  #     Moneda exposición: selectbox USD/EUR/USDT/USDC (🟡 manual)
 │   │   │                              #     Llama CryptoRepository.create_wallet() — INSERT puro
 │   │   │                              #     Captura ValueError en duplicado · borra show_vinculador al éxito
 │   │   │                              #     Widget keys sufijadas _{cliente_id} para soporte multi-cliente
 │   │   │                              #   _render_comparativo(prev, new_gl_score):
 │   │   │                              #     Compara snapshot historial vs valores actuales/nuevos
 │   │   │                              #     4 st.metric con delta coloreado
-│   │   │                              #   _parse_gl_report(raw_text) · _parse_gl_opt(opt) · _parse_labels()
+│   │   │                              #   _field_label(text, from_pdf) → str — prefija 🟢 (PDF) o 🟡 (manual)
+│   │   │                              #     aplicado a todos los labels de _form_nueva_wallet
+│   │   │                              #   _parse_gl_opt(opt) · _parse_labels()
 │   │   │                              #   _pill() · _score_bar() · _card_wallet() · _ficha_wallet()
 │   │   │                              # Cache: _get_clientes_cached(ttl=300) · _get_wallets_cached()
 │   │   │                              # Paleta: Crítico=#ef4444 · Alto=#f97316 · Medio=#f59e0b
@@ -197,8 +203,14 @@ Proyecto_PartnersStatus/
 │   │   │                              #            lectura → texto «Sin enlace — requiere URL para habilitar el acceso»
 │   │   │                              #   limpieza automática de título: .replace('}','').strip() al guardar
 │   │   │                              #   SIN iframes ni previsualización embebida (prohibido)
+│   │   │                              #   📜 Historial de cambios — expander narrativo con diff automático
+│   │   │                              #     _diff_campos(antes, despues) detecta: versión · estado · URL
+│   │   │                              #       fecha_emision · título · empresa
+│   │   │                              #     _fmt_narrativa(dt) → "el 14 de abril de 2026"
+│   │   │                              #     "🕐 el X de mes de YYYY, username editó este documento."
+│   │   │                              #     "↳ campo: \"antes\" → \"después\""
 │   │   │                              # _form_editar(doc): st.form — título · carpeta · empresa · estado
-│   │   │                              #   versión · URL · descripción cambio (auditoría)
+│   │   │                              #   versión · 📅 fecha de emisión (date_input) · URL · descripción cambio
 │   │   │                              #   st.rerun() tras guardar para reflejar cambios al instante
 │   │   │                              # _form_nuevo_documento(user): expander + form — solo admin/compliance
 │   │   │                              #   campo «URL del documento» (acepta cualquier URL, no solo OneDrive)
@@ -331,6 +343,7 @@ Proyecto_PartnersStatus/
 │   │                                  # Aplica scripts SQL en orden numérico y valida relaciones
 │   │                                  # _run_migration(): reintenta hasta 3 veces (delay 3s) ante
 │   │                                  #   errores de conexión — robusto ante cold-start Railway
+│   │                                  # ALL_MIGRATIONS: lista explícita 001–023 (orden de aplicación)
 │   │                                  # Uso: python db/sync_db.py [--only 005 006] [--check]
 │   ├── 📄 models.py                   # Modelos Pydantic v2
 │   │                                  # AliadoBase · AliadoCreate · AliadoUpdate · AliadoOut
@@ -442,7 +455,7 @@ Proyecto_PartnersStatus/
 │   │   │                                              #     wallet_status TEXT DEFAULT 'Active'
 │   │   │                                              #   Índices: sof_nivel · uof_nivel · final_risk_level
 │   │   │                                              #     monitoring_analyst
-│   │   └── 📄 022_weekly_monitoring_historial.sql     # Ciclo de monitoreo semanal + historial
+│   │   ├── 📄 022_weekly_monitoring_historial.sql     # Ciclo de monitoreo semanal + historial
 │       │                                              #   weekly_delta TEXT en crypto_monitoreo
 │       │                                              #   tabla crypto_monitoreo_historial (snapshots):
 │       │                                              #     id · original_id · snapshot_date · wallet_address
@@ -451,6 +464,13 @@ Proyecto_PartnersStatus/
 │       │                                              #     analyst_observations · monitoring_analyst
 │       │                                              #     registrado_por · pdf_report_url · total_exposure
 │       │                                              #   Índices: wallet_address · original_id · snapshot_date
+│   │   └── 📄 023_document_history.sql               # Versionamiento inmutable de documentos compliance
+│       │                                              #   tabla compliance_documentos_historial
+│       │                                              #     → espejo de compliance_documentos + documento_raiz_id (FK)
+│       │                                              #     + descripcion_cambio · snapshot_por · snapshot_at
+│       │                                              #   append-only: solo INSERT (nunca UPDATE/DELETE)
+│       │                                              #   ON DELETE CASCADE desde documento raíz
+│       │                                              #   Índices: idx_doc_hist_raiz · idx_doc_hist_snapshot_at
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
@@ -528,6 +548,8 @@ Proyecto_PartnersStatus/
 │       │                              # get_documentos(carpeta, estado, empresa) — filtros opcionales
 │       │                              # get_by_id() · crear(data, creado_por) → int
 │       │                              # actualizar(doc_id, data, actualizado_por)
+│       │                              #   guarda snapshot en compliance_documentos_historial antes del UPDATE
+│       │                              # get_historial(doc_id) → list[dict] — versiones desc por snapshot_at
 │       │                              # nueva_version(doc_id, version, url, descripcion, user)
 │       │                              #   UPDATE + audit_repo.registrar() automático
 │       │                              # archivar(doc_id, actualizado_por) — soft delete (→ Archivado)
