@@ -1026,22 +1026,143 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         # ok=True pero wallet not found → ya mostramos warning arriba, no renderizar form
         return
 
-    # ── GL-Score Hero Component ───────────────────────────────────────────────
+    # ── GL-Score Hero Component (estilo Global Ledger) ───────────────────────
     if _from_pdf and _pdf_score is not None:
         _s = _pdf_score
-        if _s <= 30:
-            _bg, _border, _fg, _lbl = "#D1FAE5", "#10B981", "#065F46", "LOW RISK"
+
+        # Colores por nivel
+        if _s < 20:
+            _score_color, _nivel_lbl = "#ef4444", "CRITICAL"
+        elif _s < 40:
+            _score_color, _nivel_lbl = "#f97316", "HIGH RISK"
         elif _s <= 60:
-            _bg, _border, _fg, _lbl = "#FFF3E0", "#FF9800", "#E65100", "MEDIUM RISK"
+            _score_color, _nivel_lbl = "#f59e0b", "MEDIUM RISK"
         else:
-            _bg, _border, _fg, _lbl = "#FEE2E2", "#EF4444", "#7F1D1D", "HIGH RISK"
+            _score_color, _nivel_lbl = "#22c55e", "LOW RISK"
+
+        _NIVEL_COLOR_MAP = {
+            "HIGH":     "#ef4444",
+            "CRITICAL": "#ef4444",
+            "MEDIUM":   "#f59e0b",
+            "LOW":      "#22c55e",
+            "UNKNOWN":  "#6b7280",
+        }
+
+        # SoF labels (izquierda) — top 5 por %
+        _sof_label_rows = [r for r in (_gl.get("risk_exposure_list") or []) if r.get("type") == "SoF"]
+        _seen_sof: dict = {}
+        for _r in _sof_label_rows:
+            _lbl_key = _r.get("label", "")
+            if _lbl_key not in _seen_sof or _r.get("percentage", 0) > _seen_sof[_lbl_key].get("percentage", 0):
+                _seen_sof[_lbl_key] = _r
+        _sof_label_rows = sorted(_seen_sof.values(), key=lambda x: x.get("percentage", 0), reverse=True)[:5]
+
+        _sof_labels_html = ""
+        for _r in _sof_label_rows:
+            _lbl_txt   = _r.get("label", "")
+            _lbl_nivel = _r.get("level", "MEDIUM").upper()
+            _lbl_color = _NIVEL_COLOR_MAP.get(_lbl_nivel, "#f59e0b")
+            _lbl_pct   = _r.get("percentage", 0)
+            _pct_txt   = f"{_lbl_pct:.2f}%" if _lbl_pct >= 0.01 else "< 0.01%"
+            _sof_labels_html += (
+                "<div style='display:flex;align-items:center;justify-content:flex-end;"
+                "gap:8px;margin-bottom:7px;'>"
+                f"<span style='color:#d1d5db;font-size:0.8rem;'>{_lbl_txt}</span>"
+                f"<span style='color:#9ca3af;font-size:0.72rem;'>{_pct_txt}</span>"
+                f"<span style='background:{_lbl_color};color:white;font-size:0.68rem;"
+                "font-weight:700;padding:2px 8px;border-radius:10px;"
+                f"min-width:44px;text-align:center;'>{_lbl_nivel}</span>"
+                "</div>"
+            )
+
+        # UoF labels (derecha) — top 5 por %
+        _uof_label_rows = [r for r in (_gl.get("risk_exposure_list") or []) if r.get("type") == "UoF"]
+        _seen_uof: dict = {}
+        for _r in _uof_label_rows:
+            _lbl_key = _r.get("label", "")
+            if _lbl_key not in _seen_uof or _r.get("percentage", 0) > _seen_uof[_lbl_key].get("percentage", 0):
+                _seen_uof[_lbl_key] = _r
+        _uof_label_rows = sorted(_seen_uof.values(), key=lambda x: x.get("percentage", 0), reverse=True)[:5]
+
+        _uof_labels_html = ""
+        for _r in _uof_label_rows:
+            _lbl_txt   = _r.get("label", "")
+            _lbl_nivel = _r.get("level", "MEDIUM").upper()
+            _lbl_color = _NIVEL_COLOR_MAP.get(_lbl_nivel, "#f59e0b")
+            _lbl_pct   = _r.get("percentage", 0)
+            _pct_txt   = f"{_lbl_pct:.2f}%" if _lbl_pct >= 0.01 else "< 0.01%"
+            _uof_labels_html += (
+                "<div style='display:flex;align-items:center;gap:8px;margin-bottom:7px;'>"
+                f"<span style='background:{_lbl_color};color:white;font-size:0.68rem;"
+                "font-weight:700;padding:2px 8px;border-radius:10px;"
+                f"min-width:44px;text-align:center;'>{_lbl_nivel}</span>"
+                f"<span style='color:#d1d5db;font-size:0.8rem;'>{_lbl_txt}</span>"
+                f"<span style='color:#9ca3af;font-size:0.72rem;'>{_pct_txt}</span>"
+                "</div>"
+            )
+
+        # Donut SVG — arco proporcional al score (0-100 → circunferencia r=46 ≈ 289)
+        _circ   = 289
+        _filled = round((_s / 100) * _circ, 1)
+        _empty  = round(_circ - _filled, 1)
+        _dash_offset_ring  = round(_circ * 0.25, 1)
+        _dash_offset_trail = round(_circ * 0.25 - _filled, 1)
+        _nivel_word = _nivel_lbl.split()[0]
+        _svg_donut = (
+            "<svg width='130' height='130' viewBox='0 0 130 130' xmlns='http://www.w3.org/2000/svg'>"
+            "<circle cx='65' cy='65' r='46' fill='none' stroke='#1e293b' stroke-width='14'/>"
+            f"<circle cx='65' cy='65' r='46' fill='none' stroke='#3b82f6' stroke-width='14'"
+            f" stroke-dasharray='{_filled} {_empty}'"
+            f" stroke-dashoffset='{_dash_offset_ring}'"
+            " transform='rotate(-90 65 65)'/>"
+            f"<circle cx='65' cy='65' r='46' fill='none' stroke='{_score_color}' stroke-width='14'"
+            f" stroke-dasharray='{_empty} {_filled}'"
+            f" stroke-dashoffset='{_dash_offset_trail}'"
+            " transform='rotate(-90 65 65)' opacity='0.85'/>"
+            f"<text x='65' y='59' text-anchor='middle' fill='#f9fafb'"
+            " font-size='26' font-weight='900' font-family='Inter,sans-serif'"
+            f">{_s}</text>"
+            f"<text x='65' y='76' text-anchor='middle' fill='#9ca3af'"
+            " font-size='10' font-weight='600' font-family='Inter,sans-serif'"
+            f" letter-spacing='0.5'>{_nivel_word}</text>"
+            "</svg>"
+        )
+
+        _no_sof = "<span style='color:#6b7280;font-size:0.8rem;font-style:italic;'>Sin labels SoF</span>"
+        _no_uof = "<span style='color:#6b7280;font-size:0.8rem;font-style:italic;'>Sin labels UoF</span>"
+        _sof_content = _sof_labels_html if _sof_labels_html else _no_sof
+        _uof_content = _uof_labels_html if _uof_labels_html else _no_uof
+
         st.markdown(
-            f"<div style='background-color:{_bg};border-radius:15px;padding:20px;"
-            f"text-align:center;border:2px solid {_border};margin-bottom:16px;'>"
-            f"<h1 style='color:{_fg};margin:0;font-size:56px;font-weight:900;'>{_s}</h1>"
-            f"<p style='color:{_fg};font-weight:bold;margin:4px 0 0;font-size:1.1rem;'>"
-            f"{_lbl}</p>"
-            f"</div>",
+            "<div style='background:#0a0f1a;border:1px solid #1e293b;border-radius:14px;"
+            "padding:20px 24px;margin-bottom:16px;'>"
+            "<div style='color:#6b7280;font-size:0.72rem;font-weight:700;"
+            "letter-spacing:0.08em;margin-bottom:16px;'>GL-SCORE</div>"
+            "<div style='display:flex;align-items:center;gap:0;'>"
+            "<div style='flex:1;'>"
+            "<div style='color:#6b7280;font-size:0.72rem;font-weight:600;"
+            "letter-spacing:0.05em;margin-bottom:10px;text-align:right;'>Source of Funds</div>"
+            f"{_sof_content}"
+            "</div>"
+            "<div style='width:36px;display:flex;align-items:center;justify-content:center;'>"
+            "<span style='color:#ef4444;font-size:1.4rem;'>&#8594;</span>"
+            "</div>"
+            "<div style='display:flex;flex-direction:column;align-items:center;"
+            "justify-content:center;min-width:130px;'>"
+            f"{_svg_donut}"
+            f"<div style='color:{_score_color};font-size:0.75rem;font-weight:700;"
+            f"margin-top:4px;letter-spacing:0.05em;'>{_nivel_lbl}</div>"
+            "</div>"
+            "<div style='width:36px;display:flex;align-items:center;justify-content:center;'>"
+            "<span style='color:#f59e0b;font-size:1.4rem;'>&#8594;</span>"
+            "</div>"
+            "<div style='flex:1;'>"
+            "<div style='color:#6b7280;font-size:0.72rem;font-weight:600;"
+            "letter-spacing:0.05em;margin-bottom:10px;'>Use of Funds</div>"
+            f"{_uof_content}"
+            "</div>"
+            "</div>"
+            "</div>",
             unsafe_allow_html=True,
         )
 
