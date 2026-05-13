@@ -974,6 +974,7 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
     _pdf_uof_amt_g   = _gl.get("uof_total_amount", 0.0)  if _from_pdf else 0.0
     _pdf_sof_pct_g   = _gl.get("sof_total_pct", 0.0)     if _from_pdf else 0.0
     _pdf_uof_pct_g   = _gl.get("uof_total_pct", 0.0)     if _from_pdf else 0.0
+    _exp_pdf         = max(_pdf_sof_amt_g or 0.0, _pdf_uof_amt_g or 0.0)
 
     # ── Fecha: parser → fallback desde nombre del archivo ────────────────────
     _pdf_date_val = None
@@ -1118,32 +1119,32 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         )
         # Row 1: dirección de wallet (ancho completo, bloqueada)
         st.text_input(
-            "💳 Dirección de Wallet *",
+            _field_label("💳 Dirección de Wallet *", True),
             value=init_addr,
             disabled=True,
             key=f"_b1_addr_{fk}",
         )
         # Row 2: blockchain · estado · GL score · nivel GL
         _b1c1, _b1c2, _b1c3, _b1c4 = st.columns(4)
-        _b1c1.text_input("🔗 Blockchain", value=init_chain, disabled=True,
+        _b1c1.text_input(_field_label("🔗 Blockchain", True), value=init_chain, disabled=True,
                          key=f"_b1_bc_{fk}")
-        _b1c2.text_input("🟢 Estado", value="Active", disabled=True,
+        _b1c2.text_input(_field_label("🟢 Estado", True), value="Active", disabled=True,
                          key=f"_b1_st_{fk}")
-        _b1c3.text_input("🎯 GL Score",
+        _b1c3.text_input(_field_label("🎯 GL Score", True),
                          value=str(init_score) if init_score is not None else "—",
                          disabled=True, key=f"_b1_sc_{fk}")
-        _b1c4.text_input("📊 Nivel GL", value=init_nivel, disabled=True,
+        _b1c4.text_input(_field_label("📊 Nivel GL", True), value=init_nivel, disabled=True,
                          key=f"_b1_nv_{fk}")
         # Row 3: fecha reporte · fecha última transacción
         _b1d1, _b1d2 = st.columns(2)
         _b1d1.text_input(
-            "📅 Fecha Reporte",
+            _field_label("📅 Fecha Reporte", True),
             value=str(_pdf_date_val) if _pdf_date_val else "—",
             disabled=True, key=f"_b1_rd_{fk}",
         )
         _pdf_last_tx = _gl.get("last_transaction_date") if _from_pdf else None
         _b1d2.text_input(
-            "📅 Fecha última Transacción",
+            _field_label("📅 Fecha última Transacción", True),
             value=str(_pdf_last_tx) if _pdf_last_tx else "—",
             disabled=True, key=f"_b1_lt_{fk}",
         )
@@ -1187,31 +1188,46 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             col_wa, col_chain, col_status = st.columns([4, 1, 1])
             with col_wa:
                 wallet_address_w = st.text_input(
-                    "💳 Dirección de Wallet *",
+                    _field_label("💳 Dirección de Wallet *", False),
                     value="",
                     placeholder="0x... · T... · bc1q...",
                 )
             with col_chain:
-                blockchain_w = st.selectbox("Blockchain", chain_opts, index=chain_idx)
+                blockchain_w = st.selectbox(_field_label("Blockchain", False), chain_opts, index=chain_idx)
             with col_status:
-                wallet_status_w = st.selectbox("Estado", status_opts)
+                wallet_status_w = st.selectbox(_field_label("Estado", False), status_opts)
             col_sc, col_nv, col_fecha = st.columns(3)
             with col_sc:
                 gl_score_w = st.number_input(
-                    "🎯 GL Score", min_value=0, max_value=100,
+                    _field_label("🎯 GL Score", False), min_value=0, max_value=100,
                     value=None, placeholder="Ej: 47",
                 )
             with col_nv:
-                riesgo_manual_w = st.selectbox("Nivel GL", niveles, index=nivel_idx)
+                riesgo_manual_w = st.selectbox(_field_label("Nivel GL", False), niveles, index=nivel_idx)
             with col_fecha:
-                report_date_w = st.date_input("📅 Fecha Reporte", value=None)
+                report_date_w = st.date_input(_field_label("📅 Fecha Reporte", False), value=None)
 
         # ── Analista (siempre visible) ─────────────────────────────────────────
-        monitoring_analyst = st.selectbox("👤 Analista", analyst_opts)
+        monitoring_analyst = st.selectbox(_field_label("👤 Analista", False), analyst_opts)
         analyst_observations = st.text_area(
-            "📝 Observaciones", height=80,
+            _field_label("📝 Observaciones", False), height=80,
             placeholder="Ej: Wallet corporativa, bajo riesgo inicial.",
         )
+        # ── Exposición Total ───────────────────────────────────────────────────
+        _col_exp, _col_cur = st.columns([3, 1])
+        with _col_exp:
+            exposure = st.number_input(
+                _field_label("💰 Exposición Total", _exp_pdf > 0),
+                min_value=0.0,
+                value=float(_exp_pdf) if _exp_pdf > 0 else 0.0,
+                step=1000.0,
+                disabled=(_exp_pdf > 0),
+                help="Auto-extraído del PDF (mayor entre SoF y UoF totales)." if _exp_pdf > 0 else "Captura manual.",
+            )
+        with _col_cur:
+            exposure_currency = st.selectbox(
+                _field_label("Moneda", False), ["USD", "EUR", "USDT", "USDC"],
+            )
 
         # ── Vista previa: corazón analítico del formulario ────────────────────
         _indicators_vp = _gl.get("indicators", []) if _from_pdf else []
@@ -1464,8 +1480,8 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             gl_score              = gl_score_int,
             riesgo_nivel          = riesgo_nivel_final,
             risk_labels           = risk_labels,
-            total_exposure        = max(_pdf_sof_amt_g, _pdf_uof_amt_g) if _from_pdf else 0.0,
-            exposure_currency     = "USD",
+            total_exposure        = float(exposure),
+            exposure_currency     = exposure_currency,
             wallet_status         = wallet_status,
             sof_tipo_riesgo       = _sof_tipo,
             sof_indicador         = _sof_indicador,
