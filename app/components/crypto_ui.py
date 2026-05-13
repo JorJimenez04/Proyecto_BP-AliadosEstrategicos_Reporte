@@ -1179,8 +1179,10 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         )
 
         # ── Footer stats ──────────────────────────────────────────────────────
-        _sof_amt_fmt = f"${_sof_amt:,.0f}" if _sof_amt > 0 else "—"
-        _uof_amt_fmt = f"${_uof_amt:,.0f}" if _uof_amt > 0 else "—"
+        _sof_amt_hero = _gl.get("sof_total_amount", 0.0) if _from_pdf else 0.0
+        _uof_amt_hero = _gl.get("uof_total_amount", 0.0) if _from_pdf else 0.0
+        _sof_amt_fmt = f"${_sof_amt_hero:,.0f}" if _sof_amt_hero > 0 else "—"
+        _uof_amt_fmt = f"${_uof_amt_hero:,.0f}" if _uof_amt_hero > 0 else "—"
 
         def _stat_block(label: str, value: str, color: str = "#94a3b8") -> str:
             return (
