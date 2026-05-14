@@ -403,7 +403,6 @@ def _form_registro_diario(agente_db: dict, user: Optional[dict]) -> None:
     precarga en los campos para permitir edición.  Al guardar hace UPSERT en
     agente_kpi_diario (con auditoría) y st.rerun().
     """
-    from config.settings import Roles
     if not (user and user.get("rol") in Roles.CAN_REGISTER_KPIS):
         return
 
@@ -901,8 +900,7 @@ def _tab_info(agente_db: Optional[dict], user: Optional[dict]) -> None:
         st.info("Colaborador sin registro en la base de datos.")
         return
 
-    from config.settings import Roles as _Roles
-    puede_editar = bool(user and user.get("rol") in _Roles.CAN_EDIT_AGENTES)
+    puede_editar = bool(user and user.get("rol") in Roles.CAN_EDIT_AGENTES)
 
     _section_title("\U0001f4cb Ficha de Contacto")
     _email_val    = agente_db.get("email")    or "\u2014"
@@ -1371,12 +1369,10 @@ def _panel_rendimiento(user: dict) -> None:
     - Admin: ve todos los equipos.
     - Compliance: ve únicamente el equipo Cumplimiento.
     """
-    from config.settings import Roles
-
     st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
 
     rol       = user.get("rol", "")
-    es_admin  = rol == Roles.ADMIN
+    es_admin  = rol in Roles.CAN_ACCESS_ALL or rol in {Roles.COMPLIANCE, Roles.MANAGER_OPS}
     equipo_filtro: Optional[str] = None if es_admin else "Cumplimiento"
 
     # ── Cargar tabla desde BD ─────────────────────────────
@@ -1489,7 +1485,7 @@ def render_gestion_agentes(user: dict) -> None:
     )
     st.markdown("<hr style='border-color:#293056;'>", unsafe_allow_html=True)
 
-    es_admin = rol == Roles.ADMIN
+    es_admin = rol in Roles.CAN_ACCESS_ALL or rol in {Roles.COMPLIANCE, Roles.MANAGER_OPS}
 
     if es_admin:
         tab_vista, tab_nuevo, tab_editar, tab_rend = st.tabs([
@@ -1601,7 +1597,7 @@ def _panel_vista_equipos(user: Optional[dict] = None) -> None:
                     unsafe_allow_html=True,
                 )
                 # ── Botón cámara (solo admin) ─────────────
-                if user and user.get("rol") == "admin":
+                if user and user.get("rol") in Roles.CAN_EDIT_AGENTES:
                     _flag = f"_show_cam_{ag['username']}"
                     _btn_lbl = "🔼 Cerrar" if st.session_state.get(_flag) else "📷 Foto"
                     if st.button(_btn_lbl, key=f"btn_cam_{ag['username']}", use_container_width=True):
@@ -1625,8 +1621,7 @@ def _form_nuevo_agente(user: dict) -> None:
     st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
 
     # ── Foto del colaborador (fuera del form para live preview) ──
-    from config.settings import Roles as _RolesNuevo
-    _puede_foto_nuevo = user.get("rol") in {_RolesNuevo.ADMIN, _RolesNuevo.COMPLIANCE}
+    _puede_foto_nuevo = user.get("rol") in Roles.CAN_EDIT_AGENTES
     _seccion_foto_uploader("_nuevo_agente", _C_CYAN, "up_nuevo_agente", _puede_foto_nuevo)
 
     with st.form("form_nuevo_agente", clear_on_submit=True):
@@ -1750,9 +1745,8 @@ def _form_editar_agente(user: dict) -> None:
     agente = opciones[sel]
 
     # ── Foto del colaborador (fuera del form para live preview) ──
-    from config.settings import Roles as _RolesEdit
     _eq_color_edit  = _EQUIPOS_COLORES.get(agente.get("equipo", ""), _C_GRAY)
-    _puede_foto_edit = user.get("rol") in {_RolesEdit.ADMIN, _RolesEdit.COMPLIANCE}
+    _puede_foto_edit = user.get("rol") in Roles.CAN_EDIT_AGENTES
     _seccion_foto_uploader(
         agente["username"], _eq_color_edit,
         f"up_edit_{agente['username']}", _puede_foto_edit,

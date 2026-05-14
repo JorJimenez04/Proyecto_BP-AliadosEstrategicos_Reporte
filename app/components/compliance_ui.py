@@ -75,8 +75,6 @@ _CARPETAS_ORDEN = [
     "Contratos", "Actas y Formatos", "Matrices", "Tecnologia",
 ]
 
-_ROLES_EDITOR = {Roles.ADMIN, Roles.COMPLIANCE}
-
 # ─────────────────────────────────────────────────────────────
 # Entidades corporativas
 # ─────────────────────────────────────────────────────────────
