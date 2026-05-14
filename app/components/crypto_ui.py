@@ -696,17 +696,37 @@ def _tab_clientes(user: dict) -> None:
                             f"</div>",
                             unsafe_allow_html=True,
                         )
+                        _w_btn_key = f"ir_monitor_{w['id']}"
+                        if st.button(
+                            "📈 Monitorear esta semana",
+                            key=_w_btn_key,
+                            use_container_width=True,
+                        ):
+                            st.session_state["mon_wallet_presel"] = w["wallet_address"]
+                            st.session_state["crypto_active_tab"] = 2
+                            st.rerun()
                 # Botones de acción
-                col_mon_b, col_vinc_b = st.columns(2)
+                col_mon_b, col_sem_b, col_vinc_b = st.columns(3)
                 with col_mon_b:
                     if st.button("📋 Ver en Monitor", key=f"ver_mon_{cl['id']}", use_container_width=True):
                         st.session_state["crypto_cliente_filtro"] = cl["id"]
                         st.session_state["crypto_cliente_nombre"] = razon_social
                         st.rerun()
+                with col_sem_b:
+                    if st.button(
+                        "📈 Monitoreo Semanal",
+                        key=f"ir_semanal_{cl['id']}",
+                        use_container_width=True,
+                        type="primary",
+                    ):
+                        st.session_state["mon_cliente_presel"]  = cl["id"]
+                        st.session_state["mon_cliente_nombre"]  = razon_social
+                        st.session_state["crypto_active_tab"]   = 2
+                        st.rerun()
                 with col_vinc_b:
                     if st.button("➕ Vincular Wallet", key=f"vincular_{cl['id']}", use_container_width=True):
-                        st.session_state["show_vinculador"]       = True
-                        st.session_state["vincular_cliente_id"]   = cl["id"]
+                        st.session_state["show_vinculador"]         = True
+                        st.session_state["vincular_cliente_id"]     = cl["id"]
                         st.session_state["vincular_cliente_nombre"] = razon_social
                         st.rerun()
 
@@ -1774,7 +1794,19 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             )
             st.rerun()
         except ValueError as exc:
-            st.error(str(exc))
+            _err = str(exc)
+            _err_lower = _err.lower()
+            if "duplicad" in _err_lower or "already" in _err_lower \
+                    or "unique" in _err_lower or "existe" in _err_lower:
+                st.warning(
+                    "⚠️ Esta wallet ya está registrada en el sistema. "
+                    "Para cargar el reporte de esta semana, usa el tab "
+                    "**📈 Monitoreo Semanal** y selecciona la wallet "
+                    "en el listado.",
+                    icon="💡",
+                )
+            else:
+                st.error(_err)
         except Exception as exc:
             st.error(f"Error al crear wallet: {exc}")
 
@@ -1820,9 +1852,29 @@ def _tab_monitoreo_semanal(user: dict) -> None:
         wallet_opts.append(label)
         wallet_map[label] = w
 
+    # Resolver índice inicial desde preselección (viene de
+    # botón "Monitorear esta semana" o "Monitoreo Semanal")
+    _presel_addr   = st.session_state.pop("mon_wallet_presel", None)
+    _presel_cli_id = st.session_state.pop("mon_cliente_presel", None)
+
+    _default_idx = 0
+    if _presel_addr:
+        for _i, _lbl in enumerate(wallet_opts):
+            if _lbl != _NONE_OPT and wallet_map.get(_lbl, {}).get(
+                    "wallet_address") == _presel_addr:
+                _default_idx = _i
+                break
+    elif _presel_cli_id:
+        for _i, _lbl in enumerate(wallet_opts):
+            if _lbl != _NONE_OPT and wallet_map.get(_lbl, {}).get(
+                    "crypto_cliente_id") == _presel_cli_id:
+                _default_idx = _i
+                break
+
     sel_label = st.selectbox(
         "🔍 Wallet a Monitorear",
         wallet_opts,
+        index=_default_idx,
         key="mon_wallet_sel",
     )
 
@@ -2411,7 +2463,19 @@ def _tab_monitoreo_semanal(user: dict) -> None:
             )
             st.rerun()
         except ValueError as exc:
-            st.error(str(exc))
+            _err = str(exc)
+            _err_lower = _err.lower()
+            if "duplicad" in _err_lower or "already" in _err_lower \
+                    or "unique" in _err_lower or "existe" in _err_lower:
+                st.warning(
+                    "⚠️ Esta wallet ya está registrada en el sistema. "
+                    "Para cargar el reporte de esta semana, usa el tab "
+                    "**📈 Monitoreo Semanal** y selecciona la wallet "
+                    "en el listado.",
+                    icon="💡",
+                )
+            else:
+                st.error(_err)
         except Exception as exc:
             st.error(f"Error al guardar ciclo de monitoreo: {exc}")
 
@@ -2587,6 +2651,14 @@ def _page_crypto_compliance_inner(user: dict) -> None:
 
     if "crypto_detail_id" not in st.session_state:
         st.session_state["crypto_detail_id"] = None
+
+    _active_tab_hint = st.session_state.pop("crypto_active_tab", None)
+    if _active_tab_hint == 2:
+        st.info(
+            "📈 Ve al tab **Monitoreo Semanal** para cargar "
+            "el nuevo reporte PDF de esta wallet.",
+            icon="👆",
+        )
 
     tab_clientes, tab_monitor, tab_monitoreo, tab_gerencial = st.tabs([
         "👥 Clientes",
