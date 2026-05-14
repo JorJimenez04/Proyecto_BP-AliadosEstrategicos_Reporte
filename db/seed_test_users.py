@@ -59,21 +59,33 @@ else:
 _TEST_USERS = [
     {
         "username":        "test_compliance",
-        "nombre_completo": "Revisor de Cumplimiento",
+        "nombre_completo": "Admin Compliance",
         "email":           "test_compliance@adamoservices.co",
         "rol":             "compliance",
     },
     {
-        "username":        "test_comercial",
-        "nombre_completo": "Ejecutivo Comercial",
-        "email":           "test_comercial@adamoservices.co",
-        "rol":             "comercial",
+        "username":        "test_manager_ops",
+        "nombre_completo": "Manager Pagos / GH",
+        "email":           "test_manager_ops@adamoservices.co",
+        "rol":             "manager_ops",
     },
     {
-        "username":        "test_consulta",
-        "nombre_completo": "Auditor de Solo Lectura",
-        "email":           "test_consulta@adamoservices.co",
-        "rol":             "consulta",
+        "username":        "test_manager_comercial",
+        "nombre_completo": "Manager Comercial",
+        "email":           "test_manager_comercial@adamoservices.co",
+        "rol":             "manager_comercial",
+    },
+    {
+        "username":        "test_manager_legal",
+        "nombre_completo": "Manager Legal / Abogado",
+        "email":           "test_manager_legal@adamoservices.co",
+        "rol":             "manager_legal",
+    },
+    {
+        "username":        "test_agente",
+        "nombre_completo": "Agente Senior Test",
+        "email":           "test_agente@adamoservices.co",
+        "rol":             "agente",
     },
 ]
 
