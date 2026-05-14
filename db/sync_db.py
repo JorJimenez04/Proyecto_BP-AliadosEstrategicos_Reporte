@@ -58,6 +58,7 @@ ALL_MIGRATIONS: list[str] = [
     "022_weekly_monitoring_historial.sql",
     "023_document_history.sql",
     "024_fix_riesgo_nivel_constraint.sql",
+    "025_rbac_roles_v2.sql",
 ]
 
 # Tablas / columnas a validar tras las migraciones
