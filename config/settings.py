@@ -87,49 +87,129 @@ SESSION_TIMEOUT_MINUTES: int = int(os.getenv("SESSION_TIMEOUT_MINUTES", "60"))
 
 # ── Roles del sistema ─────────────────────────────────────
 class Roles:
-    # ── Valores canónicos en BD ───────────────────────────
-    # Nivel 1 — Acceso total
-    ADMIN              = "admin"
-    # Nivel 2 — Gestión de equipo y KPIs operativos
-    COMPLIANCE         = "compliance"       # Manager Compliance (legacy alias)
-    COMERCIAL          = "comercial"        # Manager Pagos (legacy alias)
-    # Nivel 3 — Ejecución técnica
-    AGENTE_KYC         = "agente_kyc"
-    AGENTE_OPERATIVO   = "agente_operativo"
-    # Nivel 4 — Solo lectura
-    CONSULTA           = "consulta"
+    # ── Roles canónicos nuevos ────────────────────────────
+    SUPER_ADMIN       = "super_admin"      # Acceso total
+    COMPLIANCE        = "compliance"       # Compliance 360
+    MANAGER_OPS       = "manager_ops"      # Pagos / Gestión Humana
+    MANAGER_COMERCIAL = "manager_comercial"
+    MANAGER_LEGAL     = "manager_legal"
+    AGENTE            = "agente"           # Senior y Junior (mismo rol)
 
-    # ── Aliases semánticos (mismos valores que los canónicos) ─
-    ADMIN_PRO            = "admin"          # acceso total
-    MANAGER_COMPLIANCE   = "compliance"     # gestión equipo Compliance
-    MANAGER_PAGOS        = "comercial"      # gestión cartera y pagos
+    # ── Aliases legacy — mantener para no romper código existente ──
+    ADMIN             = "admin"
+    COMERCIAL         = "comercial"
+    AGENTE_KYC        = "agente_kyc"
+    AGENTE_OPERATIVO  = "agente_operativo"
+    CONSULTA          = "consulta"
 
     # ── Lista completa para selectores de UI ─────────────
-    ALL = [ADMIN, COMPLIANCE, COMERCIAL, AGENTE_KYC, AGENTE_OPERATIVO, CONSULTA]
+    ALL = [
+        SUPER_ADMIN, COMPLIANCE, MANAGER_OPS,
+        MANAGER_COMERCIAL, MANAGER_LEGAL, AGENTE,
+        # legacy
+        ADMIN, COMERCIAL, AGENTE_KYC, AGENTE_OPERATIVO, CONSULTA,
+    ]
 
-    # ── Grupos de permiso reutilizables ───────────────────
-    # Pueden editar información operativa de partners
-    CAN_EDIT_PARTNERS: frozenset[str] = frozenset(
-        {"admin", "compliance", "comercial", "agente_kyc", "agente_operativo"}
-    )
-    # Solo estos roles pueden eliminar registros permanentemente
-    CAN_DELETE: frozenset[str] = frozenset({"admin"})
-    # Pueden crear/editar campos SARLAFT y listas vinculantes
-    CAN_EDIT_SARLAFT: frozenset[str] = frozenset({"admin", "agente_kyc"})
-    # Pueden registrar/editar KPIs de gestión diaria
-    CAN_REGISTER_KPIS: frozenset[str] = frozenset({"admin", "compliance", "comercial"})
-    # Pueden acceder al módulo de Gestión de Agentes
-    CAN_VIEW_AGENTES: frozenset[str] = frozenset({"admin", "compliance"})
-    # Pueden crear nuevos partners
-    CAN_CREATE_PARTNERS: frozenset[str] = frozenset(
-        {"admin", "compliance", "comercial"}
-    )
-    # Pueden editar jurisdicciones (campo que afecta scoring SARLAFT)
-    CAN_EDIT_JURISDICTIONS: frozenset[str] = frozenset({"admin", "compliance"})
-    # Pueden editar campos de Criticidad y Cumplimiento ISO (licencias, certificaciones)
-    CAN_EDIT_COMPLIANCE: frozenset[str] = frozenset({"admin", "compliance"})
-    # Pueden acceder al módulo Cripto Compliance (VASP Monitor)
-    CAN_VIEW_CRYPTO: frozenset[str] = frozenset({"admin", "compliance"})
+    # ── Conjuntos de permiso ──────────────────────────────
+
+    # Acceso total al sistema
+    CAN_ACCESS_ALL = frozenset({
+        "super_admin", "admin",
+    })
+
+    # Vista completa (compliance 360)
+    CAN_VIEW_ALL = frozenset({
+        "super_admin", "admin", "compliance",
+    })
+
+    # Auditoría
+    CAN_VIEW_AUDIT = frozenset({
+        "super_admin", "admin", "compliance",
+    })
+
+    # Cripto Compliance
+    CAN_VIEW_CRYPTO = frozenset({
+        "super_admin", "admin", "compliance",
+    })
+
+    # Gestión de Alianzas — ver
+    CAN_VIEW_ALIANZAS = frozenset({
+        "super_admin", "admin", "compliance",
+        "manager_ops", "manager_comercial", "manager_legal",
+        "comercial",  # legacy
+    })
+
+    # Gestión de Alianzas — editar (sin eliminar)
+    CAN_EDIT_PARTNERS = frozenset({
+        "super_admin", "admin", "compliance", "manager_ops",
+        "comercial", "agente_kyc", "agente_operativo",  # legacy
+    })
+
+    # Gestión de Alianzas — alta de partner
+    CAN_CREATE_PARTNERS = frozenset({
+        "super_admin", "admin", "compliance", "manager_ops",
+        "comercial",  # legacy
+    })
+
+    # Gestión de Alianzas — eliminar (solo super_admin)
+    CAN_DELETE = frozenset({
+        "super_admin", "admin",
+    })
+    CAN_DELETE_PARTNERS = frozenset({
+        "super_admin", "admin",
+    })
+
+    # Campos SARLAFT / riesgo
+    CAN_EDIT_SARLAFT = frozenset({
+        "super_admin", "admin", "agente_kyc",
+    })
+    CAN_EDIT_COMPLIANCE = frozenset({
+        "super_admin", "admin", "compliance",
+    })
+    CAN_EDIT_JURISDICTIONS = frozenset({
+        "super_admin", "admin", "compliance",
+    })
+
+    # KPIs de gestión
+    CAN_REGISTER_KPIS = frozenset({
+        "super_admin", "admin", "compliance", "manager_ops",
+        "comercial",  # legacy
+    })
+
+    # Gestión de Agentes — ver equipos completos
+    CAN_VIEW_AGENTES = frozenset({
+        "super_admin", "admin", "compliance", "manager_ops",
+    })
+
+    # Gestión de Agentes — editar/crear colaboradores
+    CAN_EDIT_AGENTES = frozenset({
+        "super_admin", "admin", "compliance", "manager_ops",
+    })
+
+    # Centro Documental — cualquier acceso
+    CAN_VIEW_DOCS = frozenset({
+        "super_admin", "admin", "compliance",
+        "manager_comercial", "manager_legal",
+        "comercial", "consulta",  # legacy
+    })
+
+    # Centro Documental — crear/editar documentos
+    CAN_EDIT_DOCS = frozenset({
+        "super_admin", "admin", "compliance",
+    })
+
+    # Centro Documental — carpetas por rol restringido
+    CARPETAS_COMERCIAL = frozenset({
+        "Empresariales",
+    })
+    CARPETAS_LEGAL = frozenset({
+        "Empresariales", "Contratos", "Actas y Formatos", "Governanza",
+    })
+
+    # Gestión de usuarios del sistema
+    CAN_MANAGE_USERS = frozenset({
+        "super_admin", "admin",
+    })
 
 # ── Pipeline de estados de aliados ───────────────────────
 class EstadosAliado:
