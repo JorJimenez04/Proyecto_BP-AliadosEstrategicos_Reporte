@@ -117,15 +117,38 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         # ── Navegación principal ──────────────────────────────
         # Clave interna _radio_nav — nunca se escribe desde fuera del widget.
         # on_change limpia nav_agente cuando el usuario vuelve al radio.
-        _nav_opts = ["🤝 Gestión de Alianzas"]
-        if user.get("rol") in {"admin", "compliance"}:
+        _rol = user.get("rol", "")
+        _nav_opts = []
+
+        # Gestión de Alianzas — visible para roles con acceso
+        if _rol in Roles.CAN_VIEW_ALIANZAS:
+            _nav_opts.append("🤝 Gestión de Alianzas")
+
+        # Auditoría
+        if _rol in Roles.CAN_VIEW_AUDIT:
             _nav_opts.append("📋 Log de Auditoría")
-        if user.get("rol") in Roles.CAN_VIEW_AGENTES:
+
+        # Gestión de Agentes — equipos completos
+        # Agentes ven su propio perfil (acceso directo, no por menú)
+        if _rol in Roles.CAN_VIEW_AGENTES:
             _nav_opts.append("👥 Gestión de Agentes")
-        if user.get("rol") in {"admin", "compliance", "comercial", "consulta"}:
+
+        # Centro Documental
+        if _rol in Roles.CAN_VIEW_DOCS:
             _nav_opts.append("📚 Centro Documental")
-        if user.get("rol") in Roles.CAN_VIEW_CRYPTO:
+
+        # Cripto Compliance
+        if _rol in Roles.CAN_VIEW_CRYPTO:
             _nav_opts.append("🛡️ Cripto Compliance")
+
+        # Agente: solo ve su propio perfil
+        if _rol == Roles.AGENTE:
+            _nav_opts.append("👤 Mi Perfil")
+
+        # Fallback: si no hay ninguna opción (rol sin permisos)
+        if not _nav_opts:
+            _nav_opts = ["🚫 Sin acceso"]
+
         nav_choice = st.radio(
             "Navegación",
             options=_nav_opts,
@@ -140,23 +163,24 @@ def sidebar(user: dict) -> tuple[str, str | None]:
             "<div style='border-top:1px solid #293056;margin:14px 0 10px;'></div>",
             unsafe_allow_html=True,
         )
-        with st.expander("🏢 Equipos Operativos", expanded=False):
-            for equipo_nombre, equipo_data in _equipos_data.items():
-                equipo_color = equipo_data["color"]
-                st.markdown(
-                    f"<p style='color:{equipo_color};font-size:0.72rem;font-weight:700;"
-                    f"text-transform:uppercase;letter-spacing:1px;"
-                    f"margin:10px 0 6px;'>{equipo_nombre}</p>",
-                    unsafe_allow_html=True,
-                )
-                for agente in equipo_data["agentes"]:
-                    if st.button(
-                        f"  {agente['nombre']}",
-                        key=f"btn_agente_{agente['username']}",
-                        use_container_width=True,
-                    ):
-                        # Solo escribimos en nav_agente, nunca en _radio_nav
-                        st.session_state["nav_agente"] = agente["username"]
+        if _rol in Roles.CAN_VIEW_AGENTES:
+            with st.expander("🏢 Equipos Operativos", expanded=False):
+                for equipo_nombre, equipo_data in _equipos_data.items():
+                    equipo_color = equipo_data["color"]
+                    st.markdown(
+                        f"<p style='color:{equipo_color};font-size:0.72rem;font-weight:700;"
+                        f"text-transform:uppercase;letter-spacing:1px;"
+                        f"margin:10px 0 6px;'>{equipo_nombre}</p>",
+                        unsafe_allow_html=True,
+                    )
+                    for agente in equipo_data["agentes"]:
+                        if st.button(
+                            f"  {agente['nombre']}",
+                            key=f"btn_agente_{agente['username']}",
+                            use_container_width=True,
+                        ):
+                            # Solo escribimos en nav_agente, nunca en _radio_nav
+                            st.session_state["nav_agente"] = agente["username"]
 
         # Derivar página activa: agente tiene precedencia sobre el radio
         if st.session_state.get("nav_agente"):
@@ -184,10 +208,13 @@ def main():
     page, agente_username = sidebar(user)
 
     if page == "🤝 Gestión de Alianzas":
+        if user.get("rol") not in Roles.CAN_VIEW_ALIANZAS:
+            st.error("🚫 Acceso Denegado.")
+            st.stop()
         from app.components.partners_ui import page_alianzas
         page_alianzas(user)
     elif page == "📋 Log de Auditoría":
-        if user.get("rol") not in {"admin", "compliance"}:
+        if user.get("rol") not in Roles.CAN_VIEW_AUDIT:
             st.error("🚫 Acceso Denegado. No tienes permisos para ver el Log de Auditoría.")
             st.stop()
         from app.components.audit_ui import page_auditoria
@@ -198,7 +225,10 @@ def main():
             st.stop()
         from app.components.agentes_ui import render_gestion_agentes
         render_gestion_agentes(user)
-    elif page == "\U0001f4da Centro Documental":
+    elif page == "📚 Centro Documental":
+        if user.get("rol") not in Roles.CAN_VIEW_DOCS:
+            st.error("🚫 Acceso Denegado al Centro Documental.")
+            st.stop()
         from app.components.compliance_ui import page_compliance
         page_compliance(user)
     elif page == "🛡️ Cripto Compliance":
@@ -210,6 +240,10 @@ def main():
     elif page == "👤 Perfil Agente" and agente_username:
         from app.components.agentes_ui import render_perfil_agente
         render_perfil_agente(agente_username, user=user)
+    elif page == "👤 Mi Perfil":
+        _username = user.get("username", "")
+        from app.components.agentes_ui import render_perfil_agente
+        render_perfil_agente(_username, user=user)
 
 
 if __name__ == "__main__":
