@@ -15,6 +15,7 @@ import streamlit as st
 import plotly.graph_objects as go
 from pathlib import Path
 from typing import Optional
+from config.settings import Roles
 
 logger = logging.getLogger(__name__)
 
@@ -901,7 +902,7 @@ def _tab_info(agente_db: Optional[dict], user: Optional[dict]) -> None:
         return
 
     from config.settings import Roles as _Roles
-    puede_editar = bool(user and user.get("rol") in {_Roles.ADMIN, _Roles.COMPLIANCE})
+    puede_editar = bool(user and user.get("rol") in _Roles.CAN_EDIT_AGENTES)
 
     _section_title("\U0001f4cb Ficha de Contacto")
     _email_val    = agente_db.get("email")    or "\u2014"
@@ -1466,7 +1467,18 @@ def _panel_rendimiento(user: dict) -> None:
 # ─────────────────────────────────────────────────────────────
 
 def render_gestion_agentes(user: dict) -> None:
-    from config.settings import Roles
+    rol = user.get("rol", "")
+
+    # Agente: ver solo su propio perfil
+    if rol == Roles.AGENTE:
+        render_perfil_agente(user.get("username", ""), user)
+        return
+
+    # Sin acceso
+    if rol not in Roles.CAN_VIEW_AGENTES:
+        st.error("\U0001f6ab No tienes acceso a Gesti\u00f3n de Agentes.")
+        st.stop()
+        return
 
     st.markdown("<h1>\U0001f465 Gesti\u00f3n de Equipos</h1>", unsafe_allow_html=True)
     st.markdown(
@@ -1477,13 +1489,7 @@ def render_gestion_agentes(user: dict) -> None:
     )
     st.markdown("<hr style='border-color:#293056;'>", unsafe_allow_html=True)
 
-    rol      = user.get("rol", "")
     es_admin = rol == Roles.ADMIN
-    puede_ver_rendimiento = rol in (Roles.ADMIN, Roles.COMPLIANCE)
-
-    if not puede_ver_rendimiento:
-        st.error("Acceso restringido. Solo administradores y el equipo de Compliance pueden acceder.")
-        return
 
     if es_admin:
         tab_vista, tab_nuevo, tab_editar, tab_rend = st.tabs([
