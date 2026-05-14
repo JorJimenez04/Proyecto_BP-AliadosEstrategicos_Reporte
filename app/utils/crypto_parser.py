@@ -102,6 +102,12 @@ _GL_SCORE_RE = re.compile(
 )
 # Fallback: detecta "47/100" sin prefijo de etiqueta
 _GL_SCORE_FRACTION_RE = re.compile(r'\b(\d{1,3})\s*/\s*100\b')
+# Score como línea aislada: número solo entre \n y \n
+# El PDF de GL coloca el score entre los labels de SoF y UoF
+_GL_SCORE_ISOLATED_RE = re.compile(
+    r'(?:^|\n)[ \t]*(\d{1,3})[ \t]*\n',
+    re.MULTILINE,
+)
 # Detecta nivel de riesgo global en texto: "HIGH RISK", "MEDIUM RISK", etc.
 _GL_RISK_LEVEL_RE = re.compile(
     r'\b(critical|high|medium|low|bajo|medio|alto|cr[i\u00ed]tico)\s*risk\b'
@@ -476,6 +482,7 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
     gl_risk_level_text: Optional[str] = None  # detectado desde texto libre
     report_date_detected: Optional[str] = None
     last_tx_date_detected: Optional[str] = None
+    _gl_anchor: int = -1  # posición de "GL-Score" en el texto; -1 si no hallado
     if full_text_pages:
         _full_text = "\n".join(full_text_pages)
         _mw = _WALLET_RE.search(_full_text)
@@ -498,15 +505,28 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
                     gl_score_detected = _sc2 if 0 <= _sc2 <= 100 else None
                 except ValueError:
                     pass
-        # Fallback: score como línea aislada (ej. "...\n47\nHigh-Risk Exchange...")
+        # Fallback: score como línea aislada — buscar cerca de "GL-Score" primero
+        _gl_anchor = _full_text.find("GL-Score")
+        if _gl_anchor == -1:
+            _gl_anchor = _full_text.lower().find("gl score")
         if gl_score_detected is None:
-            _SCORE_ISOLATED_RE = re.compile(r'(?:^|\n)\s*(\d{1,3})\s*\n', re.MULTILINE)
-            for _mi in _SCORE_ISOLATED_RE.finditer(_full_text):
-                _candidate = int(_mi.group(1))
+            if _gl_anchor != -1:
+                # Buscar número aislado en los 400 chars siguientes al marcador
+                _window = _full_text[_gl_anchor:_gl_anchor + 400]
+                for _m in _GL_SCORE_ISOLATED_RE.finditer(_window):
+                    _candidate = int(_m.group(1))
+                    if 1 <= _candidate <= 100:
+                        gl_score_detected = _candidate
+                        break
+        if gl_score_detected is None:
+            # Fallback global: número aislado en primera página
+            _page1_text = _full_text[:2000]
+            for _m in _GL_SCORE_ISOLATED_RE.finditer(_page1_text):
+                _candidate = int(_m.group(1))
                 if 1 <= _candidate <= 100:
-                    _ctx = _full_text[max(0, _mi.start() - 50):_mi.end() + 100]
+                    _ctx = _page1_text[max(0, _m.start()-200):_m.end()+200]
                     if re.search(
-                        r'\b(MEDIUM|HIGH|LOW|CRITICAL|Bajo|Medio|Alto|Crítico)\b',
+                        r'GL.?Score|Blacklisted|High.Risk|Sanctioned|MEDIUM|HIGH',
                         _ctx, re.IGNORECASE,
                     ):
                         gl_score_detected = _candidate
@@ -713,19 +733,45 @@ def parse_gl_pdf(pdf_bytes: bytes) -> dict:
 
     top_entity = indicators[0]["entity"] if indicators else None
 
-    # ── GL Level: preferir el score; si no hay score, usar detección de texto ────
+    # ── GL Level: derivar del score (fuente primaria más confiable) ─────────
     _gl_level_detected: Optional[str] = None
     if gl_score_detected is not None:
-        if gl_score_detected <= 30:
-            _gl_level_detected = "Bajo"
+        if gl_score_detected < 20:
+            _gl_level_detected = "Crítico"
+        elif gl_score_detected < 40:
+            _gl_level_detected = "Alto"
         elif gl_score_detected <= 60:
             _gl_level_detected = "Medio"
-        elif gl_score_detected <= 80:
-            _gl_level_detected = "Alto"
         else:
-            _gl_level_detected = "Crítico"
-    elif gl_risk_level_text:
-        _gl_level_detected = gl_risk_level_text
+            _gl_level_detected = "Bajo"
+    else:
+        _gl_level_detected = gl_risk_level_text  # None si tampoco hay detección de texto
+
+    # Validación secundaria: buscar nivel inline cerca del score en el PDF
+    _nivel_map_lv = {
+        "critical": "Crítico", "critico": "Crítico",
+        "high":     "Alto",    "alto":    "Alto",
+        "medium":   "Medio",   "medio":   "Medio",
+        "low":      "Bajo",    "bajo":    "Bajo",
+    }
+    if _gl_anchor != -1 and gl_score_detected is not None:
+        _gl_window_lv = _full_text[_gl_anchor:_gl_anchor + 300].lower()
+        _nivel_inline = re.search(
+            r'\b\d{1,3}\b.*?\n\s*(critical|critico|high|medium|low|alto|medio|bajo)\b',
+            _gl_window_lv, re.IGNORECASE,
+        )
+        if _nivel_inline:
+            _nivel_raw = _nivel_inline.group(1).lower()
+            _gl_level_detected = _nivel_map_lv.get(_nivel_raw, _gl_level_detected)
+
+    # Garantizar que gl_level tenga valor derivado del score si todo lo demás falla
+    if _gl_level_detected is None and gl_score_detected is not None:
+        _gl_level_detected = (
+            "Crítico" if gl_score_detected < 20 else
+            "Alto"    if gl_score_detected < 40 else
+            "Medio"   if gl_score_detected <= 60 else
+            "Bajo"
+        )
     return {
         "ok":                  True,
         "error":               None,

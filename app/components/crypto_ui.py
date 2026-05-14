@@ -1386,16 +1386,14 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
             disabled=True,
             key=f"_b1_addr_{fk}",
         )
-        # Row 2: blockchain · estado · GL score · nivel GL
-        _b1c1, _b1c2, _b1c3, _b1c4 = st.columns(4)
+        # Row 2: blockchain · GL score · nivel GL
+        _b1c1, _b1c2, _b1c3 = st.columns(3)
         _b1c1.text_input(_field_label("🔗 Blockchain", True), value=init_chain, disabled=True,
                          key=f"_b1_bc_{fk}")
-        _b1c2.text_input(_field_label("🟢 Estado", True), value="Active", disabled=True,
-                         key=f"_b1_st_{fk}")
-        _b1c3.text_input(_field_label("🎯 GL Score", True),
+        _b1c2.text_input(_field_label("🎯 GL Score", True),
                          value=str(init_score) if init_score is not None else "—",
                          disabled=True, key=f"_b1_sc_{fk}")
-        _b1c4.text_input(_field_label("📊 Nivel GL", True), value=init_nivel, disabled=True,
+        _b1c3.text_input(_field_label("📊 Nivel GL", True), value=init_nivel, disabled=True,
                          key=f"_b1_nv_{fk}")
         # Row 3: fecha reporte · fecha última transacción
         _b1d1, _b1d2 = st.columns(2)
@@ -1603,7 +1601,7 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         if _from_pdf:
             wallet_address = init_addr
             blockchain     = init_chain
-            wallet_status  = "Active"
+            wallet_status  = wallet_status_manual
             gl_score_val   = init_score
             riesgo_manual  = init_nivel
             report_date    = _pdf_date_val
