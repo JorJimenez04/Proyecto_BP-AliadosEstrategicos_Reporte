@@ -568,7 +568,13 @@ def page_compliance(user: dict) -> None:
     # Limpiar cualquier caché residual de Streamlit (defensivo)
     st.cache_data.clear()
 
-    puede_editar = user.get("rol") in _ROLES_EDITOR
+    _rol = user.get("rol", "")
+    if _rol not in Roles.CAN_VIEW_DOCS:
+        st.error("🚫 No tienes acceso al Centro Documental.")
+        st.stop()
+        return
+
+    puede_editar = _rol in Roles.CAN_EDIT_DOCS
 
     st.markdown(
         "<h1 style='margin-bottom:4px;'>📚 Centro Documental de Cumplimiento</h1>",
@@ -635,8 +641,17 @@ def page_compliance(user: dict) -> None:
         )
 
     # ── Tabs por carpeta ──────────────────────────────────────────────────────
+    if _rol in Roles.CAN_VIEW_ALL:
+        _carpetas_visibles = _CARPETAS_ORDEN
+    elif _rol == Roles.MANAGER_LEGAL:
+        _carpetas_visibles = [c for c in _CARPETAS_ORDEN if c in Roles.CARPETAS_LEGAL]
+    elif _rol == Roles.MANAGER_COMERCIAL:
+        _carpetas_visibles = [c for c in _CARPETAS_ORDEN if c in Roles.CARPETAS_COMERCIAL]
+    else:
+        _carpetas_visibles = _CARPETAS_ORDEN
+
     tab_labels = ["📄 Todos"] + [
-        f"{_CARPETA_ICON.get(c,'📁')} {c}" for c in _CARPETAS_ORDEN
+        f"{_CARPETA_ICON.get(c,'📁')} {c}" for c in _carpetas_visibles
     ]
     tabs = st.tabs(tab_labels)
 
@@ -858,7 +873,7 @@ def page_compliance(user: dict) -> None:
                         f'Estado por Carpeta — Grupo Corporativo</p>',
                         unsafe_allow_html=True,
                     )
-                    for carp in _CARPETAS_ORDEN:
+                    for carp in _carpetas_visibles:
                         cs = next(
                             (c for c in stats["por_carpeta"] if c["carpeta"] == carp), None
                         )
@@ -1006,7 +1021,7 @@ def page_compliance(user: dict) -> None:
                             f"Resumen por carpeta</p>",
                             unsafe_allow_html=True,
                         )
-                        for carp in _CARPETAS_ORDEN:
+                        for carp in _carpetas_visibles:
                             cs = next(
                                 (c for c in stats["por_carpeta"] if c["carpeta"] == carp), None
                             )
@@ -1096,7 +1111,7 @@ def page_compliance(user: dict) -> None:
                 continue   # el resto del bucle es solo para tabs de carpeta
 
             # ── Tabs de carpeta específica (tab_idx > 0) ─────────────────
-            carpeta_filtro: Optional[str] = _CARPETAS_ORDEN[tab_idx - 1]
+            carpeta_filtro: Optional[str] = _carpetas_visibles[tab_idx - 1]
 
             # Documentos de esta carpeta
             docs_carpeta = [d for d in todos if d["carpeta"] == carpeta_filtro]
