@@ -20,12 +20,19 @@ _db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 engine = create_engine(
     _db_url,
     poolclass=QueuePool,
-    pool_size=5,          # Conexiones simultáneas mantenidas
-    max_overflow=10,      # Conexiones adicionales bajo carga
-    pool_timeout=30,      # Tiempo máximo de espera por conexión (s)
-    pool_recycle=1800,    # Reciclar conexiones cada 30 min (evita timeout Railway)
+    pool_size=3,          # Conexiones simultáneas mantenidas
+    max_overflow=0,      # Conexiones adicionales bajo carga
+    pool_timeout=60,      # Tiempo máximo de espera por conexión (s)
+    pool_recycle=600,    # Reciclar conexiones cada 10 min (evita timeout Railway)
     pool_pre_ping=True,   # Verifica conexiones antes de usarlas
     echo=DEBUG,
+    connect_args={
+        "connect_timeout": 10,  # Timeout de conexión inicial (s)
+        "keepalives": 1,        # Activar señales de vida
+        "keepalives_idle": 30,  # Enviar señal tras 30s de inactividad
+        "keepalives_interval": 10,
+        "keepalives_count": 5
+    },
 )
 
 

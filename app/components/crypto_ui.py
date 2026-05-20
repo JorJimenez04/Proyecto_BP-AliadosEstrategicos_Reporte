@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, date 
 from typing import Optional
 
 import streamlit as st
@@ -557,34 +557,52 @@ def _card_wallet(w: dict) -> None:
         if n_red else ""
     )
 
-    st.markdown(
-        f"""<div style='border:{border};border-radius:10px;padding:14px 18px;
-        background:#111827;margin-bottom:10px;'>
-        <div style='display:flex;justify-content:space-between;align-items:center;'>
-            <span style='color:#5fe9d0;font-size:0.8rem;font-family:monospace;'>
-                {chain_icon} {w['wallet_address'][:20]}…{w['wallet_address'][-8:]}
-            </span>
-            {_pill(nivel, color)}
-        </div>
-        <div style='display:flex;gap:20px;margin-top:8px;align-items:center;'>
-            <span style='color:#9ca3af;font-size:0.78rem;'>
-                🎯 Score: <b style='color:{color};'>{score_text}</b>
-            </span>
-            <span style='color:#9ca3af;font-size:0.78rem;'>
-                💰 ${exp:,.0f} USD
-            </span>
-            <span style='color:#9ca3af;font-size:0.78rem;'>
-                👤 {w.get('client_nombre') or '—'}
-            </span>
-            {labels_badge}
-        </div>
-        </div>""",
-        unsafe_allow_html=True,
+    glow = f"box-shadow: 0 0 15px {color}33;" if nivel == "Crítico" else ""
+    card_style = (
+        f"border:{border};background-color:rgba(17,24,39,0.6);"
+        f"border-radius:12px;padding:1.25rem;margin-bottom:1rem;{glow}"
     )
+
+    addr = w.get("wallet_address", "")
+    addr_short = f"{addr[:10]}…{addr[-6:]}" if len(addr) > 16 else addr or "0x..."
+    client_nombre = w.get("client_nombre") or "—"
+    fecha_rep = str(w.get("last_report_date", ""))[:10] or "N/A"
+
+    html_content = (
+        f"<div style='{card_style}'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:flex-start;'>"
+        f"<div style='flex:1;'>"
+        f"<div style='display:flex;align-items:center;gap:8px;'>"
+        f"<span style='font-size:1rem;font-weight:700;color:#f3f4f6;font-family:monospace;'>"
+        f"{addr_short}</span>"
+        f"{labels_badge}"
+        f"</div>"
+        f"<div style='margin-top:6px;color:#9ca3af;font-size:0.85rem;'>"
+        f"{chain_icon} <b>{chain}</b> | 👤 {client_nombre}"
+        f"</div>"
+        f"</div>"
+        f"<div style='text-align:right;'>"
+        f"<span style='background-color:{color};color:white;padding:4px 12px;"
+        f"border-radius:9999px;font-size:0.75rem;font-weight:700;'>"
+        f"{nivel.upper()}</span>"
+        f"<div style='margin-top:10px;font-size:0.9rem;color:#f3f4f6;'>"
+        f"🎯 Score: <span style='font-weight:800;color:{color};'>{score_text}</span>"
+        f"</div>"
+        f"</div>"
+        f"</div>"
+        f"<hr style='border:0;border-top:1px solid #374151;margin:1rem 0;'>"
+        f"<div style='display:flex;gap:20px;font-size:0.85rem;color:#d1d5db;'>"
+        f"<span>💰 <b>Volumen:</b> ${exp:,.0f} USD</span>"
+        f"<span>📅 <b>Reporte:</b> {fecha_rep}</span>"
+        f"</div>"
+        f"</div>"
+    )
+
+    st.markdown(html_content, unsafe_allow_html=True)
+
     if st.button("📋 Ver Ficha", key=f"ver_wallet_{w['id']}", use_container_width=False):
         st.session_state["crypto_detail_id"] = w["id"]
         st.rerun()
-
 
 # ── Tab Gestión de Clientes ──────────────────────────────────
 def _tab_clientes(user: dict) -> None:
@@ -1591,6 +1609,8 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
                         )
                     if _note_parts:
                         st.info("📋 **Nota de Cumplimiento:** " + " ".join(_note_parts))
+                    
+        wallet_status_form = st.selectbox("Estado de la Wallet", status_opts)
 
         submitted = st.form_submit_button(
             _lbl_btn, type="primary", use_container_width=True,
@@ -1601,7 +1621,7 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         if _from_pdf:
             wallet_address = init_addr
             blockchain     = init_chain
-            wallet_status  = wallet_status_manual
+            wallet_status  = wallet_status_form
             gl_score_val   = init_score
             riesgo_manual  = init_nivel
             report_date    = _pdf_date_val
@@ -2396,7 +2416,7 @@ def _tab_monitoreo_semanal(user: dict) -> None:
         delta_prefix = f"[Δ semana {now_label}] {weekly_delta.strip()}\n\n"
         obs_final    = delta_prefix + (analyst_observations.strip() or "")
 
-        payload = WalletMonitorCreate(
+        payload = WalletMonitorCreate(        
             wallet_address        = wallet_addr,
             blockchain            = blockchain,
             crypto_cliente_id     = current_record.get("crypto_cliente_id"),

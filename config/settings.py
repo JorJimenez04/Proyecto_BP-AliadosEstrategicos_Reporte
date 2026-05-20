@@ -90,7 +90,7 @@ class Roles:
     # ── Roles canónicos nuevos ────────────────────────────
     SUPER_ADMIN       = "super_admin"      # Acceso total
     COMPLIANCE        = "compliance"       # Compliance 360
-    MANAGER_OPS       = "manager_ops"      # Pagos / Gestión Humana
+    MANAGER_OPS       = "manager_ops"      # Pagos / Gestión Humana / Chief Operating Officer / Gerente de Operaciones / COO 
     MANAGER_COMERCIAL = "manager_comercial"
     MANAGER_LEGAL     = "manager_legal"
     AGENTE            = "agente"           # Senior y Junior (mismo rol)
@@ -189,7 +189,7 @@ class Roles:
     # Centro Documental — cualquier acceso
     CAN_VIEW_DOCS = frozenset({
         "super_admin", "admin", "compliance",
-        "manager_comercial", "manager_legal",
+        "manager_ops", "manager_comercial", "manager_legal",
         "comercial", "consulta",  # legacy
     })
 
@@ -204,6 +204,10 @@ class Roles:
     })
     CARPETAS_LEGAL = frozenset({
         "Empresariales", "Contratos", "Actas y Formatos", "Governanza",
+    })
+    CARPETAS_OPS = frozenset({
+        "Empresariales", "Contratos", "Actas y Formatos",
+        "Capacitacion", "Onboarding",
     })
 
     # Gestión de usuarios del sistema

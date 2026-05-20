@@ -645,6 +645,8 @@ def page_compliance(user: dict) -> None:
         _carpetas_visibles = [c for c in _CARPETAS_ORDEN if c in Roles.CARPETAS_LEGAL]
     elif _rol == Roles.MANAGER_COMERCIAL:
         _carpetas_visibles = [c for c in _CARPETAS_ORDEN if c in Roles.CARPETAS_COMERCIAL]
+    elif _rol == Roles.MANAGER_OPS:
+        _carpetas_visibles = [c for c in _CARPETAS_ORDEN if c in Roles.CARPETAS_OPS]
     else:
         _carpetas_visibles = _CARPETAS_ORDEN
 

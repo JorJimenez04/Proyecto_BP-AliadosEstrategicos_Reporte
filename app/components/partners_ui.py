@@ -81,20 +81,197 @@ def _idx(row: dict, key: str, default=None):
     return row.get(key, default)
 
 
+# ── Tarjeta B2B — Portafolio de Banking Partners ─────────────────────────────
+
+_ESTADO_COLORES_B2B: dict[str, str] = {
+    "Activo":          "#10b981",
+    "En Calificación": "#f59e0b",
+    "Onboarding":      "#3b82f6",
+    "Suspendido":      "#ef4444",
+    "Prospecto":       "#9ca3af",
+    "Terminado":       "#4b5563",
+}
+
+
+def _card_banking_partner(
+    partner: dict,
+    edit_id=None,
+    delete_id=None,
+    detail_id=None,
+) -> str:
+    """
+    Tarjeta HTML B2B para el Portafolio de Banking Partners.
+    Muestra perspectiva institucional/infraestructura, desacoplada de SARLAFT.
+    """
+    from config.settings import Jurisdicciones
+
+    fid    = partner.get("id")
+    nombre = partner.get("nombre_razon_social") or "—"
+    tipo   = partner.get("tipo_aliado") or "—"
+    estado = partner.get("estado_pipeline") or "Prospecto"
+    nit    = partner.get("nit") or ""
+
+    # Jurisdicciones
+    jur_list: list = partner.get("jurisdicciones") or []
+
+    # Vinculos — usar partner_respaldo como corresponsalía de respaldo
+    respaldo = partner.get("partner_respaldo")
+    vinculos: list[str] = [respaldo] if respaldo else []
+
+    # Capacidades derivadas de flags booleanos
+    capacidades: list[str] = []
+    if partner.get("permite_dispersion"):   capacidades.append("📤 Dispersión")
+    if partner.get("permite_monetizacion"): capacidades.append("💱 Monetización")
+    if partner.get("crypto_friendly"):      capacidades.append("🔷 Crypto")
+    if partner.get("adult_friendly"):       capacidades.append("🔞 Adult")
+    if partner.get("sla_garantizado"):      capacidades.append("⚡ SLA Garantizado")
+    tipo_riel = partner.get("tipo_riel") or ""
+    if tipo_riel and tipo_riel != "N/A":
+        capacidades.append(f"⚙️ {tipo_riel}")
+
+    # Colores de borde según estado de edición
+    if fid == detail_id or fid == edit_id:
+        card_border = "#5fe9d0"
+        card_bg     = "rgba(6, 26, 26, 0.95)"
+        card_glow   = "0 0 14px #5fe9d033"
+    elif fid == delete_id:
+        card_border = "#ef4444"
+        card_bg     = "rgba(26, 6, 6, 0.95)"
+        card_glow   = "0 0 14px #ef444433"
+    else:
+        estado_color = _ESTADO_COLORES_B2B.get(estado, "#293056")
+        card_border  = estado_color
+        card_bg      = "rgba(31, 41, 55, 0.4)"
+        card_glow    = "none"
+
+    estado_color = _ESTADO_COLORES_B2B.get(estado, "#9ca3af")
+    estado_badge = (
+        f'<span style="background:{estado_color}22;color:{estado_color};'
+        f'border:1px solid {estado_color}44;border-radius:9999px;'
+        f'padding:2px 10px;font-size:11px;font-weight:600">'
+        f'{estado}</span>'
+    )
+    tipo_badge = (
+        f'<span style="background:#1e274022;color:#93c5fd;border:1px solid #3b4f7a;'
+        f'border-radius:9999px;padding:2px 9px;font-size:11px;font-weight:500">'
+        f'🏦 {tipo}</span>'
+    )
+
+    # ── Jurisdicciones ────────────────────────────────────────────────────────
+    jur_html = ""
+    if jur_list:
+        badges = []
+        for j in jur_list[:6]:
+            is_risky = j in Jurisdicciones.ALTO_RIESGO
+            jbg      = "#450a0a" if is_risky else "#1e2740"
+            jcolor   = "#fca5a5" if is_risky else "#93c5fd"
+            jborder  = "#ef444466" if is_risky else "#3b4f7a"
+            badges.append(
+                f'<span style="background:{jbg};color:{jcolor};'
+                f'border:1px solid {jborder};border-radius:5px;'
+                f'padding:2px 7px;font-size:10px;font-weight:500">'
+                f'{j}</span>'
+            )
+        if len(jur_list) > 6:
+            badges.append(
+                f'<span style="color:#6b7280;font-size:10px">+{len(jur_list)-6} más</span>'
+            )
+        jur_html = (
+            '<div style="margin-bottom:10px">'  
+            '<div style="color:#64748b;font-size:10px;text-transform:uppercase;'
+            'letter-spacing:.5px;margin-bottom:5px">🌍 Alcance Geográfico</div>'
+            '<div style="display:flex;gap:4px;flex-wrap:wrap">'
+            + " ".join(badges)
+            + '</div></div>'
+        )
+
+    # ── Capacidades ───────────────────────────────────────────────────────────
+    caps_html = ""
+    if capacidades:
+        cap_badges = " ".join(
+            f'<span style="background:#1e3a5f;color:#93c5fd;border:1px solid #3b4f7a;'
+            f'border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600">'
+            f'{c}</span>'
+            for c in capacidades
+        )
+        caps_html = (
+            '<div style="margin-bottom:10px">'  
+            '<div style="color:#64748b;font-size:10px;text-transform:uppercase;'
+            'letter-spacing:.5px;margin-bottom:5px">⚡ Capacidades Operativas</div>'
+            '<div style="display:flex;gap:4px;flex-wrap:wrap">'
+            + cap_badges
+            + '</div></div>'
+        )
+    else:
+        caps_html = (
+            '<div style="margin-bottom:10px">'  
+            '<div style="color:#64748b;font-size:10px;text-transform:uppercase;'
+            'letter-spacing:.5px;margin-bottom:5px">⚡ Capacidades Operativas</div>'
+            '<span style="color:#4b5563;font-size:11px">Sin capacidades registradas</span>'
+            '</div>'
+        )
+
+    # ── Red de corresponsalías ────────────────────────────────────────────────
+    vinculos_html = ""
+    if vinculos:
+        vin_badges = " ".join(
+            f'<span style="background:#1c2a1e;color:#86efac;border:1px solid #16a34a55;'
+            f'border-radius:6px;padding:2px 8px;font-size:11px;font-weight:500">'
+            f'🔗 {v}</span>'
+            for v in vinculos
+        )
+        vinculos_html = (
+            '<div style="margin-bottom:10px">'  
+            '<div style="color:#64748b;font-size:10px;text-transform:uppercase;'
+            'letter-spacing:.5px;margin-bottom:5px">🔗 Red de Corresponsalías</div>'
+            '<div style="display:flex;gap:4px;flex-wrap:wrap">'
+            + vin_badges
+            + '</div></div>'
+        )
+
+    nit_str = f'<span style="color:#64748b;font-size:12px;margin-left:6px">{nit}</span>' if nit else ""
+
+    return (
+        f'<div style="background:{card_bg};border:1.5px solid {card_border};'
+        f'border-radius:12px;padding:16px 20px 14px;margin-bottom:2px;'
+        f'box-shadow:{card_glow}">'
+
+        # Encabezado
+        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;'
+        f'margin-bottom:10px;flex-wrap:wrap;gap:6px">'
+        f'<div>'
+        f'<span style="font-weight:700;color:#f1f5f9;font-size:16px">{nombre}</span>'
+        + nit_str +
+        f'</div>'
+        f'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">'
+        f'{tipo_badge}{estado_badge}'
+        f'</div>'
+        f'</div>'
+
+        # Cuerpo
+        + jur_html
+        + caps_html
+        + vinculos_html
+
+        + '</div>'  # end card
+    )
+
+
 # ── Ficha Técnica del Riel (Vista Detalle) ────────────────────────────────────
 
 def _panel_detalle_ficha(aliado_id: int, user: dict) -> None:
     """
-    Ficha de Debida Diligencia del Riel — vista de solo lectura organizada en
-    3 pestañas: 📋 General · ⚙️ Operación Técnica · 🛡️ Compliance & ISO
+    Ficha Técnica Institucional B2B del Banking Partner.
+    Vista KYB orientada a infraestructura, desacoplada de SARLAFT/cripto.
     """
     import streamlit as st
     from db.database import get_session
     from db.repositories.partner_repo import PartnerRepository
+    from config.settings import Jurisdicciones
 
     st.markdown(
-        '<div style="border:2px solid #5fe9d0;border-radius:12px;'
-        'padding:20px 24px 16px;margin-bottom:20px;background:#0d1a2e">',
+        '<div style="border:2px solid #3b82f6;border-radius:14px;'
+        'padding:22px 26px 18px;margin-bottom:20px;background:#0d1525">',
         unsafe_allow_html=True,
     )
 
@@ -115,256 +292,240 @@ def _panel_detalle_ficha(aliado_id: int, user: dict) -> None:
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    criticidad      = aliado.get("nivel_criticidad", "Estándar")
-    es_regulada     = bool(aliado.get("es_entidad_regulada", False))
-    c_color         = _COLORES_CRITICIDAD.get(criticidad, "#6b7280")
-    riesgo          = aliado.get("nivel_riesgo", "—")
-    puntaje         = aliado.get("puntaje_riesgo", 0) or 0
-    score_color     = _SCORE_COLOR.get(riesgo, "#6b7280")
-    nombre          = aliado.get("nombre_razon_social", "—")
-    nit             = aliado.get("nit", "—")
+    # ── Campos del aliado ─────────────────────────────────────────────────────
+    nombre    = aliado.get("nombre_razon_social") or "—"
+    nit       = aliado.get("nit") or "—"
+    estado    = aliado.get("estado_pipeline") or "Prospecto"
+    tipo      = aliado.get("tipo_aliado") or "—"
+    jur_list  = aliado.get("jurisdicciones") or []
+    sla       = aliado.get("sla_garantizado") or "—"
+    respaldo  = aliado.get("partner_respaldo") or None
+    vinculos  = [respaldo] if respaldo else []
+    fid       = aliado.get("id") or aliado_id
 
-    # Encabezado
-    regulada_badge = (
-        '<span style="background:#5fe9d022;color:#5fe9d0;border:1px solid #5fe9d044;'
-        'border-radius:9999px;padding:2px 10px;font-size:11px;font-weight:700;'
-        'margin-left:8px">🏛️ Entidad Regulada</span>'
-    ) if es_regulada else ""
+    # Capacidades derivadas de flags
+    capacidades: list[tuple[str, bool]] = [
+        ("📤 Dispersión",     bool(aliado.get("permite_dispersion"))),
+        ("💱 Monetización",   bool(aliado.get("permite_monetizacion"))),
+        ("🔷 Crypto",         bool(aliado.get("crypto_friendly"))),
+        ("🔞 Adult",          bool(aliado.get("adult_friendly"))),
+        ("⚡ SLA Garantizado", bool(aliado.get("sla_garantizado"))),
+    ]
+    tipo_riel = aliado.get("tipo_riel") or ""
+    if tipo_riel and tipo_riel != "N/A":
+        capacidades.append((f"⚙️ {tipo_riel}", True))
 
-    criticidad_badge = (
-        f'<span style="background:{c_color}22;color:{c_color};border:1px solid {c_color}44;'
-        f'border-radius:9999px;padding:3px 12px;font-size:12px;font-weight:700">'
-        f'{criticidad}</span>'
-    )
-
+    # ── Encabezado ────────────────────────────────────────────────────────────
+    e_color = _ESTADO_COLORES_B2B.get(estado, "#9ca3af")
     st.markdown(
-        f'<div style="display:flex;justify-content:space-between;align-items:center;'
-        f'margin-bottom:16px;flex-wrap:wrap;gap:8px">'
+        f'<div style="display:flex;justify-content:space-between;'
+        f'align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:18px">'
         f'<div>'
-        f'<span style="font-size:18px;font-weight:800;color:#f1f5f9">{nombre}</span>'
-        f'<span style="color:#64748b;font-size:13px;margin-left:8px">{nit}</span>'
-        f'{regulada_badge}'
+        f'<div style="font-size:20px;font-weight:800;color:#f1f5f9;margin-bottom:3px">'
+        f'{nombre}</div>'
+        f'<div style="color:#64748b;font-size:13px">NIT: {nit}</div>'
         f'</div>'
-        f'<div style="display:flex;gap:8px;align-items:center">'
-        f'{criticidad_badge}'
-        f'<span style="color:#64748b;font-size:11px">Score SARLAFT: '
-        f'<span style="color:{score_color};font-weight:700">{int(puntaje)}/100</span></span>'
+        f'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+        f'<span style="background:#1e274022;color:#93c5fd;border:1px solid #3b4f7a;'
+        f'border-radius:9999px;padding:3px 12px;font-size:12px;font-weight:500">'
+        f'🏦 {tipo}</span>'
+        f'<span style="background:{e_color}22;color:{e_color};'
+        f'border:1px solid {e_color}44;border-radius:9999px;'
+        f'padding:3px 14px;font-size:12px;font-weight:700">'
+        f'{estado}</span>'
         f'</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
 
-    tab_gral, tab_op, tab_iso = st.tabs(
-        ["📋 General", "⚙️ Operación Técnica", "🛡️ Compliance & ISO"]
-    )
+    # ── Sección: Parámetros de negocio + Corresponsalías ─────────────────────
+    col_neg, col_vin = st.columns(2)
 
-    # ── Tab 1: General ────────────────────────────────────────────────────────
-    with tab_gral:
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Tipo de Aliado**")
-            st.write(aliado.get("tipo_aliado") or "—")
-            st.markdown("**Estado Pipeline**")
-            estado_pip = aliado.get("estado_pipeline", "—")
-            pip_c = _COLORES_PIPELINE.get(estado_pip, "#6b7280")
+    with col_neg:
+        st.markdown(
+            '<div style="background:#ffffff08;border-radius:10px;padding:14px 16px">'
+            '<div style="color:#5fe9d0;font-size:11px;text-transform:uppercase;'
+            'letter-spacing:.7px;font-weight:700;margin-bottom:12px">'
+            '📊 Parámetros de Negocio</div>',
+            unsafe_allow_html=True,
+        )
+
+        def _param_row(label: str, value: str) -> None:
             st.markdown(
-                f'<span style="background:{pip_c}22;color:{pip_c};border:1px solid {pip_c}44;'
-                f'border-radius:9999px;padding:2px 10px;font-size:12px;font-weight:600">'
-                f'{estado_pip}</span>',
-                unsafe_allow_html=True,
-            )
-            st.markdown("**Ciudad / Departamento**")
-            ciudad = aliado.get("ciudad") or "—"
-            depto  = aliado.get("departamento_geo") or ""
-            st.write(f"{ciudad}{(', ' + depto) if depto else ''}")
-        with c2:
-            st.markdown("**Representante Legal**")
-            st.write(aliado.get("representante_legal") or "—")
-            st.markdown("**Cargo**")
-            st.write(aliado.get("cargo_representante") or "—")
-            st.markdown("**Email de Contacto**")
-            st.write(aliado.get("email_contacto") or "—")
-
-        st.divider()
-        st.markdown("**Relación Corporativa**")
-        rc1, rc2, rc3 = st.columns(3)
-        for col, empresa, field in [
-            (rc1, "HoldingsBPO", "estado_hbpocorp"),
-            (rc2, "Adamo",       "estado_adamo"),
-            (rc3, "Paycop",      "estado_paycop"),
-        ]:
-            val   = aliado.get(field, "Sin relación")
-            color = "#22c55e" if val == "Activo" else ("#ef4444" if val == "Inactivo" else "#6b7280")
-            col.markdown(
-                f'<div style="text-align:center;background:#1f2937;border-radius:8px;padding:10px">'
-                f'<div style="color:#9ca3af;font-size:11px">{empresa}</div>'
-                f'<div style="color:{color};font-weight:700;font-size:14px">{val}</div>'
+                f'<div style="display:flex;justify-content:space-between;'
+                f'align-items:baseline;padding:5px 0;'
+                f'border-bottom:1px solid #1e2740">'
+                f'<span style="color:#64748b;font-size:12px">{label}</span>'
+                f'<span style="color:#e2e8f0;font-size:13px;font-weight:600">{value}</span>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
-        jur_list = aliado.get("jurisdicciones") or []
-        if jur_list:
-            st.markdown("**Jurisdicciones de Operación**")
-            from config.settings import Jurisdicciones as _Jur
+        # Jurisdicción operativa — primera de la lista o "—"
+        jur_display = jur_list[0] if jur_list else "—"
+        if len(jur_list) > 1:
+            jur_display += f" +{len(jur_list)-1}"
+
+        _param_row("Tipo de Alianza",         tipo)
+        _param_row("Jurisdicción Operativa",   jur_display)
+        _param_row("Tiempo de Liquidación",    sla)
+        _param_row("Esquema de Comisiones",    aliado.get("fee_structure") or "—")
+        _param_row("Límite Operativo Diario",  aliado.get("daily_limit") or "—")
+        _param_row("Volumen Mensual",          aliado.get("volumen_real_mensual") or "—")
+
+        # Jurisdicciones completas si hay más de 1
+        if len(jur_list) > 1:
             badges = []
             for j in jur_list:
-                is_risky = j in _Jur.ALTO_RIESGO
+                is_risky = j in Jurisdicciones.ALTO_RIESGO
                 jbg      = "#450a0a" if is_risky else "#1e2740"
-                jcolor   = "#fca5a5" if is_risky else "#93c5fd"
-                jborder  = "#ef444466" if is_risky else "#3b4f7a"
+                jcol     = "#fca5a5" if is_risky else "#93c5fd"
+                jbor     = "#ef444466" if is_risky else "#3b4f7a"
                 badges.append(
-                    f'<span style="background:{jbg};color:{jcolor};border:1px solid {jborder};'
-                    f'border-radius:5px;padding:3px 8px;font-size:11px;font-weight:500">{j}</span>'
+                    f'<span style="background:{jbg};color:{jcol};'
+                    f'border:1px solid {jbor};border-radius:5px;'
+                    f'padding:2px 7px;font-size:10px">{j}</span>'
                 )
             st.markdown(
-                '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'
+                '<div style="margin-top:10px;display:flex;gap:4px;flex-wrap:wrap">'
                 + " ".join(badges) + '</div>',
                 unsafe_allow_html=True,
             )
 
-    # ── Tab 2: Operación Técnica ──────────────────────────────────────────────
-    with tab_op:
-        t1, t2 = st.columns(2)
-        with t1:
-            st.markdown("**Tipo de Riel**")
-            tipo_riel = aliado.get("tipo_riel") or "—"
-            riel_icons = {"Dispersión": "📤", "Recaudo": "📥", "Crypto": "🔷",
-                          "Mixto": "🔄", "N/A": "➖"}
-            icon = riel_icons.get(tipo_riel, "⚙️")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with col_vin:
+        st.markdown(
+            '<div style="background:#ffffff08;border-radius:10px;padding:14px 16px">'
+            '<div style="color:#5fe9d0;font-size:11px;text-transform:uppercase;'
+            'letter-spacing:.7px;font-weight:700;margin-bottom:12px">'
+            '🔗 Red de Corresponsalías</div>',
+            unsafe_allow_html=True,
+        )
+        if vinculos:
+            for v in vinculos:
+                st.markdown(
+                    f'<div style="border-left:3px solid #3b82f6;'
+                    f'background:#1e2740;border-radius:0 8px 8px 0;'
+                    f'padding:10px 14px;margin-bottom:8px">'
+                    f'<span style="color:#93c5fd;font-size:13px;font-weight:600">'
+                    f'🏦 {v}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+        else:
             st.markdown(
-                f'<span style="background:#1e2740;color:#93c5fd;border:1px solid #3b4f7a;'
-                f'border-radius:8px;padding:4px 12px;font-size:13px;font-weight:600">'
-                f'{icon} {tipo_riel}</span>',
+                '<div style="color:#4b5563;font-size:12px;padding:8px 0">'
+                'Sin corresponsalías registradas</div>',
                 unsafe_allow_html=True,
             )
-            st.markdown("**SLA Garantizado**")
-            st.write(aliado.get("sla_garantizado") or "—")
-            st.markdown("**Monedas Soportadas**")
-            st.write(aliado.get("monedas_soportadas") or "—")
-        with t2:
-            st.markdown("**Volumen Real Mensual**")
-            st.write(aliado.get("volumen_real_mensual") or "—")
-            st.markdown("**Clientes Vinculados**")
-            st.write(aliado.get("clientes_vinculados") or "—")
+        st.markdown(
+            '<div style="margin-top:10px;color:#64748b;font-size:11px">'
+            'Registra el Partner de Respaldo en el formulario de edición '
+            'para ampliar esta sección.</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        st.divider()
-        st.markdown("**Capacidades Operativas**")
-        caps = [
-            ("🔷 Crypto Friendly",    aliado.get("crypto_friendly")),
-            ("🔞 Adult Friendly",     aliado.get("adult_friendly")),
-            ("💱 Permite Monetización", aliado.get("permite_monetizacion")),
-            ("📤 Permite Dispersión", aliado.get("permite_dispersion")),
-        ]
-        cap_cols = st.columns(4)
-        for idx, (label, activo) in enumerate(caps):
-            bg    = "#0d2d1e" if activo else "#1f2937"
-            color = "#22c55e" if activo else "#4b5563"
+    st.markdown("<div style='margin-top:18px'></div>", unsafe_allow_html=True)
+
+    # ── Tabs: Capacidades + KYB Compliance ───────────────────────────────────
+    tab_caps, tab_kyb = st.tabs(["⚡ Capacidades Técnicas", "📚 Estado de Documentación"])
+
+    with tab_caps:
+        st.markdown(
+            '<p style="color:#9ca3af;font-size:12px;margin-bottom:14px">'
+            'Capacidades operativas activas del riel de infraestructura.</p>',
+            unsafe_allow_html=True,
+        )
+        cap_cols = st.columns(min(len(capacidades), 3))
+        for idx, (label, activo) in enumerate(capacidades):
+            bg    = "#0d2d1e" if activo else "#1a1f2e"
+            color = "#10b981" if activo else "#4b5563"
+            bord  = "#10b98133" if activo else "#293056"
             icono = "✅" if activo else "✗"
-            cap_cols[idx].markdown(
-                f'<div style="background:{bg};border:1px solid {color}44;border-radius:8px;'
-                f'padding:8px;text-align:center">'
-                f'<div style="font-size:10px;color:{color};font-weight:600">{label}</div>'
-                f'<div style="font-size:18px">{icono}</div>'
+            cap_cols[idx % 3].markdown(
+                f'<div style="background:{bg};border:1px solid {bord};'
+                f'border-radius:10px;padding:12px 14px;text-align:center;'
+                f'margin-bottom:8px">'
+                f'<div style="font-size:12px;color:{color};font-weight:600;'
+                f'margin-bottom:4px">{label}</div>'
+                f'<div style="font-size:20px">{icono}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
-    # ── Tab 3: Compliance & ISO ───────────────────────────────────────────────
-    with tab_iso:
-        ci1, ci2 = st.columns(2)
-        with ci1:
-            st.markdown("**Nivel de Criticidad Operativa**")
-            st.markdown(
-                f'<span style="background:{c_color}22;color:{c_color};border:1px solid {c_color}44;'
-                f'border-radius:8px;padding:4px 14px;font-size:13px;font-weight:700">'
-                f'{criticidad}</span>',
-                unsafe_allow_html=True,
-            )
-            st.markdown("**Score SARLAFT**")
-            score_pct = min(100, int(puntaje))
-            st.markdown(
-                f'<div style="margin-top:4px">'
-                f'<span style="font-size:22px;font-weight:700;color:{score_color}">'
-                f'{int(puntaje)}</span>'
-                f'<span style="color:#64748b;font-size:11px"> / 100</span>'
-                f'</div>'
-                f'<div style="background:#1e293b;border-radius:9999px;height:8px;'
-                f'overflow:hidden;margin-top:6px">'
-                f'<div style="background:{score_color};width:{score_pct}%;height:100%;'
-                f'border-radius:9999px"></div></div>',
-                unsafe_allow_html=True,
-            )
-            st.markdown("**Estado SARLAFT**")
-            s_val   = aliado.get("estado_sarlaft", "—")
-            s_color = _COLORES_SARLAFT.get(s_val, "#6b7280")
-            st.markdown(
-                f'<span style="background:{s_color}22;color:{s_color};border:1px solid {s_color}44;'
-                f'border-radius:9999px;padding:2px 10px;font-size:12px;font-weight:600">'
-                f'{s_val}</span>',
-                unsafe_allow_html=True,
-            )
-            pep_val = bool(aliado.get("es_pep", False))
-            if pep_val:
-                st.markdown(
-                    '<span style="background:#92400e22;color:#f59e0b;border:1px solid #f59e0b44;'
-                    'border-radius:9999px;padding:2px 10px;font-size:12px;font-weight:700">'
-                    '⚠️ Persona Expuesta Políticamente</span>',
-                    unsafe_allow_html=True,
-                )
-        with ci2:
-            st.markdown("**Entidad Regulada**")
-            if es_regulada:
-                st.markdown(
-                    '<span style="background:#5fe9d022;color:#5fe9d0;border:1px solid #5fe9d044;'
-                    'border-radius:9999px;padding:2px 10px;font-size:12px;font-weight:700">'
-                    '🏛️ Sí — Licencia Financiera</span>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.write("No")
-            st.markdown("**Número de Licencia**")
-            st.write(aliado.get("numero_licencia") or "—")
-            st.markdown("**Fecha Última Auditoría**")
-            st.write(str(aliado.get("fecha_ultima_auditoria") or "—"))
+    with tab_kyb:
+        st.markdown(
+            '<p style="color:#9ca3af;font-size:12px;margin-bottom:14px">'
+            'Checklist KYB — estado de documentación institucional del partner.</p>',
+            unsafe_allow_html=True,
+        )
 
-        certs = aliado.get("certificaciones") or []
+        # Estado SARLAFT → estado Due Diligence
+        sarlaft_val   = aliado.get("estado_sarlaft") or "Pendiente"
+        sarlaft_map   = {"Al Día": "Aprobado", "En Revisión": "En Revisión",
+                         "Pendiente": "Pendiente", "Vencido": "Pendiente"}
+        dd_estado     = sarlaft_map.get(sarlaft_val, "Pendiente")
+
+        # Licencia activa
+        licencia_ok   = bool(aliado.get("numero_licencia"))
+        regulada_ok   = bool(aliado.get("es_entidad_regulada"))
+
+        # Pipeline avanzado → contrato firmado
+        pipeline_avz  = aliado.get("estado_pipeline") in ("Onboarding", "Activo")
+
+        # Certificaciones ISO
+        certs         = aliado.get("certificaciones") or []
+
+        kyb_items = [
+            ("Contrato de Alianza",          "Aprobado"     if pipeline_avz  else "Pendiente"),
+            ("Formulario Due Diligence",      dd_estado),
+            ("Certificación Bancaria",        "Aprobado"     if regulada_ok   else "Pendiente"),
+            ("Licencia Operativa / SFC",      "Aprobado"     if licencia_ok   else "Pendiente"),
+            ("Ficha SARLAFT",                 dd_estado),
+            ("Certificaciones ISO/Técnicas",
+             "Aprobado" if certs else "Pendiente"),
+        ]
+
+        _EST_ICON  = {"Aprobado": "✅", "En Revisión": "⏳", "Pendiente": "❌"}
+        _EST_COLOR = {"Aprobado": "#10b981", "En Revisión": "#f59e0b", "Pendiente": "#6b7280"}
+
+        for doc_nombre, doc_estado in kyb_items:
+            icono  = _EST_ICON.get(doc_estado, "❌")
+            dcolor = _EST_COLOR.get(doc_estado, "#6b7280")
+            st.markdown(
+                f'<div style="display:flex;justify-content:space-between;'
+                f'align-items:center;padding:9px 14px;margin-bottom:6px;'
+                f'background:#ffffff07;border-radius:8px;'
+                f'border-left:3px solid {dcolor}">'
+                f'<span style="color:#e2e8f0;font-size:13px">{doc_nombre}</span>'
+                f'<span style="background:{dcolor}22;color:{dcolor};'
+                f'border:1px solid {dcolor}44;border-radius:9999px;'
+                f'padding:2px 10px;font-size:11px;font-weight:700">'
+                f'{icono} {doc_estado}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
         if certs:
-            st.divider()
-            st.markdown("**Certificaciones**")
-            cert_icons = {
-                "ISO 27001": "🔒", "PCI-DSS": "💳", "ISO 9001": "✅",
-                "SOC 2": "🛡️", "ISO 20000": "⚙️",
-            }
-            cert_html = " ".join(
-                f'<span style="background:#1e2740;color:#93c5fd;border:1px solid #3b4f7a;'
-                f'border-radius:8px;padding:4px 12px;font-size:12px;font-weight:600">'
-                f'{cert_icons.get(c, "📋")} {c}</span>'
-                for c in certs
-            )
             st.markdown(
-                f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">'
-                f'{cert_html}</div>',
+                '<div style="margin-top:10px;color:#64748b;font-size:11px">'
+                f'Certificaciones activas: {", ".join(certs)}</div>',
                 unsafe_allow_html=True,
             )
 
-        st.divider()
-        gc1, gc2 = st.columns(2)
-        with gc1:
-            st.markdown("**Partner de Respaldo (Continuidad)**")
-            st.write(aliado.get("partner_respaldo") or "—")
-        with gc2:
-            st.markdown("**% Concentración Operativa**")
-            pct = aliado.get("pct_concentracion")
-            if pct is not None:
-                pct_color = "#ef4444" if pct >= 60 else ("#f59e0b" if pct >= 40 else "#22c55e")
-                st.markdown(
-                    f'<span style="font-size:20px;font-weight:700;color:{pct_color}">'
-                    f'{pct:.1f}%</span>',
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.write("—")
+    # ── Pie de página ─────────────────────────────────────────────────────────
+    st.markdown(
+        f'<div style="margin-top:16px;padding-top:12px;'
+        f'border-top:1px solid #1e2740;display:flex;'
+        f'justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+        f'<span style="color:#4b5563;font-size:11px">ID de registro: #{fid}</span>'
+        f'<span style="color:#4b5563;font-size:11px">'
+        f'Account Manager: {aliado.get("account_manager") or "—"}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
     # ── Botón Cerrar ─────────────────────────────────────────────────────────
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1128,82 +1289,12 @@ def page_partners(user: dict) -> None:
             + '</div>'
         ) if jur_list else ""
 
-        # ── HTML de la tarjeta ────────────────────────────────────────────────
-        card_html = (
-            # Contenedor principal — borde dinámico según criticidad
-            f'<div style="background:{card_bg};border:1.5px solid {card_border};'
-            f'border-radius:12px;padding:16px 20px 14px;margin-bottom:2px;'
-            f'box-shadow:{card_glow}">'
-
-            # Encabezado: nombre + NIT + regulada badge
-            f'<div style="display:flex;justify-content:space-between;align-items:flex-start;'
-            f'margin-bottom:8px;flex-wrap:wrap;gap:6px">'
-            f'<div>'
-            f'<span style="font-weight:700;color:#f1f5f9;font-size:16px;margin-right:8px">'
-            f'{nombre}</span>'
-            f'<span style="color:#64748b;font-size:12px">{nit}</span>'
-            f'{regulada_badge}'
-            f'</div>'
-            f'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">'
-            f'{pip_pill}{pep_badge}'
-            f'</div>'
-            f'</div>'
-
-            # Fila de criticidad + SARLAFT + tipo riel
-            f'<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px">'
-            f'{criticidad_pill}{sarlaft_pill}{riel_badge}'
-            f'</div>'
-
-            # Grid 2 columnas: info + score SARLAFT
-            f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
-
-            # Col izq — Tipo de Alianza + Próxima Revisión
-            f'<div style="background:#ffffff0a;border-radius:8px;padding:10px 12px">'
-            f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
-            f'<span style="font-size:16px">🏦</span>'
-            f'<div>'
-            f'<div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.5px">'
-            f'Tipo de Alianza</div>'
-            f'<div style="color:#e2e8f0;font-size:13px;font-weight:600">{tipo}</div>'
-            f'</div>'
-            f'</div>'
-            f'<div style="display:flex;align-items:center;gap:8px">'
-            f'<span style="font-size:15px">📅</span>'
-            f'<div>'
-            f'<div style="color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:.5px">'
-            f'Próx. Revisión SARLAFT</div>'
-            f'<div style="color:#cbd5e1;font-size:12px">{fecha_str}</div>'
-            f'</div>'
-            f'</div>'
-            f'</div>'
-
-            # Col der — Score SARLAFT con barra de progreso
-            f'<div style="background:#ffffff0a;border-radius:8px;padding:10px 12px">'
-            f'<div style="color:#64748b;font-size:10px;text-transform:uppercase;'
-            f'letter-spacing:.5px;margin-bottom:6px">🎯 Score SARLAFT</div>'
-            f'<div style="display:flex;align-items:baseline;gap:4px;margin-bottom:8px">'
-            f'<span style="font-size:24px;font-weight:700;color:{score_color}">{int(puntaje)}</span>'
-            f'<span style="font-size:11px;color:#64748b">/ 100</span>'
-            f'</div>'
-            f'<div style="background:#1e293b;border-radius:9999px;height:7px;overflow:hidden">'
-            f'<div style="background:{score_color};width:{score_pct}%;height:100%;'
-            f'border-radius:9999px"></div>'
-            f'</div>'
-            f'</div>'
-
-            f'</div>'  # end grid
-
-            # Jurisdicciones (condicional)
-            + jur_section
-
-            # Capacidades operativas
-            + f'<div>'
-            f'<span style="color:#64748b;font-size:10px;text-transform:uppercase;'
-            f'letter-spacing:.5px;margin-right:6px">⚡ Capacidades</span>'
-            f'{caps_html}'
-            f'</div>'
-
-            f'</div>'  # end card
+        # ── HTML de la tarjeta B2B ────────────────────────────────────────────
+        card_html = _card_banking_partner(
+            fila,
+            edit_id=edit_activo,
+            delete_id=del_activo,
+            detail_id=st.session_state.get("detail_id"),
         )
 
         with st.container():
@@ -1623,6 +1714,251 @@ def _tab_analisis_riesgo(user: dict) -> None:
         st.markdown('</div>', unsafe_allow_html=True)
 
 
+# ── Monitor Operativo de Rieles ───────────────────────────────────────────────
+
+def _tab_monitor_operativo(user: dict) -> None:
+    """Tablero de control operativo: salud, capacidad y volumen de los rieles de pago."""
+    import streamlit as st
+    from db.database import get_session
+    from db.repositories.partner_repo import PartnerRepository
+
+    st.markdown(
+        '<h3 style="color:#5fe9d0;margin-bottom:4px">📊 Monitor Operativo de Rieles</h3>'
+        '<p style="color:#9ca3af;margin-top:0;margin-bottom:18px">'
+        'Salud técnica · Capacidad financiera · Continuidad de negocio</p>',
+        unsafe_allow_html=True,
+    )
+
+    # ── Carga de datos ────────────────────────────────────────────────────────
+    with next(get_session()) as _s:
+        _repo = PartnerRepository(_s)
+        _filas = _repo.get_lista_enriquecida()
+
+    total    = len(_filas)
+    activos  = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Activo")
+    suspendidos = [r for r in _filas if _idx(r, "estado_pipeline") == "Suspendido"]
+
+    # ── KPIs principales ──────────────────────────────────────────────────────
+    _KPI = (
+        "background:#1f2937;border:1px solid #293056;border-radius:10px;"
+        "padding:16px 20px;text-align:center;"
+    )
+    k1, k2, k3 = st.columns(3)
+
+    k1.markdown(
+        f'<div style="{_KPI}">'
+        f'<div style="font-size:1.9rem;font-weight:700;color:#22c55e">{activos} / {total}</div>'
+        f'<div style="font-size:.78rem;color:#9ca3af;margin-top:4px">Rieles Activos / Total</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    # Volumen: derivado de pct_concentracion como proxy cuando no hay campo real
+    _vol_refs = [_idx(r, "pct_concentracion") for r in _filas if _idx(r, "pct_concentracion")]
+    _vol_display = f"{sum(float(v) for v in _vol_refs):.0f}%" if _vol_refs else "N/D"
+    k2.markdown(
+        f'<div style="{_KPI}">'
+        f'<div style="font-size:1.9rem;font-weight:700;color:#3b82f6">{_vol_display}</div>'
+        f'<div style="font-size:.78rem;color:#9ca3af;margin-top:4px">Concentración de Carga (acum.)</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    # Tasa de éxito proxy: 100% si ningún suspendido, decrementa 5% por cada uno
+    _tasa = max(0.0, 100.0 - len(suspendidos) * 5.0)
+    _tasa_color = "#22c55e" if _tasa >= 95 else "#f59e0b" if _tasa >= 80 else "#ef4444"
+    k3.markdown(
+        f'<div style="{_KPI}">'
+        f'<div style="font-size:1.9rem;font-weight:700;color:{_tasa_color}">{_tasa:.1f}%</div>'
+        f'<div style="font-size:.78rem;color:#9ca3af;margin-top:4px">Tasa de Éxito de la Red</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
+
+    # ── Alertas operativas ────────────────────────────────────────────────────
+    _alertas = False
+    for _r in suspendidos:
+        st.error(
+            f"🔴 Riel **{_idx(_r,'nombre_razon_social','—')}** en estado **Suspendido** — "
+            "verificar continuidad operativa y activar riel de respaldo."
+        )
+        _alertas = True
+
+    # Documento próximo a vencer (fecha_proxima_revision)
+    import datetime as _dt
+    _hoy = _dt.date.today()
+    for _r in _filas:
+        _fecha = _idx(_r, "fecha_proxima_revision")
+        if _fecha:
+            try:
+                _d = _fecha.date() if hasattr(_fecha, "date") else _dt.date.fromisoformat(str(_fecha))
+                _dias = (_d - _hoy).days
+                if 0 <= _dias <= 30:
+                    st.warning(
+                        f"⚠️ **{_idx(_r,'nombre_razon_social','—')}** — Documentación KYB vence "
+                        f"en **{_dias} días** ({_d.strftime('%d/%m/%Y')}). Renovar Contrato/DD."
+                    )
+                    _alertas = True
+            except (ValueError, TypeError):
+                pass
+
+    if not _alertas:
+        st.success("✅ Todos los rieles operativos dentro de parámetros normales.")
+
+    st.markdown("<hr style='border-color:#293056;margin:20px 0'>", unsafe_allow_html=True)
+
+    # ── Matriz de monitoreo de rieles ─────────────────────────────────────────
+    st.markdown(
+        '<p style="font-weight:600;color:#e2e8f0;margin-bottom:10px">'
+        '🖥️ Matriz de Estado — Rieles en Tiempo Real</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Mapeo salud del canal: Suspendido→Degradado, Onboarding→Mantenimiento, resto→Online
+    def _salud_canal(estado: str) -> tuple[str, str]:
+        if estado == "Suspendido":
+            return "🔴 Degradado", "#ef4444"
+        if estado in ("Onboarding", "En Calificación"):
+            return "🟡 Mantenimiento", "#f59e0b"
+        if estado == "Activo":
+            return "🟢 Online", "#22c55e"
+        return "⚪ Inactivo", "#6b7280"
+
+    # Latencia proxy desde tipo_riel / sla_garantizado
+    def _latencia_display(r: dict) -> str:
+        sla = _idx(r, "sla_garantizado") or ""
+        tipo = (_idx(r, "tipo_riel") or "").lower()
+        if "t+0" in sla.lower() or "inmediato" in sla.lower():
+            return "T+0 (~150ms)"
+        if "t+1" in sla.lower():
+            return "T+1 (24h)"
+        if "instant" in tipo or "real" in tipo:
+            return "T+0 (~200ms)"
+        return sla if sla else "—"
+
+    # Volumen proxy desde pct_concentracion
+    def _vol_canal(r: dict) -> str:
+        pct = _idx(r, "pct_concentracion")
+        if pct:
+            try:
+                return f"{float(pct):.1f}% del total"
+            except (ValueError, TypeError):
+                pass
+        return "—"
+
+    # Construir tabla HTML
+    _COL_HDR = "background:#111827;color:#9ca3af;font-size:.72rem;padding:8px 12px;text-align:left;"
+    _COL_CEL = "padding:10px 12px;font-size:.82rem;border-bottom:1px solid #1f2937;"
+    _ROW_BG_ODD  = "background:#0f172a;"
+    _ROW_BG_EVEN = "background:#111827;"
+
+    _html_rows = ""
+    for _i, _r in enumerate(_filas):
+        _nombre   = _idx(_r, "nombre_razon_social") or "—"
+        _tipo     = _idx(_r, "tipo_aliado") or _idx(_r, "tipo_riel") or "—"
+        _estado   = _idx(_r, "estado_pipeline") or "—"
+        _salud_t, _salud_c = _salud_canal(_estado)
+        _lat      = _latencia_display(_r)
+        _vol      = _vol_canal(_r)
+        _row_bg   = _ROW_BG_ODD if _i % 2 == 0 else _ROW_BG_EVEN
+        _estado_color = _ESTADO_COLORES_B2B.get(_estado, "#9ca3af")
+        _html_rows += (
+            f'<tr style="{_row_bg}">'
+            f'<td style="{_COL_CEL}color:#e2e8f0;font-weight:600">{_nombre}</td>'
+            f'<td style="{_COL_CEL}color:#9ca3af">{_tipo}</td>'
+            f'<td style="{_COL_CEL}"><span style="background:{_estado_color}22;color:{_estado_color};'
+            f'border-radius:4px;padding:2px 8px;font-size:.75rem;font-weight:600">{_estado}</span></td>'
+            f'<td style="{_COL_CEL}color:{_salud_c};font-weight:600">{_salud_t}</td>'
+            f'<td style="{_COL_CEL}color:#9ca3af">{_lat}</td>'
+            f'<td style="{_COL_CEL}color:#60a5fa">{_vol}</td>'
+            f'</tr>'
+        )
+
+    if not _html_rows:
+        _html_rows = (
+            '<tr><td colspan="6" style="padding:20px;text-align:center;color:#6b7280">'
+            'Sin partners registrados.</td></tr>'
+        )
+
+    st.markdown(
+        f'<div style="overflow-x:auto;border-radius:10px;border:1px solid #293056">'
+        f'<table style="width:100%;border-collapse:collapse">'
+        f'<thead><tr>'
+        f'<th style="{_COL_HDR}">Aliado</th>'
+        f'<th style="{_COL_HDR}">Tipo de Riel</th>'
+        f'<th style="{_COL_HDR}">Estado Operativo</th>'
+        f'<th style="{_COL_HDR}">Salud del Canal</th>'
+        f'<th style="{_COL_HDR}">Latencia / SLA</th>'
+        f'<th style="{_COL_HDR}">Volumen Canalizado</th>'
+        f'</tr></thead>'
+        f'<tbody>{_html_rows}</tbody>'
+        f'</table></div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("<div style='margin-bottom:24px'></div>", unsafe_allow_html=True)
+
+    # ── Gráfico: Distribución de carga por riel ───────────────────────────────
+    st.markdown(
+        '<p style="font-weight:600;color:#e2e8f0;margin-bottom:10px">'
+        '📈 Distribución de Carga por Riel</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Construir datos para el gráfico
+    _chart_data: dict[str, float] = {}
+    for _r in _filas:
+        _nombre = _idx(_r, "nombre_razon_social") or "Sin nombre"
+        _pct = _idx(_r, "pct_concentracion")
+        try:
+            _chart_data[_nombre] = float(_pct) if _pct else 0.0
+        except (ValueError, TypeError):
+            _chart_data[_nombre] = 0.0
+
+    _nombres_activos = [_idx(r, "nombre_razon_social") or "—" for r in _filas
+                        if _idx(r, "estado_pipeline") == "Activo"]
+
+    _has_real_data = any(v > 0 for v in _chart_data.values())
+
+    if _has_real_data:
+        try:
+            import pandas as _pd
+            _df_chart = _pd.DataFrame(
+                {"Aliado": list(_chart_data.keys()), "% Carga": list(_chart_data.values())}
+            ).set_index("Aliado")
+            st.bar_chart(_df_chart, color="#3b82f6")
+        except Exception:
+            for _nombre, _pct_v in _chart_data.items():
+                if _pct_v > 0:
+                    st.markdown(
+                        f'<div style="margin:4px 0;display:flex;align-items:center;gap:8px">'
+                        f'<span style="color:#e2e8f0;min-width:180px;font-size:.82rem">{_nombre}</span>'
+                        f'<div style="flex:1;background:#1f2937;border-radius:4px;height:16px">'
+                        f'<div style="width:{min(_pct_v,100):.0f}%;background:#3b82f6;'
+                        f'border-radius:4px;height:16px"></div></div>'
+                        f'<span style="color:#60a5fa;font-size:.78rem;min-width:44px">'
+                        f'{_pct_v:.1f}%</span></div>',
+                        unsafe_allow_html=True,
+                    )
+    else:
+        # Sin pct_concentracion: distribución equitativa entre activos
+        if _nombres_activos:
+            _eq_pct = round(100.0 / len(_nombres_activos), 1)
+            for _n in _nombres_activos:
+                st.markdown(
+                    f'<div style="margin:4px 0;display:flex;align-items:center;gap:8px">'
+                    f'<span style="color:#e2e8f0;min-width:180px;font-size:.82rem">{_n}</span>'
+                    f'<div style="flex:1;background:#1f2937;border-radius:4px;height:16px">'
+                    f'<div style="width:{_eq_pct:.0f}%;background:#3b82f6;'
+                    f'border-radius:4px;height:16px"></div></div>'
+                    f'<span style="color:#60a5fa;font-size:.78rem;min-width:44px">'
+                    f'{_eq_pct}%</span></div>',
+                    unsafe_allow_html=True,
+                )
+            st.caption("⚠️ Sin datos de concentración reales — distribución equitativa estimada entre rieles activos.")
+        else:
+            st.info("Sin rieles activos para graficar.")
+
+
 # ── Módulo maestro: Gestión de Alianzas ──────────────────────────────────────
 
 def page_alianzas(user: dict) -> None:
@@ -1630,7 +1966,7 @@ def page_alianzas(user: dict) -> None:
     🤝 Gestión de Alianzas Estratégicas — Banking Partners Hub.
 
     Consolida en 3 pestañas:
-      📊 Monitor    — KPIs de gestión: Total, Activos, Riesgo Alto, PEPs
+      📊 Monitor    — Tablero operativo: salud de rieles, KPIs de red, distribución de carga
       📋 Portafolio — Grilla de tarjetas con filtros de búsqueda y edición
       ➕ Alta        — Formulario de registro (solo CAN_CREATE_PARTNERS)
 
@@ -1664,9 +2000,7 @@ def page_alianzas(user: dict) -> None:
     tabs = st.tabs(_tab_labels)
 
     with tabs[0]:
-        # KPIs rápidos de gestión: Total, Activos, Riesgo Alto, PEPs
-        from app.components.dashboard_ui import page_dashboard
-        page_dashboard(user)
+        _tab_monitor_operativo(user)
 
     with tabs[1]:
         # Notificación de partner recién registrado dentro del Portafolio
