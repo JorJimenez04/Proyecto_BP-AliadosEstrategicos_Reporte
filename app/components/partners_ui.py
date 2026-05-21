@@ -1737,6 +1737,59 @@ def _tab_monitor_operativo(user: dict) -> None:
         _repo = PartnerRepository(_s)
         _filas = _repo.get_lista_enriquecida()
 
+    # ── KPIs Globales del Portafolio ─────────────────────────────────────────
+    _total_p    = len(_filas)
+    _activos_p  = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Activo")
+    _alto_r_p   = sum(
+        1 for r in _filas
+        if _idx(r, "nivel_riesgo") in ("Alto", "Muy Alto")
+    )
+    _onboard_p  = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Onboarding")
+    _pct_act_p  = f"{round(_activos_p / _total_p * 100)}% del portafolio" if _total_p else ""
+
+    _KPI_S = (
+        "background:#0d1117;border:1px solid #1e2130;border-radius:12px;"
+        "padding:16px 20px;text-align:center;"
+    )
+    _kp1, _kp2, _kp3, _kp4 = st.columns(4)
+    _kp1.markdown(
+        f'<div style="{_KPI_S}">'
+        f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
+        f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Total Partners</div>'
+        f'<div style="color:#5fe9d0;font-size:2rem;font-weight:800;line-height:1;">{_total_p}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    _kp2.markdown(
+        f'<div style="{_KPI_S}">'
+        f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
+        f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Partners Activos</div>'
+        f'<div style="color:#22c55e;font-size:2rem;font-weight:800;line-height:1;">{_activos_p}</div>'
+        f'<div style="color:#6b7280;font-size:0.72rem;margin-top:4px;">{_pct_act_p}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    _r_color_p = "#ef4444" if _alto_r_p else "#22c55e"
+    _r_delta_p = "Requieren atenci\u00f3n" if _alto_r_p else "Bajo control"
+    _kp3.markdown(
+        f'<div style="{_KPI_S}">'
+        f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
+        f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Alto / Muy Alto Riesgo</div>'
+        f'<div style="color:{_r_color_p};font-size:2rem;font-weight:800;line-height:1;">{_alto_r_p}</div>'
+        f'<div style="color:#6b7280;font-size:0.72rem;margin-top:4px;">{_r_delta_p}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    _kp4.markdown(
+        f'<div style="{_KPI_S}">'
+        f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
+        f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">En Onboarding</div>'
+        f'<div style="color:#7857ff;font-size:2rem;font-weight:800;line-height:1;">{_onboard_p}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
+
     # ── Bloque: Relación con el Grupo Corporativo ─────────────────────────────
     st.markdown(
         '<p style="font-weight:600;color:#e2e8f0;margin-bottom:10px">'
@@ -1750,7 +1803,7 @@ def _tab_monitor_operativo(user: dict) -> None:
             "nombre":    "Holdings BPO",
             "icono":     "💼",
             "campo_db":  "estado_hbpocorp",
-            "badge":     "HOLDING MATRIZ",
+            "badge":     "COMPLIANCE CORPORATIVO",
             "badge_bg":  "#1d4ed8",
             "badge_fg":  "#93c5fd",
         },
@@ -1758,7 +1811,7 @@ def _tab_monitor_operativo(user: dict) -> None:
             "nombre":    "Adamo Services",
             "icono":     "🏦",
             "campo_db":  "estado_adamo",
-            "badge":     "SERVICIOS CORPORATIVOS",
+            "badge":     "SERVICIOS TECNOLOGICOS",
             "badge_bg":  "#065f46",
             "badge_fg":  "#6ee7b7",
         },
@@ -1766,7 +1819,7 @@ def _tab_monitor_operativo(user: dict) -> None:
             "nombre":    "PayCop International",
             "icono":     "💳",
             "campo_db":  "estado_paycop",
-            "badge":     "PASARELA DE PAGOS",
+            "badge":     "PAGOS Y SOLUCIONES FINANCIERAS",
             "badge_bg":  "#78350f",
             "badge_fg":  "#fcd34d",
         },
@@ -1784,42 +1837,167 @@ def _tab_monitor_operativo(user: dict) -> None:
     _GLOW_COLOR = ["#3b82f6", "#10b981", "#f59e0b"]
 
     _corp_cols = st.columns(len(_HOLDING_ENTITIES))
-    for _col, _ent, _glow in zip(_corp_cols, _HOLDING_ENTITIES, _GLOW_COLOR):
+
+    for _col, _ent, _color in zip(_corp_cols, _HOLDING_ENTITIES, _GLOW_COLOR):
         _campo = _ent["campo_db"]
 
-        # Construir filas flex: nombre aliado | badge estado
-        _rel_rows = ""
-        for _r in _filas:
-            _nombre_aliado = _idx(_r, "nombre_razon_social") or "—"
-            _estado_rel    = (_idx(_r, _campo) or "Sin relación").strip()
-            _badge_css     = _BADGE_REL.get(_estado_rel, _BADGE_REL["Sin relación"])
-            _rel_rows += (
-                f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                f'margin-bottom:10px;padding:4px 0;border-bottom:1px solid #1f2937">'
-                f'<span style="font-size:.83rem;color:#d1d5db;font-weight:500">{_nombre_aliado}</span>'
-                f'<span style="{_badge_css}{_BADGE_BASE}">{_estado_rel}</span>'
-                f'</div>'
-            )
-        if not _rel_rows:
-            _rel_rows = '<div style="font-size:.78rem;color:#6b7280;padding:8px 0">Sin aliados registrados</div>'
+        _bbg       = _ent["badge_bg"]
+        _bfg       = _ent["badge_fg"]
+        _badge_txt = _ent["badge"]
+        _icono     = _ent["icono"]
+        _nombre    = _ent["nombre"]
 
-        # Badge inferior de la entidad (etiqueta compacta)
+        _activos   = [r for r in _filas if (_idx(r, _campo) or "").strip() == "Activo"]
+        _inactivos = [r for r in _filas if (_idx(r, _campo) or "").strip() in ("Inactivo", "Suspendido", "Terminado")]
+        _sin_rel   = [r for r in _filas if (_idx(r, _campo) or "").strip() not in ("Activo", "Inactivo", "Suspendido", "Terminado")]
+
+        _n_act  = len(_activos)
+        _n_inac = len(_inactivos)
+        _n_sin  = len(_sin_rel)
+        _total  = _n_act + _n_inac + _n_sin
+        _pct    = round(_n_act / _total * 100) if _total else 0
+
+        if _pct >= 70:
+            _salud_color, _salud_label = "#22c55e", "Saludable"
+        elif _pct >= 40:
+            _salud_color, _salud_label = "#f59e0b", "En Alerta"
+        else:
+            _salud_color, _salud_label = "#ef4444", "Cr\u00edtico"
+
+        _circ  = 163.4
+        _f_a   = round((_n_act  / _total * _circ), 1) if _total else 0
+        _f_i   = round((_n_inac / _total * _circ), 1) if _total else 0
+        _off_a = round(_circ * 0.25, 1)
+        _off_i = round(_circ * 0.25 - _f_a, 1)
+
+        _svg = (
+            f"<svg width='72' height='72' viewBox='0 0 72 72' xmlns='http://www.w3.org/2000/svg'>"
+            f"<circle cx='36' cy='36' r='26' fill='none' stroke='#1e2130' stroke-width='8'/>"
+            f"<circle cx='36' cy='36' r='26' fill='none' stroke='#22c55e' stroke-width='8'"
+            f" stroke-dasharray='{_f_a} {_circ - _f_a}' stroke-dashoffset='{_off_a}'"
+            f" transform='rotate(-90 36 36)' stroke-linecap='round'/>"
+            f"<circle cx='36' cy='36' r='26' fill='none' stroke='#ef4444' stroke-width='8' opacity='0.7'"
+            f" stroke-dasharray='{_f_i} {_circ - _f_i}' stroke-dashoffset='{_off_i}'"
+            f" transform='rotate(-90 36 36)' stroke-linecap='round'/>"
+            f"<text x='36' y='32' text-anchor='middle' fill='#f9fafb' font-size='12' font-weight='800'"
+            f" font-family='Inter,sans-serif'>{_pct}%</text>"
+            f"<text x='36' y='44' text-anchor='middle' fill='#6b7280' font-size='6' font-weight='600'"
+            f" font-family='Inter,sans-serif' letter-spacing='0.5'>ACTIVOS</text>"
+            f"</svg>"
+        )
+
+        def _build_rows(partners: list, e_color: str, icon: str) -> str:
+            if not partners:
+                return (
+                    f"<div style='color:#4b5563;font-size:0.72rem;"
+                    f"font-style:italic;padding:4px 0;'>Sin partners</div>"
+                )
+            html = ""
+            for _p in partners:
+                _nom = _idx(_p, "nombre_razon_social") or "\u2014"
+                _nom_short = (_nom[:18] + "\u2026") if len(_nom) > 18 else _nom
+                html += (
+                    f"<div style='display:flex;align-items:center;gap:5px;"
+                    f"padding:5px 6px;border-radius:6px;margin-bottom:2px;background:#0a0d14;'>"
+                    f"<span style='color:{e_color};font-size:0.6rem;'>{icon}</span>"
+                    f"<span style='color:#d1d5db;font-size:0.76rem;'>{_nom_short}</span>"
+                    f"</div>"
+                )
+            return html
+
+        _rows_act  = _build_rows(_activos,   "#22c55e", "\u25cf")
+        _rows_inac = _build_rows(_inactivos, "#ef4444", "\u25a0")
+        _rows_sin  = _build_rows(_sin_rel,   "#4b5563", "\u25cb")
+
+        _pa = round(_n_act  / _total * 100) if _total else 0
+        _pi = round(_n_inac / _total * 100) if _total else 0
+        _ps = 100 - _pa - _pi
+        _mini_bar = (
+            f"<div style='display:flex;height:3px;border-radius:99px;"
+            f"overflow:hidden;gap:1px;margin-bottom:12px;'>"
+            f"<div style='flex:{_pa};background:#22c55e;border-radius:99px;'></div>"
+            f"<div style='flex:{_pi};background:#ef4444;opacity:0.7;border-radius:99px;'></div>"
+            f"<div style='flex:{_ps};background:#1e2130;border-radius:99px;'></div>"
+            f"</div>"
+        ) if _total else ""
+
         _label_badge = (
-            f'<span style="background:{_ent["badge_bg"]}22;color:{_ent["badge_fg"]};'
-            f'border:1px solid {_ent["badge_fg"]}33;font-size:.67rem;font-weight:700;'
-            f'letter-spacing:.7px;border-radius:20px;padding:3px 10px;text-transform:uppercase">'
-            f'{_ent["badge"]}</span>'
+            f"<span style='background:{_bbg}22;color:{_bfg};border:1px solid {_bfg}33;"
+            f"font-size:0.62rem;font-weight:700;letter-spacing:0.7px;border-radius:20px;"
+            f"padding:3px 10px;text-transform:uppercase;'>{_badge_txt}</span>"
         )
 
         _col.markdown(
-            f'<div style="background:#111827;border:1px solid #1f2937;border-top:2px solid {_glow};'
-            f'border-radius:12px;padding:18px 16px;'
-            f'box-shadow:0 10px 15px -3px rgba(0,0,0,.4);">'
-            f'<div style="font-size:.9rem;font-weight:700;color:#f1f5f9;margin-bottom:14px">'
-            f'{_ent["icono"]} {_ent["nombre"]}</div>'
-            f'{_rel_rows}'
-            f'<div style="margin-top:12px">{_label_badge}</div>'
-            f'</div>',
+            f"<div style='background:#0d1117;border:1px solid #1e2130;"
+            f"border-top:2px solid {_color};border-radius:12px;padding:16px 14px;"
+            f"box-shadow:0 4px 12px rgba(0,0,0,0.3);'>"
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:flex-start;margin-bottom:10px;'>"
+            f"<div style='font-size:0.88rem;font-weight:700;color:#f1f5f9;"
+            f"margin-bottom:5px;'>{_icono} {_nombre}</div>"
+            f"<div>{_svg}</div></div>"
+            f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
+            f"gap:6px;margin-bottom:10px;'>"
+            f"<div style='background:#0a0d14;border-radius:8px;padding:8px;"
+            f"border:1px solid #1e2130;text-align:center;'>"
+            f"<div style='color:#22c55e;font-size:1.3rem;font-weight:800;"
+            f"line-height:1;'>{_n_act}</div>"
+            f"<div style='color:#6b7280;font-size:0.55rem;margin-top:2px;"
+            f"letter-spacing:0.8px;font-weight:600;'>ACTIVOS</div></div>"
+            f"<div style='background:#0a0d14;border-radius:8px;padding:8px;"
+            f"border:1px solid #1e2130;text-align:center;'>"
+            f"<div style='color:#ef4444;font-size:1.3rem;font-weight:800;"
+            f"line-height:1;'>{_n_inac}</div>"
+            f"<div style='color:#6b7280;font-size:0.55rem;margin-top:2px;"
+            f"letter-spacing:0.8px;font-weight:600;'>INACTIVOS</div></div>"
+            f"<div style='background:#0a0d14;border-radius:8px;padding:8px;"
+            f"border:1px solid #1e2130;text-align:center;'>"
+            f"<div style='color:#4b5563;font-size:1.3rem;font-weight:800;"
+            f"line-height:1;'>{_n_sin}</div>"
+            f"<div style='color:#6b7280;font-size:0.55rem;margin-top:2px;"
+            f"letter-spacing:0.8px;font-weight:600;'>SIN REL.</div></div>"
+            f"</div>"
+            f"{_mini_bar}"
+            f"<div style='display:flex;gap:10px;margin-bottom:12px;'>"
+            f"<span style='display:flex;align-items:center;gap:4px;"
+            f"color:#6b7280;font-size:0.62rem;'>"
+            f"<span style='width:6px;height:6px;border-radius:50%;"
+            f"background:#22c55e;display:inline-block;'></span>Activos</span>"
+            f"<span style='display:flex;align-items:center;gap:4px;"
+            f"color:#6b7280;font-size:0.62rem;'>"
+            f"<span style='width:6px;height:6px;border-radius:50%;"
+            f"background:#ef4444;display:inline-block;opacity:0.7;'></span>Inactivos</span>"
+            f"<span style='display:flex;align-items:center;gap:4px;"
+            f"color:#6b7280;font-size:0.62rem;'>"
+            f"<span style='width:6px;height:6px;border-radius:50%;"
+            f"background:#1e2130;display:inline-block;'></span>Sin rel.</span>"
+            f"</div>"
+            f"<div style='border-top:1px solid #1e2130;padding-top:10px;'>"
+            f"<div style='margin-bottom:8px;'>"
+            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:5px;'>"
+            f"<span style='width:5px;height:5px;border-radius:50%;"
+            f"background:#22c55e;display:inline-block;'></span>"
+            f"<span style='color:#22c55e;font-size:0.60rem;font-weight:700;"
+            f"letter-spacing:0.8px;text-transform:uppercase;'>"
+            f"Activos ({_n_act})</span></div>{_rows_act}</div>"
+            f"<div style='margin-bottom:8px;'>"
+            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:5px;'>"
+            f"<span style='width:5px;height:5px;border-radius:50%;"
+            f"background:#ef4444;display:inline-block;opacity:0.7;'></span>"
+            f"<span style='color:#ef4444;font-size:0.60rem;font-weight:700;"
+            f"letter-spacing:0.8px;text-transform:uppercase;'>"
+            f"Inactivos ({_n_inac})</span></div>{_rows_inac}</div>"
+            f"<div>"
+            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:5px;'>"
+            f"<span style='width:5px;height:5px;border-radius:50%;"
+            f"background:#4b5563;display:inline-block;'></span>"
+            f"<span style='color:#4b5563;font-size:0.60rem;font-weight:700;"
+            f"letter-spacing:0.8px;text-transform:uppercase;'>"
+            f"Sin Relaci\u00f3n ({_n_sin})</span></div>{_rows_sin}</div>"
+            f"</div>"
+            f"<div style='margin-top:12px;border-top:1px solid #1e2130;"
+            f"padding-top:10px;'>{_label_badge}</div>"
+            f"</div>",
             unsafe_allow_html=True,
         )
 

@@ -73,88 +73,246 @@ def _empresa_card(nombre: str, datos: dict, color: str, partners: list) -> None:
     inactivos = datos.get("inactivos", 0)
     sin_rel   = datos.get("sin_relacion", 0)
     pct       = datos.get("pct_activos", 0.0)
-    total_rel = activos + inactivos
+    total_rel = activos + inactivos + sin_rel
 
+    # ── Salud badge ──────────────────────────────────────────────────
     if pct >= 70:
-        badge_color, badge_label = _C_CYAN, "Saludable"
+        salud_color, salud_label, salud_icon = _C_CYAN,  "Saludable", "●"
     elif pct >= 40:
-        badge_color, badge_label = _C_AMBER, "Alerta"
+        salud_color, salud_label, salud_icon = _C_AMBER, "En Alerta", "▲"
     else:
-        badge_color, badge_label = _C_RED, "Critico"
+        salud_color, salud_label, salud_icon = _C_RED,   "Crítico",   "■"
 
-    # Construir filas de partners como HTML puro
-    if partners:
-        filas_html = ""
-        for p in partners:
-            estado  = p.get("estado", "")
-            e_color = _C_CYAN if estado == "Activo" else _C_RED
-            filas_html += (
+    # ── Anillo SVG ───────────────────────────────────────────────────
+    # Circunferencia r=28 → 2π×28 ≈ 175.9
+    _circ     = 175.9
+    _filled_a = round((activos   / total_rel * _circ), 1) if total_rel else 0
+    _filled_i = round((inactivos / total_rel * _circ), 1) if total_rel else 0
+    _offset_a = round(_circ * 0.25, 1)
+    _offset_i = round(_circ * 0.25 - _filled_a, 1)
+
+    _ring_svg = (
+        f"<svg width='80' height='80' viewBox='0 0 80 80'"
+        f" xmlns='http://www.w3.org/2000/svg'>"
+        f"<circle cx='40' cy='40' r='28' fill='none'"
+        f" stroke='#1e2130' stroke-width='9'/>"
+        f"<circle cx='40' cy='40' r='28' fill='none'"
+        f" stroke='{_C_CYAN}' stroke-width='9'"
+        f" stroke-dasharray='{_filled_a} {_circ - _filled_a}'"
+        f" stroke-dashoffset='{_offset_a}'"
+        f" transform='rotate(-90 40 40)'"
+        f" stroke-linecap='round'/>"
+        f"<circle cx='40' cy='40' r='28' fill='none'"
+        f" stroke='{_C_RED}' stroke-width='9' opacity='0.7'"
+        f" stroke-dasharray='{_filled_i} {_circ - _filled_i}'"
+        f" stroke-dashoffset='{_offset_i}'"
+        f" transform='rotate(-90 40 40)'"
+        f" stroke-linecap='round'/>"
+        f"<text x='40' y='36' text-anchor='middle'"
+        f" fill='#f9fafb' font-size='13' font-weight='800'"
+        f" font-family='Inter,sans-serif'>{pct}%</text>"
+        f"<text x='40' y='50' text-anchor='middle'"
+        f" fill='#6b7280' font-size='7' font-weight='600'"
+        f" font-family='Inter,sans-serif' letter-spacing='0.5'>ACTIVOS</text>"
+        f"</svg>"
+    )
+
+    # ── Partners por estado (función anidada) ────────────────────────
+    def _partner_rows(estado_filtro: str, e_color: str, icon: str) -> str:
+        filtrados = [p for p in partners if p.get("estado", "") == estado_filtro]
+        if not filtrados:
+            return (
+                f"<div style='color:#4b5563;font-size:0.75rem;"
+                f"font-style:italic;padding:6px 0;'>"
+                f"Sin partners en este estado</div>"
+            )
+        rows = ""
+        for p in filtrados:
+            nombre_p = p.get("nombre_razon_social", "—")
+            riesgo   = p.get("nivel_riesgo", "")
+            r_color  = _COLORES_RIESGO.get(riesgo, "#4b5563")
+            riesgo_badge = (
+                f"<span style='background:{r_color}18;color:{r_color};"
+                f"font-size:0.62rem;font-weight:700;padding:1px 7px;"
+                f"border-radius:10px;border:1px solid {r_color}33;"
+                f"white-space:nowrap;margin-left:6px;'>{riesgo}</span>"
+            ) if riesgo else ""
+            rows += (
                 f"<div style='display:flex;justify-content:space-between;"
-                f"align-items:center;padding:7px 0;"
-                f"border-bottom:1px solid {_C_BORDER};'>"
-                f"<span style='color:#e5e7eb;font-size:0.82rem;'>"
-                f"{p['nombre_razon_social']}</span>"
-                f"<span style='background:{e_color}18;color:{e_color};"
-                f"font-size:0.68rem;font-weight:700;padding:2px 9px;"
-                f"border-radius:12px;border:1px solid {e_color}44;"
-                f"white-space:nowrap;'>{estado}</span>"
+                f"align-items:center;padding:6px 8px;border-radius:8px;"
+                f"margin-bottom:3px;background:#0d1117;'>"
+                f"<div style='display:flex;align-items:center;gap:6px;'>"
+                f"<span style='color:{e_color};font-size:0.65rem;'>{icon}</span>"
+                f"<span style='color:#e5e7eb;font-size:0.80rem;"
+                f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                f"max-width:140px;'>{nombre_p}</span>"
+                f"{riesgo_badge}"
+                f"</div>"
                 f"</div>"
             )
-    else:
-        filas_html = (
-            f"<div style='padding:10px 0;color:#4b5563;font-size:0.8rem;"
-            f"font-style:italic;'>Sin partners vinculados</div>"
-        )
+        return rows
 
-    # Un único st.markdown con toda la tarjeta — evita que los partners
-    # queden fuera del contenedor al renderizarse en bloques separados
+    def _partner_rows_multi(estados: list, e_color: str, icon: str) -> str:
+        filtrados = [
+            p for p in partners
+            if p.get("estado", "") in estados
+        ]
+        if not filtrados:
+            return (
+                f"<div style='color:#4b5563;font-size:0.75rem;"
+                f"font-style:italic;padding:6px 0;'>"
+                f"Sin partners en este estado</div>"
+            )
+        rows = ""
+        for p in filtrados:
+            nombre_p = p.get("nombre_razon_social", "—")
+            riesgo   = p.get("nivel_riesgo", "")
+            r_color  = _COLORES_RIESGO.get(riesgo, "#4b5563")
+            riesgo_badge = (
+                f"<span style='background:{r_color}18;color:{r_color};"
+                f"font-size:0.62rem;font-weight:700;padding:1px 7px;"
+                f"border-radius:10px;border:1px solid {r_color}33;"
+                f"white-space:nowrap;margin-left:6px;'>{riesgo}</span>"
+            ) if riesgo else ""
+            estado_p = p.get("estado", "")
+            rows += (
+                f"<div style='display:flex;justify-content:space-between;"
+                f"align-items:center;padding:6px 8px;border-radius:8px;"
+                f"margin-bottom:3px;background:#0d1117;'>"
+                f"<div style='display:flex;align-items:center;gap:6px;'>"
+                f"<span style='color:{e_color};font-size:0.65rem;'>{icon}</span>"
+                f"<span style='color:#e5e7eb;font-size:0.80rem;"
+                f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                f"max-width:140px;'>{nombre_p}</span>"
+                f"{riesgo_badge}"
+                f"</div>"
+                f"<span style='color:{e_color};font-size:0.62rem;"
+                f"font-weight:600;opacity:0.8;'>{estado_p}</span>"
+                f"</div>"
+            )
+        return rows
+
+    _rows_activos   = _partner_rows("Activo", _C_CYAN, "●")
+    _rows_inactivos = _partner_rows_multi(
+        ["Inactivo", "Suspendido", "Terminado"], _C_RED, "■"
+    )
+    _rows_sin_rel   = _partner_rows_multi(
+        ["Sin relación", "Sin Relacion", ""], "#4b5563", "○"
+    )
+
+    # ── Barra proporcional mini (3 colores) ──────────────────────────
+    _pct_a = round(activos   / total_rel * 100) if total_rel else 0
+    _pct_i = round(inactivos / total_rel * 100) if total_rel else 0
+    _pct_s = 100 - _pct_a - _pct_i
+
+    _mini_bar = (
+        f"<div style='display:flex;height:4px;border-radius:99px;"
+        f"overflow:hidden;gap:1px;margin-bottom:14px;'>"
+        f"<div style='flex:{_pct_a};background:{_C_CYAN};"
+        f"border-radius:99px;'></div>"
+        f"<div style='flex:{_pct_i};background:{_C_RED};"
+        f"border-radius:99px;opacity:0.7;'></div>"
+        f"<div style='flex:{_pct_s};background:#1e2130;"
+        f"border-radius:99px;'></div>"
+        f"</div>"
+    ) if total_rel else ""
+
+    # ── Render final ─────────────────────────────────────────────────
     st.markdown(
-        f"<div style='background:{_C_BG};border-radius:12px;padding:20px;"
-        f"border:1px solid {_C_BORDER};border-top:3px solid {color};'>"
+        f"<div style='background:#0d1117;border-radius:16px;padding:20px;"
+        f"border:1px solid #1e2130;border-top:3px solid {color};"
+        f"box-shadow:0 2px 8px rgba(0,0,0,0.3);'>"
 
-        # Encabezado: nombre + badge salud
+        # Header: nombre + anillo + badge salud
         f"<div style='display:flex;justify-content:space-between;"
         f"align-items:flex-start;margin-bottom:14px;'>"
-        f"<span style='color:{color};font-weight:700;font-size:0.95rem;"
-        f"text-transform:uppercase;letter-spacing:1px;'>{nombre}</span>"
-        f"<span style='background:{badge_color}22;color:{badge_color};"
-        f"font-size:0.68rem;font-weight:700;padding:3px 10px;"
-        f"border-radius:20px;border:1px solid {badge_color}44;"
-        f"white-space:nowrap;'>{pct}% &middot; {badge_label}</span>"
+        f"<div>"
+        f"<div style='color:{color};font-weight:800;font-size:0.88rem;"
+        f"text-transform:uppercase;letter-spacing:1.2px;"
+        f"margin-bottom:6px;'>{nombre}</div>"
+        f"<span style='background:{salud_color}18;color:{salud_color};"
+        f"font-size:0.65rem;font-weight:700;padding:3px 10px;"
+        f"border-radius:20px;border:1px solid {salud_color}33;'>"
+        f"{salud_icon} {salud_label}</span>"
+        f"</div>"
+        f"<div>{_ring_svg}</div>"
         f"</div>"
 
-        # Contadores numéricos
-        f"<div style='display:flex;gap:20px;margin-bottom:12px;'>"
-        f"<div><div style='color:{_C_CYAN};font-size:1.8rem;font-weight:800;"
+        # Contadores 3 columnas
+        f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
+        f"gap:8px;margin-bottom:12px;'>"
+        f"<div style='background:#0a0f1a;border-radius:10px;padding:10px;"
+        f"border:1px solid #1e2130;text-align:center;'>"
+        f"<div style='color:{_C_CYAN};font-size:1.5rem;font-weight:800;"
         f"line-height:1;'>{activos}</div>"
-        f"<div style='color:{_C_GRAY};font-size:0.63rem;margin-top:2px;"
-        f"letter-spacing:0.5px;'>ACTIVOS</div></div>"
-        f"<div><div style='color:{_C_RED};font-size:1.8rem;font-weight:800;"
+        f"<div style='color:#6b7280;font-size:0.60rem;margin-top:3px;"
+        f"letter-spacing:0.8px;font-weight:600;'>ACTIVOS</div>"
+        f"</div>"
+        f"<div style='background:#0a0f1a;border-radius:10px;padding:10px;"
+        f"border:1px solid #1e2130;text-align:center;'>"
+        f"<div style='color:{_C_RED};font-size:1.5rem;font-weight:800;"
         f"line-height:1;'>{inactivos}</div>"
-        f"<div style='color:{_C_GRAY};font-size:0.63rem;margin-top:2px;"
-        f"letter-spacing:0.5px;'>INACTIVOS</div></div>"
-        f"<div><div style='color:#4b5563;font-size:1.8rem;font-weight:800;"
+        f"<div style='color:#6b7280;font-size:0.60rem;margin-top:3px;"
+        f"letter-spacing:0.8px;font-weight:600;'>INACTIVOS</div>"
+        f"</div>"
+        f"<div style='background:#0a0f1a;border-radius:10px;padding:10px;"
+        f"border:1px solid #1e2130;text-align:center;'>"
+        f"<div style='color:#4b5563;font-size:1.5rem;font-weight:800;"
         f"line-height:1;'>{sin_rel}</div>"
-        f"<div style='color:{_C_GRAY};font-size:0.63rem;margin-top:2px;"
-        f"letter-spacing:0.5px;'>SIN REL.</div></div>"
+        f"<div style='color:#6b7280;font-size:0.60rem;margin-top:3px;"
+        f"letter-spacing:0.8px;font-weight:600;'>SIN REL.</div>"
+        f"</div>"
         f"</div>"
 
-        # Barra de progreso
-        f"<div style='background:{_C_BG2};border-radius:6px;height:5px;"
-        f"overflow:hidden;margin-bottom:16px;'>"
-        f"<div style='width:{pct}%;height:100%;background:{color};"
-        f"border-radius:6px;'></div></div>"
+        # Barra proporcional
+        f"{_mini_bar}"
 
-        # Separador titulo lista
-        f"<div style='color:{_C_GRAY};font-size:0.68rem;font-weight:600;"
-        f"text-transform:uppercase;letter-spacing:0.8px;"
-        f"border-top:1px solid {_C_BORDER};padding-top:12px;margin-bottom:4px;'>"
-        f"Banking Partners con relacion</div>"
+        # Leyenda
+        f"<div style='display:flex;gap:12px;margin-bottom:14px;'>"
+        f"<span style='display:flex;align-items:center;gap:4px;"
+        f"color:#6b7280;font-size:0.65rem;'>"
+        f"<span style='width:8px;height:8px;border-radius:50%;"
+        f"background:{_C_CYAN};display:inline-block;'></span>Activos</span>"
+        f"<span style='display:flex;align-items:center;gap:4px;"
+        f"color:#6b7280;font-size:0.65rem;'>"
+        f"<span style='width:8px;height:8px;border-radius:50%;"
+        f"background:{_C_RED};display:inline-block;opacity:0.7;'></span>Inactivos</span>"
+        f"<span style='display:flex;align-items:center;gap:4px;"
+        f"color:#6b7280;font-size:0.65rem;'>"
+        f"<span style='width:8px;height:8px;border-radius:50%;"
+        f"background:#1e2130;display:inline-block;'></span>Sin rel.</span>"
+        f"</div>"
 
-        # Lista de partners (todo dentro del mismo div contenedor)
-        f"{filas_html}"
+        # Sección partners por estado
+        f"<div style='border-top:1px solid #1e2130;padding-top:12px;'>"
 
-        f"</div>",
+        f"<div style='margin-bottom:10px;'>"
+        f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:6px;'>"
+        f"<span style='width:6px;height:6px;border-radius:50%;"
+        f"background:{_C_CYAN};display:inline-block;'></span>"
+        f"<span style='color:{_C_CYAN};font-size:0.65rem;font-weight:700;"
+        f"letter-spacing:0.8px;text-transform:uppercase;'>Activos ({activos})</span></div>"
+        f"{_rows_activos}</div>"
+
+        f"<div style='margin-bottom:10px;'>"
+        f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:6px;'>"
+        f"<span style='width:6px;height:6px;border-radius:50%;"
+        f"background:{_C_RED};display:inline-block;opacity:0.7;'></span>"
+        f"<span style='color:{_C_RED};font-size:0.65rem;font-weight:700;"
+        f"letter-spacing:0.8px;text-transform:uppercase;'>"
+        f"Inactivos / Suspendidos ({inactivos})</span></div>"
+        f"{_rows_inactivos}</div>"
+
+        f"<div>"
+        f"<div style='display:flex;align-items:center;gap:6px;margin-bottom:6px;'>"
+        f"<span style='width:6px;height:6px;border-radius:50%;"
+        f"background:#4b5563;display:inline-block;'></span>"
+        f"<span style='color:#4b5563;font-size:0.65rem;font-weight:700;"
+        f"letter-spacing:0.8px;text-transform:uppercase;'>Sin Relación ({sin_rel})</span></div>"
+        f"{_rows_sin_rel}</div>"
+
+        f"</div>"   # cierre sección partners
+        f"</div>",  # cierre contenedor principal
         unsafe_allow_html=True,
     )
 
@@ -257,39 +415,6 @@ def page_dashboard(user: dict) -> None:
     activos    = stats_pipeline.get("Activo", 0)
     alto_r     = stats_riesgo.get("Alto", 0) + stats_riesgo.get("Muy Alto", 0)
     onboarding = stats_pipeline.get("Onboarding", 0)
-
-    # ==================================================================
-    # SECCION 1 — KPIs Globales
-    # ==================================================================
-    _section("Portafolio Global")
-    k1, k2, k3, k4 = st.columns(4)
-    with k1:
-        _kpi("Total Partners", total)
-    with k2:
-        pct_act = f"{round(activos / total * 100)}% del portafolio" if total else ""
-        _kpi("Partners Activos", activos, pct_act)
-    with k3:
-        delta_r = "Requieren atencion" if alto_r else "Bajo control"
-        _kpi("Alto / Muy Alto Riesgo", alto_r, delta_r,
-             color=_C_RED if alto_r else _C_CYAN)
-    with k4:
-        _kpi("En Onboarding", onboarding, color=_C_VIOLET)
-
-    _spacer()
-
-    # ==================================================================
-    # SECCION 2 — Salud de Relacion Corporativa
-    # ==================================================================
-    _section("Salud de Relacion Corporativa")
-    eg1, eg2, eg3 = st.columns(3)
-    with eg1:
-        _empresa_card("HoldingsBPO", salud_grupo.get("hbpocorp", {}), _C_CYAN,   partners_hbpo)
-    with eg2:
-        _empresa_card("Adamo",       salud_grupo.get("adamo",    {}), _C_VIOLET, partners_adamo)
-    with eg3:
-        _empresa_card("Paycop",      salud_grupo.get("paycop",   {}), _C_AMBER,  partners_paycop)
-
-    _spacer()
 
     # ==================================================================
     # SECCION 3 — Monitor de Riesgo Operativo

@@ -606,7 +606,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
     Retorna (page, agente_username | None).
 
     page puede ser:
-      "🤝 Gestión de Alianzas" | "📋 Log de Auditoría" |
+      "🏛️ Gestión de Infraestructura Financiera" | "📋 Log de Auditoría" |
       "👥 Gestión de Agentes"  | "📚 Centro Documental" | "👤 Perfil Agente"
     agente_username solo está definido cuando page == "👤 Perfil Agente".
     """
@@ -648,9 +648,9 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         _rol = user.get("rol", "")
         _nav_opts = []
 
-        # Gestión de Alianzas — visible para roles con acceso
+        # Gestión de Infraestructura Financiera — visible para roles con acceso
         if _rol in Roles.CAN_VIEW_ALIANZAS:
-            _nav_opts.append("🤝 Gestión de Alianzas")
+            _nav_opts.append("🏛️ Gestión de Infraestructura Financiera")
 
         # Auditoría
         if _rol in Roles.CAN_VIEW_AUDIT:
@@ -735,7 +735,7 @@ def main():
 
     page, agente_username = sidebar(user)
 
-    if page == "🤝 Gestión de Alianzas":
+    if page == "🏛️ Gestión de Infraestructura Financiera":
         if user.get("rol") not in Roles.CAN_VIEW_ALIANZAS:
             st.error("🚫 Acceso Denegado.")
             st.stop()

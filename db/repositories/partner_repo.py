@@ -420,10 +420,17 @@ class PartnerRepository:
                 text(f"SELECT {col} as estado, COUNT(*) as total FROM aliados GROUP BY {col}")
             ).mappings().all()
             conteos = {r["estado"]: int(r["total"]) for r in rows}
-            activos = conteos.get("Activo", 0)
-            inactivos = conteos.get("Inactivo", 0)
-            sin_rel = conteos.get("Sin relación", 0)
-            total_rel = activos + inactivos
+            activos   = conteos.get("Activo", 0)
+            inactivos = sum(
+                v for k, v in conteos.items()
+                if k in ("Inactivo", "Suspendido", "Terminado")
+            )
+            sin_rel   = sum(
+                v for k, v in conteos.items()
+                if k in ("Sin relación", "Sin Relacion", None, "")
+                   or k not in ("Activo", "Inactivo", "Suspendido", "Terminado")
+            )
+            total_rel = activos + inactivos + sin_rel
             resultado[empresa] = {
                 "activos":      activos,
                 "inactivos":    inactivos,
@@ -531,12 +538,14 @@ class PartnerRepository:
                        {col} AS estado,
                        nivel_riesgo
                 FROM aliados
-                WHERE {col} IN ('Activo', 'Inactivo')
+                WHERE {col} IS NOT NULL
                 ORDER BY
                     CASE {col}
-                        WHEN 'Activo'   THEN 1
-                        WHEN 'Inactivo' THEN 2
-                        ELSE 3
+                        WHEN 'Activo'     THEN 1
+                        WHEN 'Inactivo'   THEN 2
+                        WHEN 'Suspendido' THEN 3
+                        WHEN 'Terminado'  THEN 4
+                        ELSE 5
                     END,
                     nombre_razon_social ASC
             """)
