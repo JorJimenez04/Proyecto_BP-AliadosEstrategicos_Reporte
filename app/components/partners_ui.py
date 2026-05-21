@@ -1717,25 +1717,116 @@ def _tab_analisis_riesgo(user: dict) -> None:
 # ── Monitor Operativo de Rieles ───────────────────────────────────────────────
 
 def _tab_monitor_operativo(user: dict) -> None:
-    """Tablero de control operativo: salud, capacidad y volumen de los rieles de pago."""
+    """Tablero de control operativo: capacidad comercial por unidad de negocio y volumen financiero."""
     import streamlit as st
+    import datetime as _dt
+    import pandas as _pd
+    import altair as _alt
     from db.database import get_session
     from db.repositories.partner_repo import PartnerRepository
 
     st.markdown(
         '<h3 style="color:#5fe9d0;margin-bottom:4px">📊 Monitor Operativo de Rieles</h3>'
         '<p style="color:#9ca3af;margin-top:0;margin-bottom:18px">'
-        'Salud técnica · Capacidad financiera · Continuidad de negocio</p>',
+        'Capacidad comercial · Volumen financiero · Unidades de negocio</p>',
         unsafe_allow_html=True,
     )
 
-    # ── Carga de datos ────────────────────────────────────────────────────────
+    # ── Carga única de datos (fuente compartida para todos los componentes) ───
     with next(get_session()) as _s:
         _repo = PartnerRepository(_s)
         _filas = _repo.get_lista_enriquecida()
 
-    total    = len(_filas)
-    activos  = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Activo")
+    # ── Bloque: Relación con el Grupo Corporativo ─────────────────────────────
+    st.markdown(
+        '<p style="font-weight:600;color:#e2e8f0;margin-bottom:10px">'
+        '🏢 Relación con el Grupo Corporativo</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Definición de entidades reales del Holding y su campo de estado en DB
+    _HOLDING_ENTITIES = [
+        {
+            "nombre":    "Holdings BPO",
+            "icono":     "💼",
+            "campo_db":  "estado_hbpocorp",
+            "badge":     "HOLDING MATRIZ",
+            "badge_bg":  "#1d4ed8",
+            "badge_fg":  "#93c5fd",
+        },
+        {
+            "nombre":    "Adamo Services",
+            "icono":     "🏦",
+            "campo_db":  "estado_adamo",
+            "badge":     "SERVICIOS CORPORATIVOS",
+            "badge_bg":  "#065f46",
+            "badge_fg":  "#6ee7b7",
+        },
+        {
+            "nombre":    "PayCop International",
+            "icono":     "💳",
+            "campo_db":  "estado_paycop",
+            "badge":     "PASARELA DE PAGOS",
+            "badge_bg":  "#78350f",
+            "badge_fg":  "#fcd34d",
+        },
+    ]
+
+    # Badges micro-píldora por estado de relación (opacidad 10%)
+    _BADGE_REL = {
+        "Activo":       "background:rgba(16,185,129,.12);color:#34d399;",
+        "Inactivo":     "background:rgba(245,158,11,.12);color:#fbbf24;",
+        "Sin relación": "background:rgba(156,163,175,.12);color:#9ca3af;",
+    }
+    _BADGE_BASE = "padding:3px 10px;border-radius:6px;font-size:.72rem;font-weight:700;text-transform:uppercase;white-space:nowrap;"
+
+    # Color de acento superior por entidad (glow sutil)
+    _GLOW_COLOR = ["#3b82f6", "#10b981", "#f59e0b"]
+
+    _corp_cols = st.columns(len(_HOLDING_ENTITIES))
+    for _col, _ent, _glow in zip(_corp_cols, _HOLDING_ENTITIES, _GLOW_COLOR):
+        _campo = _ent["campo_db"]
+
+        # Construir filas flex: nombre aliado | badge estado
+        _rel_rows = ""
+        for _r in _filas:
+            _nombre_aliado = _idx(_r, "nombre_razon_social") or "—"
+            _estado_rel    = (_idx(_r, _campo) or "Sin relación").strip()
+            _badge_css     = _BADGE_REL.get(_estado_rel, _BADGE_REL["Sin relación"])
+            _rel_rows += (
+                f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                f'margin-bottom:10px;padding:4px 0;border-bottom:1px solid #1f2937">'
+                f'<span style="font-size:.83rem;color:#d1d5db;font-weight:500">{_nombre_aliado}</span>'
+                f'<span style="{_badge_css}{_BADGE_BASE}">{_estado_rel}</span>'
+                f'</div>'
+            )
+        if not _rel_rows:
+            _rel_rows = '<div style="font-size:.78rem;color:#6b7280;padding:8px 0">Sin aliados registrados</div>'
+
+        # Badge inferior de la entidad (etiqueta compacta)
+        _label_badge = (
+            f'<span style="background:{_ent["badge_bg"]}22;color:{_ent["badge_fg"]};'
+            f'border:1px solid {_ent["badge_fg"]}33;font-size:.67rem;font-weight:700;'
+            f'letter-spacing:.7px;border-radius:20px;padding:3px 10px;text-transform:uppercase">'
+            f'{_ent["badge"]}</span>'
+        )
+
+        _col.markdown(
+            f'<div style="background:#111827;border:1px solid #1f2937;border-top:2px solid {_glow};'
+            f'border-radius:12px;padding:18px 16px;'
+            f'box-shadow:0 10px 15px -3px rgba(0,0,0,.4);">'
+            f'<div style="font-size:.9rem;font-weight:700;color:#f1f5f9;margin-bottom:14px">'
+            f'{_ent["icono"]} {_ent["nombre"]}</div>'
+            f'{_rel_rows}'
+            f'<div style="margin-top:12px">{_label_badge}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
+
+    total       = len(_filas)
+    activos     = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Activo")
     suspendidos = [r for r in _filas if _idx(r, "estado_pipeline") == "Suspendido"]
 
     # ── KPIs principales ──────────────────────────────────────────────────────
@@ -1752,9 +1843,15 @@ def _tab_monitor_operativo(user: dict) -> None:
         f'</div>',
         unsafe_allow_html=True,
     )
-    # Volumen: derivado de pct_concentracion como proxy cuando no hay campo real
-    _vol_refs = [_idx(r, "pct_concentracion") for r in _filas if _idx(r, "pct_concentracion")]
-    _vol_display = f"{sum(float(v) for v in _vol_refs):.0f}%" if _vol_refs else "N/D"
+    _vol_vals = []
+    for _r in _filas:
+        _v = _idx(_r, "pct_concentracion")
+        try:
+            _vol_vals.append(float(_v))
+        except (TypeError, ValueError):
+            pass
+    _vol_total = sum(_vol_vals)
+    _vol_display = f"{_vol_total:.1f}%" if _vol_vals else "N/D"
     k2.markdown(
         f'<div style="{_KPI}">'
         f'<div style="font-size:1.9rem;font-weight:700;color:#3b82f6">{_vol_display}</div>'
@@ -1762,7 +1859,6 @@ def _tab_monitor_operativo(user: dict) -> None:
         f'</div>',
         unsafe_allow_html=True,
     )
-    # Tasa de éxito proxy: 100% si ningún suspendido, decrementa 5% por cada uno
     _tasa = max(0.0, 100.0 - len(suspendidos) * 5.0)
     _tasa_color = "#22c55e" if _tasa >= 95 else "#f59e0b" if _tasa >= 80 else "#ef4444"
     k3.markdown(
@@ -1774,17 +1870,15 @@ def _tab_monitor_operativo(user: dict) -> None:
     )
     st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
 
-    # ── Alertas operativas ────────────────────────────────────────────────────
+    # ── Alertas operativas (cuellos de botella) ───────────────────────────────
     _alertas = False
     for _r in suspendidos:
         st.error(
-            f"🔴 Riel **{_idx(_r,'nombre_razon_social','—')}** en estado **Suspendido** — "
+            f"🔴 Riel **{_idx(_r, 'nombre_razon_social', '—')}** en estado **Suspendido** — "
             "verificar continuidad operativa y activar riel de respaldo."
         )
         _alertas = True
 
-    # Documento próximo a vencer (fecha_proxima_revision)
-    import datetime as _dt
     _hoy = _dt.date.today()
     for _r in _filas:
         _fecha = _idx(_r, "fecha_proxima_revision")
@@ -1794,7 +1888,7 @@ def _tab_monitor_operativo(user: dict) -> None:
                 _dias = (_d - _hoy).days
                 if 0 <= _dias <= 30:
                     st.warning(
-                        f"⚠️ **{_idx(_r,'nombre_razon_social','—')}** — Documentación KYB vence "
+                        f"⚠️ **{_idx(_r, 'nombre_razon_social', '—')}** — Documentación KYB vence "
                         f"en **{_dias} días** ({_d.strftime('%d/%m/%Y')}). Renovar Contrato/DD."
                     )
                     _alertas = True
@@ -1806,157 +1900,140 @@ def _tab_monitor_operativo(user: dict) -> None:
 
     st.markdown("<hr style='border-color:#293056;margin:20px 0'>", unsafe_allow_html=True)
 
-    # ── Matriz de monitoreo de rieles ─────────────────────────────────────────
+    # ── Matriz de Unidades de Negocio ─────────────────────────────────────────
     st.markdown(
         '<p style="font-weight:600;color:#e2e8f0;margin-bottom:10px">'
         '🖥️ Matriz de Estado — Rieles en Tiempo Real</p>',
         unsafe_allow_html=True,
     )
 
-    # Mapeo salud del canal: Suspendido→Degradado, Onboarding→Mantenimiento, resto→Online
-    def _salud_canal(estado: str) -> tuple[str, str]:
-        if estado == "Suspendido":
-            return "🔴 Degradado", "#ef4444"
-        if estado in ("Onboarding", "En Calificación"):
-            return "🟡 Mantenimiento", "#f59e0b"
-        if estado == "Activo":
-            return "🟢 Online", "#22c55e"
-        return "⚪ Inactivo", "#6b7280"
+    if not _filas:
+        st.caption("No hay rieles de infraestructura registrados para mostrar en el monitor operativo.")
+        return
 
-    # Latencia proxy desde tipo_riel / sla_garantizado
-    def _latencia_display(r: dict) -> str:
-        sla = _idx(r, "sla_garantizado") or ""
-        tipo = (_idx(r, "tipo_riel") or "").lower()
-        if "t+0" in sla.lower() or "inmediato" in sla.lower():
-            return "T+0 (~150ms)"
-        if "t+1" in sla.lower():
-            return "T+1 (24h)"
-        if "instant" in tipo or "real" in tipo:
-            return "T+0 (~200ms)"
-        return sla if sla else "—"
+    # Construir filas del dataframe
+    _rows = []
+    for _r in _filas:
+        _nombre  = _idx(_r, "nombre_razon_social") or "—"
+        _tipo    = _idx(_r, "tipo_aliado") or _idx(_r, "tipo_riel") or "—"
+        _estado  = (_idx(_r, "estado_pipeline") or "—").upper()
 
-    # Volumen proxy desde pct_concentracion
-    def _vol_canal(r: dict) -> str:
-        pct = _idx(r, "pct_concentracion")
-        if pct:
-            try:
-                return f"{float(pct):.1f}% del total"
-            except (ValueError, TypeError):
-                pass
-        return "—"
+        _pct = _idx(_r, "pct_concentracion")
+        try:
+            _vol_num = float(_pct) if _pct is not None else 0.0
+        except (TypeError, ValueError):
+            _vol_num = 0.0
+        _vol_str = f"${_vol_num:.2f} USD"
 
-    # Construir tabla HTML
-    _COL_HDR = "background:#111827;color:#9ca3af;font-size:.72rem;padding:8px 12px;text-align:left;"
-    _COL_CEL = "padding:10px 12px;font-size:.82rem;border-bottom:1px solid #1f2937;"
-    _ROW_BG_ODD  = "background:#0f172a;"
-    _ROW_BG_EVEN = "background:#111827;"
+        _crypto  = bool(_idx(_r, "crypto_friendly"))
+        _adult   = bool(_idx(_r, "adult_friendly"))
+        _disp    = bool(_idx(_r, "permite_dispersion"))
+        _monet   = bool(_idx(_r, "permite_monetizacion"))
 
-    _html_rows = ""
-    for _i, _r in enumerate(_filas):
-        _nombre   = _idx(_r, "nombre_razon_social") or "—"
-        _tipo     = _idx(_r, "tipo_aliado") or _idx(_r, "tipo_riel") or "—"
-        _estado   = _idx(_r, "estado_pipeline") or "—"
-        _salud_t, _salud_c = _salud_canal(_estado)
-        _lat      = _latencia_display(_r)
-        _vol      = _vol_canal(_r)
-        _row_bg   = _ROW_BG_ODD if _i % 2 == 0 else _ROW_BG_EVEN
-        _estado_color = _ESTADO_COLORES_B2B.get(_estado, "#9ca3af")
-        _html_rows += (
-            f'<tr style="{_row_bg}">'
-            f'<td style="{_COL_CEL}color:#e2e8f0;font-weight:600">{_nombre}</td>'
-            f'<td style="{_COL_CEL}color:#9ca3af">{_tipo}</td>'
-            f'<td style="{_COL_CEL}"><span style="background:{_estado_color}22;color:{_estado_color};'
-            f'border-radius:4px;padding:2px 8px;font-size:.75rem;font-weight:600">{_estado}</span></td>'
-            f'<td style="{_COL_CEL}color:{_salud_c};font-weight:600">{_salud_t}</td>'
-            f'<td style="{_COL_CEL}color:#9ca3af">{_lat}</td>'
-            f'<td style="{_COL_CEL}color:#60a5fa">{_vol}</td>'
-            f'</tr>'
-        )
+        _rows.append({
+            "🏢 Aliado":            _nombre,
+            "🤝 Tipo de Riel":       _tipo,
+            "📋 Estado Operativo":   _estado,
+            "💰 Volumen Canalizado": _vol_str,
+            "🔵 CriptoFriendly":     "✅ SÍ" if _crypto else "❌ NO",
+            "🔞 AdultFriendly":      "✅ SÍ" if _adult  else "❌ NO",
+            "📥 Dispersa":           "📥 SÍ" if _disp   else "❌ NO",
+            "📤 Monetiza":           "📤 SÍ" if _monet  else "❌ NO",
+        })
 
-    if not _html_rows:
-        _html_rows = (
-            '<tr><td colspan="6" style="padding:20px;text-align:center;color:#6b7280">'
-            'Sin partners registrados.</td></tr>'
-        )
-
-    st.markdown(
-        f'<div style="overflow-x:auto;border-radius:10px;border:1px solid #293056">'
-        f'<table style="width:100%;border-collapse:collapse">'
-        f'<thead><tr>'
-        f'<th style="{_COL_HDR}">Aliado</th>'
-        f'<th style="{_COL_HDR}">Tipo de Riel</th>'
-        f'<th style="{_COL_HDR}">Estado Operativo</th>'
-        f'<th style="{_COL_HDR}">Salud del Canal</th>'
-        f'<th style="{_COL_HDR}">Latencia / SLA</th>'
-        f'<th style="{_COL_HDR}">Volumen Canalizado</th>'
-        f'</tr></thead>'
-        f'<tbody>{_html_rows}</tbody>'
-        f'</table></div>',
-        unsafe_allow_html=True,
-    )
+    _df_matriz = _pd.DataFrame(_rows)
+    st.dataframe(_df_matriz, use_container_width=True, hide_index=True)
 
     st.markdown("<div style='margin-bottom:24px'></div>", unsafe_allow_html=True)
 
-    # ── Gráfico: Distribución de carga por riel ───────────────────────────────
-    st.markdown(
-        '<p style="font-weight:600;color:#e2e8f0;margin-bottom:10px">'
-        '📈 Distribución de Carga por Riel</p>',
-        unsafe_allow_html=True,
-    )
+    # ── Gráficas de Control Gerencial ─────────────────────────────────────────
+    _gcol1, _gcol2 = st.columns(2)
 
-    # Construir datos para el gráfico
-    _chart_data: dict[str, float] = {}
-    for _r in _filas:
-        _nombre = _idx(_r, "nombre_razon_social") or "Sin nombre"
-        _pct = _idx(_r, "pct_concentracion")
-        try:
-            _chart_data[_nombre] = float(_pct) if _pct else 0.0
-        except (ValueError, TypeError):
-            _chart_data[_nombre] = 0.0
+    # Gráfica 1: Volumen Total Canalizado por Riel
+    with _gcol1:
+        st.markdown(
+            '<p style="font-weight:600;color:#e2e8f0;margin-bottom:8px">'
+            '💰 Volumen Canalizado por Riel</p>',
+            unsafe_allow_html=True,
+        )
+        _vol_data: dict[str, float] = {}
+        for _r in _filas:
+            _n = _idx(_r, "nombre_razon_social") or "—"
+            _p = _idx(_r, "pct_concentracion")
+            try:
+                _vol_data[_n] = float(_p) if _p is not None else 0.0
+            except (TypeError, ValueError):
+                _vol_data[_n] = 0.0
 
-    _nombres_activos = [_idx(r, "nombre_razon_social") or "—" for r in _filas
-                        if _idx(r, "estado_pipeline") == "Activo"]
+        _df_vol = _pd.DataFrame(
+            {"Aliado": list(_vol_data.keys()), "Volumen (USD)": list(_vol_data.values())}
+        ).set_index("Aliado")
 
-    _has_real_data = any(v > 0 for v in _chart_data.values())
-
-    if _has_real_data:
-        try:
-            import pandas as _pd
-            _df_chart = _pd.DataFrame(
-                {"Aliado": list(_chart_data.keys()), "% Carga": list(_chart_data.values())}
-            ).set_index("Aliado")
-            st.bar_chart(_df_chart, color="#3b82f6")
-        except Exception:
-            for _nombre, _pct_v in _chart_data.items():
-                if _pct_v > 0:
-                    st.markdown(
-                        f'<div style="margin:4px 0;display:flex;align-items:center;gap:8px">'
-                        f'<span style="color:#e2e8f0;min-width:180px;font-size:.82rem">{_nombre}</span>'
-                        f'<div style="flex:1;background:#1f2937;border-radius:4px;height:16px">'
-                        f'<div style="width:{min(_pct_v,100):.0f}%;background:#3b82f6;'
-                        f'border-radius:4px;height:16px"></div></div>'
-                        f'<span style="color:#60a5fa;font-size:.78rem;min-width:44px">'
-                        f'{_pct_v:.1f}%</span></div>',
-                        unsafe_allow_html=True,
-                    )
-    else:
-        # Sin pct_concentracion: distribución equitativa entre activos
-        if _nombres_activos:
-            _eq_pct = round(100.0 / len(_nombres_activos), 1)
-            for _n in _nombres_activos:
-                st.markdown(
-                    f'<div style="margin:4px 0;display:flex;align-items:center;gap:8px">'
-                    f'<span style="color:#e2e8f0;min-width:180px;font-size:.82rem">{_n}</span>'
-                    f'<div style="flex:1;background:#1f2937;border-radius:4px;height:16px">'
-                    f'<div style="width:{_eq_pct:.0f}%;background:#3b82f6;'
-                    f'border-radius:4px;height:16px"></div></div>'
-                    f'<span style="color:#60a5fa;font-size:.78rem;min-width:44px">'
-                    f'{_eq_pct}%</span></div>',
-                    unsafe_allow_html=True,
-                )
-            st.caption("⚠️ Sin datos de concentración reales — distribución equitativa estimada entre rieles activos.")
+        if _df_vol["Volumen (USD)"].sum() > 0:
+            st.bar_chart(_df_vol, color="#3b82f6")
         else:
-            st.info("Sin rieles activos para graficar.")
+            st.caption("Sin datos de volumen registrados — campo `pct_concentracion` vacío.")
+
+    # Gráfica 2: Capacidad de la Red por Unidades de Negocio (barras apiladas por estado)
+    with _gcol2:
+        st.markdown(
+            '<p style="font-weight:600;color:#e2e8f0;margin-bottom:8px">'
+            '⚡ Capacidad de la Red por Unidad de Negocio</p>',
+            unsafe_allow_html=True,
+        )
+        # Construir filas long-form: una entrada por (partner, vertical habilitada)
+        _cap_rows = []
+        for _r in _filas:
+            _estado_r = (_idx(_r, "estado_pipeline") or "Otro").upper()
+            if bool(_idx(_r, "permite_dispersion")):
+                _cap_rows.append({"Vertical": "📥 Dispersión", "Estado": _estado_r})
+            if bool(_idx(_r, "permite_monetizacion")):
+                _cap_rows.append({"Vertical": "📤 Monetización", "Estado": _estado_r})
+            if bool(_idx(_r, "crypto_friendly")):
+                _cap_rows.append({"Vertical": "🔵 Cripto", "Estado": _estado_r})
+            if bool(_idx(_r, "adult_friendly")):
+                _cap_rows.append({"Vertical": "🔞 Adult", "Estado": _estado_r})
+
+        if _cap_rows:
+            _df_cap = (
+                _pd.DataFrame(_cap_rows)
+                .groupby(["Vertical", "Estado"])
+                .size()
+                .reset_index(name="Rieles")
+            )
+            _estado_order = ["ACTIVO", "ONBOARDING", "EN CALIFICACIÓN", "SUSPENDIDO", "PROSPECTO", "OTRO"]
+            _color_domain = ["ACTIVO", "ONBOARDING", "EN CALIFICACIÓN", "SUSPENDIDO", "PROSPECTO", "OTRO"]
+            _color_range  = ["#22c55e", "#3b82f6", "#f59e0b", "#ef4444", "#9ca3af", "#6b7280"]
+            # Columna numérica para orden de apilado (alt.Order solo acepta 'ascending'/'descending')
+            _rank_map = {s: i for i, s in enumerate(_estado_order)}
+            _df_cap["_orden"] = _df_cap["Estado"].map(lambda e: _rank_map.get(e, 99))
+            _chart_cap = (
+                _alt.Chart(_df_cap)
+                .mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3)
+                .encode(
+                    x=_alt.X("Vertical:N", title="Vertical de Negocio",
+                              axis=_alt.Axis(labelColor="#9ca3af", titleColor="#9ca3af")),
+                    y=_alt.Y("Rieles:Q", title="Rieles disponibles",
+                              axis=_alt.Axis(labelColor="#9ca3af", titleColor="#9ca3af",
+                                             tickMinStep=1)),
+                    color=_alt.Color(
+                        "Estado:N",
+                        scale=_alt.Scale(domain=_color_domain, range=_color_range),
+                        legend=_alt.Legend(
+                            title="Estado Operativo",
+                            labelColor="#9ca3af",
+                            titleColor="#9ca3af",
+                        ),
+                    ),
+                    order=_alt.Order("_orden:Q", sort="ascending"),
+                    tooltip=["Vertical:N", "Estado:N", "Rieles:Q"],
+                )
+                .properties(height=260, background="transparent")
+                .configure_view(strokeWidth=0)
+            )
+            st.altair_chart(_chart_cap, use_container_width=True)
+        else:
+            st.caption("Sin datos de capacidades registrados.")
 
 
 # ── Módulo maestro: Gestión de Alianzas ──────────────────────────────────────
