@@ -59,6 +59,13 @@ ALL_MIGRATIONS: list[str] = [
     "023_document_history.sql",
     "024_fix_riesgo_nivel_constraint.sql",
     "025_rbac_roles_v2.sql",
+    "026_email_casos.sql",
+    "027_clientes.sql",
+    "028_cliente_personas.sql",
+    "029_cliente_contratos.sql",
+    "030_contrato_servicios.sql",
+    "031_cliente_documentos.sql",
+    "032_cliente_historial_riesgo.sql",
 ]
 
 # Tablas / columnas a validar tras las migraciones

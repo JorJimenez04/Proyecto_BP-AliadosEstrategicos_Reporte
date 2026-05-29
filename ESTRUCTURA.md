@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-05-13 (rev. 17)
+> Última actualización: 2026-05-28 (rev. 19)
 
 ---
 
@@ -22,6 +22,23 @@ Proyecto_PartnersStatus/
 ├── 📄 requirements.txt                # Dependencias Python (incluye psycopg2-binary para PG)
 ├── 📄 README.md                       # Documentación principal del proyecto
 ├── 📄 ESTRUCTURA.md                   # Este archivo — mapa del proyecto
+├── 📄 apply_014.py                    # Script de aplicación manual: migración 014
+├── 📄 apply_015.py                    # Script de aplicación manual: migración 015
+├── 📄 apply_018.py                    # Script de aplicación manual: migración 018
+├── 📄 apply_023.py                    # Script de aplicación manual: migración 023
+├── 📄 check_db.py                     # Comprobación rápida de conectividad y esquema BD
+├── 📄 docker-compose.yml              # Servicios Docker para desarrollo local (postgres)
+├── 📄 _fix_encoding.py                # Utilidad de corrección de encoding en archivos SQL
+├── 📄 ACCESOS_ROLES.md                # Referencia oficial de roles, permisos y módulos del sistema
+├── 📄 ACCESOS_PRUEBA.md               # Credenciales de prueba para desarrollo local (no subir al repo)
+├── 📄 DOCUMENTACION_PROYECTO.md       # Documentación técnica completa del proyecto (v1.1)
+├── 📄 AUDITORIA_TECNICA_2026-04-06.md # Registro histórico de auditoría técnica — 06/04/2026
+│                                      #   5 hallazgos corregidos: imports muertos, lógica SARLAFT, UI
+├── 📄 prompt_design_system.md         # Prompt de referencia: design system Adamo Risk (Lovable→Streamlit)
+│                                      #   Tokens de color, tipografía y CSS corporativo para app/main.py
+│
+├── 📂 data/                            # Almacenamiento local (SQLite dev — excluido del repo)
+│   └── 📄 README.md                    # Instrucciones para generar la BD local (`python -m db.database`)
 │
 ├── 📂 .streamlit/                     # Configuración nativa de Streamlit
 │   └── 📄 config.toml                 # Tema dark AdamoServices · CSRF · anti-clickjacking · no telemetría
@@ -310,6 +327,14 @@ Proyecto_PartnersStatus/
 │       │                              # GL Level derivado de score (≤30→Bajo, ≤60→Medio, >60→Alto)
 │       │                              #   fallback: texto detectado por _GL_RISK_LEVEL_RE
 │       │                              # flow mapping: unknown → ["SoF","UoF"] (ambas tablas)
+│       ├── 📄 crypto_logic.py         # Motor de calificación de riesgo GL — AdamoServices
+│       │                              # GL_INDICATORS: catálogo maestro de indicadores GL
+│       │                              #   cada entrada: label_en · label_es · nivel · score_base
+│       │                              #     flujo (["SoF"] / ["UoF"] / ["SoF","UoF"]) · descripcion
+│       │                              # _NIVEL_PESO: jerarquía Crítico(4)>Alto(3)>Medio(2)>Bajo(1)>Sin Datos(0)
+│       │                              # resolve_risk_level(labels) → str
+│       │                              #   nivel final = nivel del indicador MÁS ALTO encontrado
+│       │                              #   regla inflexible: cualquier label Crítico → wallet Crítico
 │       └── 📄 ai_handler.py           # Motor centralizado de IA — Gemini / OpenAI
 │                                      # AI_PROVIDER · GEMINI_KEY · OPENAI_KEY (desde .env)
 │                                      # anonymize_text() — elimina NIT, CC, teléfonos, emails,
@@ -343,7 +368,7 @@ Proyecto_PartnersStatus/
 │   │                                  # Aplica scripts SQL en orden numérico y valida relaciones
 │   │                                  # _run_migration(): reintenta hasta 3 veces (delay 3s) ante
 │   │                                  #   errores de conexión — robusto ante cold-start Railway
-│   │                                  # ALL_MIGRATIONS: lista explícita 001–023 (orden de aplicación)
+│   │                                  # ALL_MIGRATIONS: lista explícita 001–025 (orden de aplicación)
 │   │                                  # Uso: python db/sync_db.py [--only 005 006] [--check]
 │   ├── 📄 models.py                   # Modelos Pydantic v2
 │   │                                  # AliadoBase · AliadoCreate · AliadoUpdate · AliadoOut
@@ -464,13 +489,21 @@ Proyecto_PartnersStatus/
 │       │                                              #     analyst_observations · monitoring_analyst
 │       │                                              #     registrado_por · pdf_report_url · total_exposure
 │       │                                              #   Índices: wallet_address · original_id · snapshot_date
-│   │   └── 📄 023_document_history.sql               # Versionamiento inmutable de documentos compliance
+│   │   ├── 📄 023_document_history.sql               # Versionamiento inmutable de documentos compliance
 │       │                                              #   tabla compliance_documentos_historial
 │       │                                              #     → espejo de compliance_documentos + documento_raiz_id (FK)
 │       │                                              #     + descripcion_cambio · snapshot_por · snapshot_at
 │       │                                              #   append-only: solo INSERT (nunca UPDATE/DELETE)
 │       │                                              #   ON DELETE CASCADE desde documento raíz
 │       │                                              #   Índices: idx_doc_hist_raiz · idx_doc_hist_snapshot_at
+│   │   ├── 📄 024_fix_riesgo_nivel_constraint.sql    # Corrige CHECK constraint en crypto_monitoreo.riesgo_nivel
+│       │                                              #   Añade 'Crítico' y 'Sin Datos' a los valores permitidos
+│       │                                              #   Idempotente: DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT
+│   │   └── 📄 025_rbac_roles_v2.sql                 # Amplía RBAC — nuevos perfiles operativos (v2)
+│       │                                              #   DROP + ADD CHECK constraint en usuarios.rol:
+│       │                                              #   super_admin · manager_ops · manager_comercial
+│       │                                              #   manager_legal · agente · agente_kyc · agente_operativo
+│       │                                              #   (mantiene: admin · compliance · comercial · consulta)
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
@@ -575,6 +608,14 @@ Proyecto_PartnersStatus/
 │                                      # ON CONFLICT (username) DO NOTHING — nunca falla en redeploy
 │                                      # Usuarios: test_compliance · test_comercial · test_consulta
 │                                      # Llamado automáticamente por entrypoint.sh en cada deploy
+│
+├── 📂 scripts/                        # Scripts utilitarios de administración y seed
+│   ├── 📄 create_comercial_manager.py # Seed idempotente del rol manager_comercial
+│   │                                  # Usuario: comercial.manager — Rol: manager_comercial
+│   │                                  # Idempotente: verifica existencia antes de insertar
+│   └── 📄 create_ops_manager.py       # Seed idempotente del rol manager_ops
+│                                      # Usuario: ops.manager — Rol: manager_ops
+│                                      # Idempotente: verifica existencia antes de insertar
 │
 └── 📂 tests/                          # Suite de pruebas
     └── 📄 __init__.py
@@ -722,6 +763,8 @@ git push origin main   # Railway reconstruye la imagen con la foto incluida
 | `compliance`  | ✅ completo | ✅ + editar    | ✅               | ✅        | ❌       | ✅              | ✅ (editar)       | ✅             |
 | `comercial`   | ✅ completo | ✅ + editar op.| ✅               | ❌        | ❌       | ❌              | ✅ (solo lectura) | 🔒 deshabilitado|
 | `consulta`    | ✅ completo | ✅ solo lectura| 🔒 oculto        | ❌        | ❌       | ❌              | ✅ (solo lectura) | 🔒 deshabilitado|
+
+> **Nuevos roles (migración 025):** `super_admin` · `manager_ops` · `manager_comercial` · `manager_legal` · `agente` · `agente_kyc` · `agente_operativo` — registrados en el CHECK constraint de `usuarios.rol`. Scripts de seed: `scripts/create_ops_manager.py` · `scripts/create_comercial_manager.py`. Permisos UI en implementación progresiva.
 
 ---
 

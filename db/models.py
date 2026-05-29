@@ -526,3 +526,166 @@ class WalletMonitorOut(BaseModel):
     updated_at:       datetime
 
     model_config = {"from_attributes": True}
+
+
+# ─────────────────────────────────────────────────────────────
+# BANDEJA DE CUMPLIMIENTO
+# ─────────────────────────────────────────────────────────────
+
+class EmailCasoCreate(BaseModel):
+    empresa:            str
+    buzon:              str              # columna real en BD: "buzón" (con tilde)
+    remitente:          str
+    asunto:             str
+    cuerpo:             Optional[str]      = None
+    fecha_recepcion:    Optional[datetime] = None
+    message_id_externo: Optional[str]      = None
+    prioridad:          str              = "Normal"
+
+    model_config = {"from_attributes": True}
+
+
+class EmailCasoUpdate(BaseModel):
+    estado:             Optional[str]      = None
+    prioridad:          Optional[str]      = None
+    notas_internas:     Optional[str]      = None
+    atendido_por:       Optional[str]      = None
+    fecha_resolucion:   Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class EmailCasoOut(BaseModel):
+    id:                 int
+    empresa:            str
+    buzon:              str
+    remitente:          str
+    asunto:             str
+    cuerpo:             Optional[str]      = None
+    fecha_recepcion:    datetime
+    message_id_externo: Optional[str]      = None
+    estado:             str
+    prioridad:          str
+    notas_internas:     Optional[str]      = None
+    atendido_por:       Optional[str]      = None
+    fecha_resolucion:   Optional[datetime] = None
+    creado_en:          datetime
+    actualizado_en:     datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ── Módulo Gestión de Clientes ────────────────────────────────
+
+class ClienteCreate(BaseModel):
+    razon_social: str
+    nit: str
+    tipo_sociedad: Optional[str] = None
+    fecha_constitucion: Optional[date] = None
+    pais_constitucion: str = "Colombia"
+    sector_ciiu: Optional[str] = None
+    sitio_web: Optional[str] = None
+    direccion: Optional[str] = None
+    nivel_riesgo: str = "Sin calificar"
+    puntaje_riesgo: Optional[int] = None
+    es_pep: int = 0
+    exposicion_cripto: int = 0
+    crypto_friendly: int = 0
+    jurisdicciones: List[str] = []
+    estado: str = "Prospecto"
+    notas: Optional[str] = None
+    creado_por: str
+
+
+class ClienteUpdate(BaseModel):
+    razon_social: Optional[str] = None
+    tipo_sociedad: Optional[str] = None
+    fecha_constitucion: Optional[date] = None
+    pais_constitucion: Optional[str] = None
+    sector_ciiu: Optional[str] = None
+    sitio_web: Optional[str] = None
+    direccion: Optional[str] = None
+    nivel_riesgo: Optional[str] = None
+    puntaje_riesgo: Optional[int] = None
+    fecha_ultima_calificacion: Optional[date] = None
+    proxima_revision: Optional[date] = None
+    es_pep: Optional[int] = None
+    exposicion_cripto: Optional[int] = None
+    crypto_friendly: Optional[int] = None
+    listas_verificadas: Optional[int] = None
+    fecha_verificacion_listas: Optional[date] = None
+    en_listas_restriccion: Optional[int] = None
+    jurisdicciones: Optional[List[str]] = None
+    estado: Optional[str] = None
+    notas: Optional[str] = None
+
+
+class PersonaCreate(BaseModel):
+    cliente_id: int
+    nombre_completo: str
+    tipo_documento: Optional[str] = None
+    numero_documento: Optional[str] = None
+    nacionalidad: str = "Colombia"
+    rol: str
+    pct_participacion: Optional[float] = None
+    es_pep: int = 0
+    en_listas_restriccion: int = 0
+    fecha_verificacion: Optional[date] = None
+    notas: Optional[str] = None
+    creado_por: str
+
+
+class ContratoCreate(BaseModel):
+    cliente_id: int
+    empresa_grupo: str
+    estado: str = "Prospecto"
+    fecha_inicio: Optional[date] = None
+    fecha_vencimiento: Optional[date] = None
+    contrato_firmado: int = 0
+    fecha_firma: Optional[date] = None
+    numero_contrato: Optional[str] = None
+    contacto_operativo: Optional[str] = None
+    email_operativo: Optional[str] = None
+    telefono_operativo: Optional[str] = None
+    contacto_compliance: Optional[str] = None
+    email_compliance: Optional[str] = None
+    sla_contratado: Optional[str] = None
+    volumen_mensual_cop: Optional[int] = None
+    num_transacciones_mes: Optional[int] = None
+    fuente_volumen: str = "manual"
+    notas: Optional[str] = None
+    creado_por: str
+
+
+class ServicioCreate(BaseModel):
+    contrato_id: int
+    servicio: str
+    estado: str = "Activo"
+    fecha_activacion: Optional[date] = None
+    notas: Optional[str] = None
+    creado_por: str
+
+
+class ClienteDocumentoCreate(BaseModel):
+    cliente_id: int
+    contrato_id: Optional[int] = None
+    titulo: str
+    carpeta: str
+    estado: str = "Pendiente"
+    formato: str = "OTRO"
+    url: Optional[str] = None
+    version: str = "1.0"
+    fecha_emision: Optional[date] = None
+    descripcion_cambio: Optional[str] = None
+    creado_por: str
+
+
+class CalificacionRiesgoCreate(BaseModel):
+    cliente_id: int
+    puntaje_anterior: Optional[int] = None
+    puntaje_nuevo: int
+    nivel_anterior: Optional[str] = None
+    nivel_nuevo: str
+    motivo: Optional[str] = None
+    observaciones: Optional[str] = None
+    registrado_por: str

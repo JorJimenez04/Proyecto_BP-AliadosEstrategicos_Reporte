@@ -37,10 +37,16 @@ else
     echo "[AdamoServices] ADVERTENCIA: SECRET_KEY no definida — las sesiones no serán seguras."
 fi
 
-# ── 5. Puerto dinámico: Railway inyecta $PORT; defecto 8501 ──────
+# ── 5. Webhook de Power Automate (proceso en segundo plano) ────────
+if [ -n "${WEBHOOK_SECRET:-}" ] || [ "$APP_ENV" != "production" ]; then
+    echo "[AdamoServices] Iniciando webhook de correo en PORT_WEBHOOK=${PORT_WEBHOOK:-8502}..."
+    python app/webhook.py &
+fi
+
+# ── 6. Puerto dinámico: Railway inyecta $PORT; defecto 8501 ──────
 PORT="${PORT:-8501}"
 
-# ── 6. Arrancar Streamlit ─────────────────────────────────────────
+# ── 7. Arrancar Streamlit ───────────────────────────────────────────
 echo "[AdamoServices] Iniciando Streamlit en el puerto $PORT..."
 exec python -m streamlit run app/main.py \
     --server.port "$PORT" \

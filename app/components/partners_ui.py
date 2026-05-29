@@ -1747,47 +1747,128 @@ def _tab_monitor_operativo(user: dict) -> None:
     _onboard_p  = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Onboarding")
     _pct_act_p  = f"{round(_activos_p / _total_p * 100)}% del portafolio" if _total_p else ""
 
+    import plotly.graph_objects as _go
+
     _KPI_S = (
         "background:#0d1117;border:1px solid #1e2130;border-radius:12px;"
         "padding:16px 20px;text-align:center;"
     )
-    _kp1, _kp2, _kp3, _kp4 = st.columns(4)
-    _kp1.markdown(
-        f'<div style="{_KPI_S}">'
-        f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
-        f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Total Partners</div>'
-        f'<div style="color:#5fe9d0;font-size:2rem;font-weight:800;line-height:1;">{_total_p}</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-    _kp2.markdown(
-        f'<div style="{_KPI_S}">'
-        f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
-        f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Partners Activos</div>'
-        f'<div style="color:#22c55e;font-size:2rem;font-weight:800;line-height:1;">{_activos_p}</div>'
-        f'<div style="color:#6b7280;font-size:0.72rem;margin-top:4px;">{_pct_act_p}</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-    _r_color_p = "#ef4444" if _alto_r_p else "#22c55e"
-    _r_delta_p = "Requieren atenci\u00f3n" if _alto_r_p else "Bajo control"
-    _kp3.markdown(
-        f'<div style="{_KPI_S}">'
-        f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
-        f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">Alto / Muy Alto Riesgo</div>'
-        f'<div style="color:{_r_color_p};font-size:2rem;font-weight:800;line-height:1;">{_alto_r_p}</div>'
-        f'<div style="color:#6b7280;font-size:0.72rem;margin-top:4px;">{_r_delta_p}</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-    _kp4.markdown(
-        f'<div style="{_KPI_S}">'
-        f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
-        f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">En Onboarding</div>'
-        f'<div style="color:#7857ff;font-size:2rem;font-weight:800;line-height:1;">{_onboard_p}</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+
+    # Activos por empresa del grupo corporativo
+    _campos_empresas = [
+        ("estado_hbpocorp", "Holdings BPO",        "#3b82f6"),
+        ("estado_adamo",    "Adamo Services",       "#10b981"),
+        ("estado_paycop",   "PayCop International", "#f59e0b"),
+    ]
+    _labels_donut = []
+    _values_donut = []
+    _colors_donut = []
+    for _campo_e, _nombre_e, _color_e in _campos_empresas:
+        _n = sum(
+            1 for r in _filas
+            if (_idx(r, _campo_e) or "").strip() == "Activo"
+        )
+        _labels_donut.append(_nombre_e)
+        _values_donut.append(_n)
+        _colors_donut.append(_color_e)
+
+    # 2 cols: izquierda = ambas KPI cards apiladas; derecha = donut
+    _kp_left, _kp_chart = st.columns([1, 2])
+
+    with _kp_left:
+        st.markdown(
+            f'<div style="display:flex;flex-direction:column;gap:8px;">'
+            f'<div style="{_KPI_S}">'
+            f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
+            f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">'
+            f'Total Partners</div>'
+            f'<div style="color:#5fe9d0;font-size:2rem;font-weight:800;line-height:1;">'
+            f'{_total_p}</div>'
+            f'</div>'
+            f'<div style="{_KPI_S}">'
+            f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
+            f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">'
+            f'Partners Activos</div>'
+            f'<div style="color:#22c55e;font-size:2rem;font-weight:800;line-height:1;">'
+            f'{_activos_p}</div>'
+            f'<div style="color:#6b7280;font-size:0.72rem;margin-top:4px;">'
+            f'{_pct_act_p}</div>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    with _kp_chart:
+        _total_donut = sum(_values_donut)
+        if _total_donut > 0:
+            _fig_corp = _go.Figure(_go.Pie(
+                labels=_labels_donut,
+                values=_values_donut,
+                hole=0.62,
+                domain=dict(x=[0.0, 0.55], y=[0.0, 1.0]),
+                marker=dict(
+                    colors=_colors_donut,
+                    line=dict(color="#0d1117", width=3),
+                ),
+                textinfo="none",
+                hovertemplate=(
+                    "<b>%{label}</b><br>"
+                    "%{value} partners activos<br>"
+                    "%{percent}<extra></extra>"
+                ),
+                direction="clockwise",
+                sort=False,
+            ))
+            _fig_corp.update_layout(
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                showlegend=True,
+                legend=dict(
+                    font=dict(color="#9ca3af", size=11),
+                    bgcolor="rgba(0,0,0,0)",
+                    orientation="v",
+                    x=0.60, y=0.5,
+                    xanchor="left",
+                    yanchor="middle",
+                    itemclick=False,
+                    itemdoubleclick=False,
+                ),
+                margin=dict(t=12, b=12, l=12, r=12),
+                height=175,
+                annotations=[
+                    dict(
+                        text=f"<b>{_total_donut}</b>",
+                        font=dict(color="#f9fafb", size=26, family="Inter, sans-serif"),
+                        x=0.275, y=0.56,
+                        showarrow=False,
+                    ),
+                    dict(
+                        text="activos",
+                        font=dict(color="#6b7280", size=11, family="Inter, sans-serif"),
+                        x=0.275, y=0.38,
+                        showarrow=False,
+                    ),
+                ],
+            )
+            st.plotly_chart(
+                _fig_corp,
+                use_container_width=True,
+                config={"displayModeBar": False},
+            )
+        else:
+            st.markdown(
+                f'<div style="{_KPI_S};display:flex;align-items:center;'
+                f'justify-content:center;min-height:175px;">'
+                f'<div>'
+                f'<div style="color:#6b7280;font-size:0.72rem;text-align:center;">'
+                f'Participaci\u00f3n por Empresa</div>'
+                f'<div style="color:#4b5563;font-size:0.82rem;text-align:center;'
+                f'margin-top:6px;">Sin partners activos</div>'
+                f'</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
     st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
 
     # ── Bloque: Relación con el Grupo Corporativo ─────────────────────────────

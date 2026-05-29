@@ -669,6 +669,14 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         if _rol in Roles.CAN_VIEW_CRYPTO:
             _nav_opts.append("🛡️ Cripto Compliance")
 
+        # Bandeja de Cumplimiento
+        if _rol in {"admin", "compliance", "super_admin"}:
+            _nav_opts.append("📧 Bandeja de Cumplimiento")
+
+        # Gestión de Clientes
+        if _rol in {"admin", "compliance", "super_admin", "comercial", "manager_comercial", "consulta"}:
+            _nav_opts.append("👥 Gestión de Clientes")
+
         # Agente: solo ve su propio perfil
         if _rol == Roles.AGENTE:
             _nav_opts.append("👤 Mi Perfil")
@@ -772,6 +780,19 @@ def main():
         _username = user.get("username", "")
         from app.components.agentes_ui import render_perfil_agente
         render_perfil_agente(_username, user=user)
+    elif page == "📧 Bandeja de Cumplimiento":
+        if user.get("rol") not in {"admin", "compliance", "super_admin"}:
+            st.error("🚫 Acceso restringido. Este módulo requiere rol admin o compliance.")
+            st.stop()
+        from app.components.email_ui import page_bandeja_cumplimiento
+        page_bandeja_cumplimiento(user)
+    elif page == "👥 Gestión de Clientes":
+        _rol_actual = user.get("rol", "")
+        if _rol_actual not in {"admin", "compliance", "super_admin", "comercial", "manager_comercial", "consulta"}:
+            st.error("🚫 Acceso Denegado al módulo de Gestión de Clientes.")
+            st.stop()
+        from app.components.clientes_ui import page_clientes
+        page_clientes(user)
 
 
 if __name__ == "__main__":
