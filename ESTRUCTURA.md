@@ -606,7 +606,7 @@ Proyecto_PartnersStatus/
 │                                      # Modos: PLACEHOLDER_HASH (dev) · bcrypt real (prod)
 │                                      #   --password CLI > ADMIN_PASSWORD env > modo dev
 │                                      # ON CONFLICT (username) DO NOTHING — nunca falla en redeploy
-│                                      # Usuarios: test_compliance · test_comercial · test_consulta
+│                                      # Usuarios: Admin_Compliance · test_comercial · test_consulta
 │                                      # Llamado automáticamente por entrypoint.sh en cada deploy
 │
 ├── 📂 scripts/                        # Scripts utilitarios de administración y seed

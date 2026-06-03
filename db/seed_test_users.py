@@ -58,9 +58,9 @@ else:
 # ── Usuarios de prueba ────────────────────────────────────────
 _TEST_USERS = [
     {
-        "username":        "test_compliance",
+        "username":        "Admin_Compliance",
         "nombre_completo": "Admin Compliance",
-        "email":           "test_compliance@adamoservices.co",
+        "email":           "Admin_Compliance@adamoservices.co",
         "rol":             "compliance",
     },
     {

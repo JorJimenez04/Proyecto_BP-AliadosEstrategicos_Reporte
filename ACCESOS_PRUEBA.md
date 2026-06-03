@@ -10,7 +10,7 @@
 | Usuario           | Contraseña       | Rol         | Acceso                                               |
 |-------------------|------------------|-------------|------------------------------------------------------|
 | `admin`           | (tu ADMIN_PASSWORD) | `admin`  | Todo — Dashboard · Partners · Nuevo · Auditoría · Gestión de Agentes |
-| `test_compliance` | (tu ADMIN_PASSWORD) | `compliance` | Dashboard · Partners · Nuevo · Auditoría · Gestión de Agentes · Editar ficha agente |
+| `Admin_Compliance` | (tu ADMIN_PASSWORD) | `compliance` | Dashboard · Partners · Nuevo · Auditoría · Gestión de Agentes · Editar ficha agente |
 | `test_comercial`  | (tu ADMIN_PASSWORD) | `comercial`  | Dashboard · Partners · Nuevo Partner (solo campos operativos) |
 | `test_consulta`   | (tu ADMIN_PASSWORD) | `consulta`   | Dashboard · Partners (solo lectura, sin editar ni eliminar) |
 
@@ -56,7 +56,7 @@ Abre http://localhost:8501 y usa las credenciales de la tabla de arriba.
 
 1. Ingresa como `admin` → verifica que ves todo el menú.
 2. Cierra sesión (botón 🚪 del sidebar).
-3. Ingresa como `test_compliance` → verifica que ves Auditoría y Gestión de Agentes, pero no puedes editar SARLAFT en Partners.
+3. Ingresa como `Admin_Compliance` → verifica que ves Auditoría y Gestión de Agentes, pero no puedes editar SARLAFT en Partners.
 4. Cierra sesión → ingresa como `test_comercial` → verifica que **no** ves Auditoría ni Gestión de Agentes.
 5. Cierra sesión → ingresa como `test_consulta` → verifica que solo ves Dashboard y Partners (sin botones de editar/eliminar).
 
