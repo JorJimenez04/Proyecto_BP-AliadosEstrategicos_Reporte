@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 from db.models import WalletMonitorCreate, CryptoClienteCreate
-from app.utils.crypto_logic import calificar_labels, nivel_dominante, calcular_score_sof_uof
+from app.utils.crypto_logic import calificar_labels, nivel_dominante
 
 logger = logging.getLogger(__name__)
 

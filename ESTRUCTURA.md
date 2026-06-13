@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-05-28 (rev. 19)
+> Última actualización: 2026-06-12 (rev. 20)
 
 ---
 
@@ -373,6 +373,10 @@ Proyecto_PartnersStatus/
 │   ├── 📄 models.py                   # Modelos Pydantic v2
 │   │                                  # AliadoBase · AliadoCreate · AliadoUpdate · AliadoOut
 │   │                                  # UsuarioBase · UsuarioCreate · UsuarioUpdate · UsuarioOut
+│   │                                  # AliadoBase.nit: Optional[str] = Field(default=None)
+│   │                                  #   @model_validator(mode='before') _preprocess_nit:
+│   │                                  #     None / '' → None; valida regex \d{8,10}-\d si hay valor
+│   │                                  #     (mode='before' intercepta antes del type-check de Pydantic)
 │   │                                  # AliadoBase.jurisdicciones: List[str] = [] (campo de dominio)
 │   │                                  # AliadoUpdate.jurisdicciones: Optional[List[str]] = None
 │   │                                  # — Ficha Técnica del Riel (migración 018) —
@@ -499,11 +503,52 @@ Proyecto_PartnersStatus/
 │   │   ├── 📄 024_fix_riesgo_nivel_constraint.sql    # Corrige CHECK constraint en crypto_monitoreo.riesgo_nivel
 │       │                                              #   Añade 'Crítico' y 'Sin Datos' a los valores permitidos
 │       │                                              #   Idempotente: DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT
-│   │   └── 📄 025_rbac_roles_v2.sql                 # Amplía RBAC — nuevos perfiles operativos (v2)
-│       │                                              #   DROP + ADD CHECK constraint en usuarios.rol:
-│       │                                              #   super_admin · manager_ops · manager_comercial
-│       │                                              #   manager_legal · agente · agente_kyc · agente_operativo
-│       │                                              #   (mantiene: admin · compliance · comercial · consulta)
+   │   ├── 📄 025_rbac_roles_v2.sql                 # Amplía RBAC — nuevos perfiles operativos (v2)
+       │                                              #   DROP + ADD CHECK constraint en usuarios.rol:
+       │                                              #   super_admin · manager_ops · manager_comercial
+       │                                              #   manager_legal · agente · agente_kyc · agente_operativo
+       │                                              #   (mantiene: admin · compliance · comercial · consulta)
+   │   ├── 📄 026_email_casos.sql                    # Módulo Bandeja de Cumplimiento
+       │                                              #   tabla email_casos: empresa · buzon · remitente
+       │                                              #     asunto · cuerpo · fecha_recepcion
+       │                                              #     message_id_externo (UNIQUE) · estado · prioridad
+       │                                              #     notas_internas · atendido_por · fecha_resolucion
+       │                                              #     trigger updated_at
+   │   ├── 📄 027_clientes.sql                       # Módulo Gestión de Clientes — tabla maestra
+       │                                              #   tabla clientes: razon_social · nit (UNIQUE)
+       │                                              #     tipo_sociedad · fecha_constitucion
+       │                                              #     pais_constitucion · sector_ciiu · sitio_web
+       │                                              #     nivel_riesgo · puntaje_riesgo · es_pep
+       │                                              #     exposicion_cripto · crypto_friendly
+       │                                              #     jurisdicciones TEXT[] · estado · notas
+   │   ├── 📄 028_cliente_personas.sql               # Beneficiarios finales y representantes
+       │                                              #   tabla cliente_personas: cliente_id (FK)
+       │                                              #     nombre_completo · tipo_documento · numero_documento
+       │                                              #     nacionalidad · rol · pct_participacion
+       │                                              #     es_pep · en_listas_restriccion · fecha_verificacion
+   │   ├── 📄 029_cliente_contratos.sql              # Contratos por empresa del grupo
+       │                                              #   tabla cliente_contratos: cliente_id (FK)
+       │                                              #     empresa_grupo · estado · fecha_inicio/vencimiento
+       │                                              #     contrato_firmado · numero_contrato
+       │                                              #     contacto_operativo/compliance · sla_contratado
+       │                                              #     volumen_mensual_cop · num_transacciones_mes
+   │   ├── 📄 030_contrato_servicios.sql             # Servicios por contrato
+       │                                              #   tabla contrato_servicios: contrato_id (FK)
+       │                                              #     servicio · estado · fecha_activacion
+   │   ├── 📄 031_cliente_documentos.sql             # Documentos KYC/KYB por cliente
+       │                                              #   tabla cliente_documentos: cliente_id (FK)
+       │                                              #     contrato_id (FK nullable) · titulo · carpeta
+       │                                              #     estado · formato · url · version
+       │                                              #     fecha_emision · descripcion_cambio
+   │   ├── 📄 032_cliente_historial_riesgo.sql       # Historial de calificaciones de riesgo por cliente
+       │                                              #   tabla cliente_historial_riesgo:
+       │                                              #     cliente_id (FK) · puntaje_anterior/nuevo
+       │                                              #     nivel_anterior/nuevo · motivo · observaciones
+       │                                              #     registrado_por · created_at
+   │   └── 📄 033_optional_nit.sql                  # NIT opcional en tabla aliados
+                                                      #   ALTER TABLE aliados ALTER COLUMN nit DROP NOT NULL
+                                                      #   PostgreSQL permite múltiples NULL en UNIQUE (NULL≠NULL)
+                                                      #   Permite registrar partners sin NIT disponible
 │   │
 │   └── 📂 repositories/              # Patrón Repository — CRUD desacoplado de la UI
 │       ├── 📄 __init__.py
@@ -666,7 +711,11 @@ Renderiza `page_partners(user)`:
 
 #### Tab ➕ Alta de Partner
 Solo visible para roles `CAN_CREATE_PARTNERS` (admin · compliance · comercial). Pestaña oculta para `consulta`:
-- Formulario 4 secciones: Identificación · Relación Corporativa · Perfil Operativo · Compliance
+- Formulario **3 secciones**: Identificación · Relación Corporativa · Perfil Operativo
+- **NIT opcional** — campo sin `*`; validación exige solo Razón Social; `nit.strip() or None` en payload
+- **`es_entidad_regulada`** movido a Sección 4 (Ficha Técnica del Riel, col `fr2`)
+- Secciones eliminadas: `🛡️ Cumplimiento ISO & Gobernanza` y `⚖️ Cumplimiento SARLAFT`
+- Payload `AliadoCreate` con defaults seguros: `nivel_riesgo="Medio"` · `es_pep=False` · `estado_sarlaft="Al Día"` · `contrato_firmado=True` · `certificaciones=[]`
 - **Relación Corporativa** incluye `🌍 Jurisdicciones de Operación` (multiselect de `Jurisdicciones.ALL`)
 - `AliadoCreate` validado con Pydantic + `repo.create()` + `audit.registrar()`
 - `clear_on_submit=True` + `st.toast()` al registrar · banner de éxito en siguiente render

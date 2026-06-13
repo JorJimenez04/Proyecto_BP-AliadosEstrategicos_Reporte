@@ -19,7 +19,7 @@ from db.repositories.crypto_repo import CryptoRepository, score_a_nivel_riesgo
 from db.models import WalletMonitorCreate, RiskLabel, CryptoClienteCreate
 from app.utils.crypto_logic import (
     calificar_labels, lookup_label, nivel_dominante,
-    GL_ALL_LABELS_SORTED, GL_SCORES, calcular_score_sof_uof, score_gl_to_nivel,
+    GL_ALL_LABELS_SORTED, GL_SCORES, score_gl_to_nivel,
 )
 from app.utils.crypto_parser import parse_gl_pdf, generate_weekly_delta
 

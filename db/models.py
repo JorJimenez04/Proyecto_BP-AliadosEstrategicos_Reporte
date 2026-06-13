@@ -67,7 +67,7 @@ class UsuarioOut(UsuarioBase):
 class AliadoBase(BaseModel):
     # Información básica e Identificación
     nombre_razon_social: str  = Field(..., min_length=2, max_length=200)
-    nit:                 str  = Field(..., pattern=r"^\d{8,10}-\d$")  # Formato: 900123456-1
+    nit:                 Optional[str]  = Field(default=None)  # Formato: 900123456-1 (opcional, validado por @field_validator)
     tipo_aliado:         str
     fecha_vinculacion:   date
     estado_pipeline:     str  = "Prospecto"
@@ -175,6 +175,22 @@ class AliadoBase(BaseModel):
     # ── Nivel de Criticidad Operativa (derivado de nivel_riesgo + regulación) ──
     nivel_criticidad:    str = "Estándar"
 
+    @model_validator(mode="before")
+    @classmethod
+    def _preprocess_nit(cls, data: object) -> object:
+        """Normaliza el campo nit antes de cualquier validación de tipo."""
+        import re
+        if not isinstance(data, dict):
+            return data
+        nit = data.get("nit")
+        if nit is None or (isinstance(nit, str) and nit.strip() == ""):
+            data["nit"] = None
+        elif isinstance(nit, str):
+            nit_clean = nit.strip()
+            if nit_clean and not re.match(r"^\d{8,10}-\d$", nit_clean):
+                raise ValueError("NIT debe tener formato 900123456-1 (Ej: 900123456-1)")
+            data["nit"] = nit_clean or None
+        return data
 
     @field_validator("nivel_criticidad", mode="before")
     @classmethod

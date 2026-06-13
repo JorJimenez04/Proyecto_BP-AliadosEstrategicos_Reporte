@@ -124,7 +124,6 @@ def _card_banking_partner(
     if partner.get("permite_monetizacion"): capacidades.append("💱 Monetización")
     if partner.get("crypto_friendly"):      capacidades.append("🔷 Crypto")
     if partner.get("adult_friendly"):       capacidades.append("🔞 Adult")
-    if partner.get("sla_garantizado"):      capacidades.append("⚡ SLA Garantizado")
     tipo_riel = partner.get("tipo_riel") or ""
     if tipo_riel and tipo_riel != "N/A":
         capacidades.append(f"⚙️ {tipo_riel}")
@@ -298,7 +297,6 @@ def _panel_detalle_ficha(aliado_id: int, user: dict) -> None:
     estado    = aliado.get("estado_pipeline") or "Prospecto"
     tipo      = aliado.get("tipo_aliado") or "—"
     jur_list  = aliado.get("jurisdicciones") or []
-    sla       = aliado.get("sla_garantizado") or "—"
     respaldo  = aliado.get("partner_respaldo") or None
     vinculos  = [respaldo] if respaldo else []
     fid       = aliado.get("id") or aliado_id
@@ -309,7 +307,6 @@ def _panel_detalle_ficha(aliado_id: int, user: dict) -> None:
         ("💱 Monetización",   bool(aliado.get("permite_monetizacion"))),
         ("🔷 Crypto",         bool(aliado.get("crypto_friendly"))),
         ("🔞 Adult",          bool(aliado.get("adult_friendly"))),
-        ("⚡ SLA Garantizado", bool(aliado.get("sla_garantizado"))),
     ]
     tipo_riel = aliado.get("tipo_riel") or ""
     if tipo_riel and tipo_riel != "N/A":
@@ -368,7 +365,7 @@ def _panel_detalle_ficha(aliado_id: int, user: dict) -> None:
 
         _param_row("Tipo de Alianza",         tipo)
         _param_row("Jurisdicción Operativa",   jur_display)
-        _param_row("Tiempo de Liquidación",    sla)
+        _param_row("Tiempo de Liquidación",    aliado.get("sla_garantizado") or "—")
         _param_row("Esquema de Comisiones",    aliado.get("fee_structure") or "—")
         _param_row("Límite Operativo Diario",  aliado.get("daily_limit") or "—")
         _param_row("Volumen Mensual",          aliado.get("volumen_real_mensual") or "—")
@@ -547,7 +544,7 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
     from db.models import AliadoUpdate
     from config.settings import (
         EstadosAliado, NivelesRiesgo, TiposAliado, EstadosSARLAFT, Roles, Jurisdicciones,
-        TiposRiel, CertificacionesISO,
+        TiposRiel,
     )
 
     st.markdown(
@@ -755,22 +752,6 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 help="Dispersión: envío de fondos · Recaudo: cobro · Crypto: activos digitales",
             )
         with ftr2:
-            sla_garantizado = st.text_input(
-                "SLA Garantizado",
-                value=aliado.get("sla_garantizado") or "",
-                key=prefix + "sla",
-                placeholder="Ej: 99.9% uptime / resolución < 4h",
-            )
-
-    # ── Sección 5: Cumplimiento ISO & Gobernanza ──────────────────────────────
-    with st.expander("🛡️ Cumplimiento ISO & Gobernanza"):
-        if not puede_compliance:
-            st.warning(
-                "🔒 Solo Admin y Compliance pueden editar los campos de "
-                "Criticidad y Cumplimiento ISO."
-            )
-        fiso1, fiso2 = st.columns(2)
-        with fiso1:
             es_regulada = st.checkbox(
                 "🏛️ Entidad Regulada (licencia financiera)",
                 value=bool(aliado.get("es_entidad_regulada", False)),
@@ -778,54 +759,11 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 disabled=not puede_compliance,
                 help="Marcar si el partner posee resolución de la SFC u otro ente regulador.",
             )
-            numero_licencia = st.text_input(
-                "Número de Licencia",
-                value=aliado.get("numero_licencia") or "",
-                key=prefix + "licencia",
-                disabled=not puede_compliance,
-                placeholder="Ej: Res. SFC 0001-2023",
-            )
-            fecha_auditoria = st.date_input(
-                "Fecha Última Auditoría",
-                value=aliado.get("fecha_ultima_auditoria"),
-                key=prefix + "auditoria",
-                disabled=not puede_compliance,
-            )
-        with fiso2:
-            _certs_actual  = list(aliado.get("certificaciones") or [])
-            _certs_validas = [c for c in _certs_actual if c in CertificacionesISO.ALL]
-            certificaciones = st.multiselect(
-                "Certificaciones (ISO / PCI-DSS)",
-                options=CertificacionesISO.ALL,
-                default=_certs_validas,
-                key=prefix + "certificaciones",
-                disabled=not puede_compliance,
-                help="ISO 27001, PCI-DSS, SOC 2, ISO 9001, ISO 20000",
-            )
-            partner_respaldo = st.text_input(
-                "Partner de Respaldo (Plan de Continuidad)",
-                value=aliado.get("partner_respaldo") or "",
-                key=prefix + "respaldo",
-                disabled=not puede_compliance,
-                placeholder="Ej: Davivienda / Nequi",
-            )
-            pct_val = aliado.get("pct_concentracion")
-            pct_concentracion = st.number_input(
-                "% Concentración Operativa",
-                min_value=0.0, max_value=100.0, step=0.5,
-                value=float(pct_val) if pct_val is not None else 0.0,
-                key=prefix + "pct_conc",
-                disabled=not puede_compliance,
-                help="Porcentaje de la operación total que depende de este partner.",
-            )
     col_g, col_c, _ = st.columns([1, 1, 4])
     with col_g:
         if st.button("💾 Guardar", key=prefix + "guardar", type="primary"):
             # Detectar cambios en campos de criticidad/compliance para auditoría enriquecida
-            _campos_compliance = {
-                "es_entidad_regulada", "numero_licencia", "fecha_ultima_auditoria",
-                "certificaciones", "partner_respaldo", "pct_concentracion",
-            }
+            _campos_compliance = {"es_entidad_regulada"}
             _campos_criticidad = {"nivel_riesgo", "es_entidad_regulada"}
             cambios = AliadoUpdate(
                 nombre_razon_social=nombre,
@@ -850,14 +788,7 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
                 jurisdicciones=jur_sel,
                 # Ficha Técnica del Riel
                 tipo_riel=tipo_riel or None,
-                sla_garantizado=sla_garantizado or None,
-                # Cumplimiento ISO & Gobernanza
                 es_entidad_regulada=es_regulada,
-                numero_licencia=numero_licencia or None,
-                fecha_ultima_auditoria=fecha_auditoria if fecha_auditoria else None,
-                certificaciones=certificaciones,
-                partner_respaldo=partner_respaldo or None,
-                pct_concentracion=pct_concentracion if pct_concentracion > 0 else None,
                 actualizado_por=user.get("id"),
             )
             try:
@@ -1069,7 +1000,7 @@ def page_partners(user: dict) -> None:
     import streamlit as st
     from db.database import get_session
     from db.repositories.partner_repo import PartnerRepository
-    from config.settings import EstadosAliado, NivelesRiesgo, Roles, Jurisdicciones, NivelesCriticidad
+    from config.settings import EstadosAliado, NivelesRiesgo, Roles, Jurisdicciones
 
     # ── Permisos ──────────────────────────────────────────────────────────────
     rol = user.get("rol", "")
@@ -1223,31 +1154,6 @@ def page_partners(user: dict) -> None:
             card_bg     = "#1a1f2e"
             card_glow   = "none"
 
-        score_color = _SCORE_COLOR.get(riesgo, "#6b7280")
-        score_pct   = min(100, int(puntaje))
-        fecha_str   = str(fecha_rev) if fecha_rev else "—"
-
-        # ── Pills / badges ────────────────────────────────────────────────────
-        c_color          = _COLORES_CRITICIDAD.get(criticidad, "#6b7280")
-        pip_pill         = _pill(estado_pip,  _COLORES_PIPELINE.get(estado_pip, "#6b7280"))
-        criticidad_pill  = _pill(criticidad,  c_color)
-        sarlaft_pill     = _pill(sarlaft,     _COLORES_SARLAFT.get(sarlaft, "#6b7280"))
-        pep_badge        = _pill("⚠ PEP", "#f59e0b") if es_pep_fila else ""
-        regulada_badge   = (
-            _pill("🏛️ Entidad Regulada", "#5fe9d0") if es_regulada else ""
-        )
-
-        # Tipo de riel badge
-        riel_icons = {"Dispersión": "📤", "Recaudo": "📥", "Crypto": "🔷", "Mixto": "🔄"}
-        riel_badge = ""
-        if tipo_riel and tipo_riel != "N/A":
-            riel_icon = riel_icons.get(tipo_riel, "⚙️")
-            riel_badge = (
-                f'<span style="background:#1e274022;color:#93c5fd;border:1px solid #3b4f7a;'
-                f'border-radius:9999px;padding:2px 9px;font-size:11px;font-weight:600;'
-                f'margin-right:3px">{riel_icon} {tipo_riel}</span>'
-            )
-
         # ── Capacidades ───────────────────────────────────────────────────────
         caps_html = (
             _capacidad_badge("🔷 Crypto",    bool(_idx(fila, "crypto_friendly")))
@@ -1255,40 +1161,6 @@ def page_partners(user: dict) -> None:
             + _capacidad_badge("💱 Monet.",  bool(_idx(fila, "permite_monetizacion")))
             + _capacidad_badge("📤 Dispers.", bool(_idx(fila, "permite_dispersion")))
         )
-        jur_list       = _idx(fila, "jurisdicciones") or []
-        jur_block_html = ""
-        if jur_list:
-            badges_jur = []
-            for j in jur_list[:6]:
-                is_risky = j in Jurisdicciones.ALTO_RIESGO
-                jbg      = "#450a0a" if is_risky else "#1e2740"
-                jcolor   = "#fca5a5" if is_risky else "#93c5fd"
-                jborder  = "#ef444466" if is_risky else "#3b4f7a"
-                badges_jur.append(
-                    f'<span style="background:{jbg};color:{jcolor};border:1px solid '
-                    f'{jborder};border-radius:5px;padding:2px 7px;font-size:10px;'
-                    f'font-weight:500;white-space:nowrap">{j}</span>'
-                )
-            if len(jur_list) > 6:
-                extra = len(jur_list) - 6
-                badges_jur.append(
-                    f'<span style="color:#6b7280;font-size:10px;padding:2px 4px">'
-                    f'+{extra} más</span>'
-                )
-            jur_block_html = (
-                '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center">'
-                + " ".join(badges_jur)
-                + '</div>'
-            )
-
-        jur_section = (
-            '<div style="margin-bottom:10px">'
-            '<span style="color:#64748b;font-size:10px;text-transform:uppercase;'
-            'letter-spacing:.5px;margin-right:6px">🌍 Jurisdicciones</span>'
-            + jur_block_html
-            + '</div>'
-        ) if jur_list else ""
-
         # ── HTML de la tarjeta B2B ────────────────────────────────────────────
         card_html = _card_banking_partner(
             fila,
@@ -1345,7 +1217,7 @@ def _tab_alta_partner(user: dict) -> None:
     from db.repositories.partner_repo import PartnerRepository
     from db.repositories.audit_repo import AuditRepository
     from db.models import AliadoCreate
-    from config.settings import TiposAliado, NivelesRiesgo, Roles, Jurisdicciones, TiposRiel, CertificacionesISO
+    from config.settings import TiposAliado, Roles, Jurisdicciones, TiposRiel
 
     st.markdown(
         '<p style="color:#9ca3af;margin-bottom:18px">'
@@ -1360,7 +1232,7 @@ def _tab_alta_partner(user: dict) -> None:
         c1, c2, c3 = st.columns(3)
         with c1:
             nombre   = st.text_input("Razón Social *", placeholder="Ej: Cobre / Davivienda")
-            nit      = st.text_input("NIT * (900123456-1)", placeholder="900123456-1")
+            nit      = st.text_input("NIT (900123456-1 — opcional)", placeholder="Ej: 900123456-1")
         with c2:
             tipo     = st.selectbox("Tipo de Aliado *", TiposAliado.ALL)
             fecha_vinc = st.date_input("Fecha Vinculación *", value=_date.today())
@@ -1423,73 +1295,29 @@ def _tab_alta_partner(user: dict) -> None:
                 help="Dispersión: salida · Recaudo: cobro · Crypto: activos digitales",
             )
         with fr2:
-            sla_garantizado = st.text_input(
-                "SLA Garantizado",
-                placeholder="Ej: 99.9% uptime / resolución < 4h",
-            )
-
-        # ── SECCIÓN 5: CUMPLIMIENTO ISO & GOBERNANZA ──────────────────────────
-        st.markdown('<p class="section-title">🛡️ Cumplimiento ISO & Gobernanza</p>',
-                    unsafe_allow_html=True)
-        fi1, fi2 = st.columns(2)
-        with fi1:
             es_regulada = st.checkbox(
                 "🏛️ Entidad Regulada (posee licencia financiera)",
-                help="Activa la etiqueta 'DDI - Entidad Regulada' en lugar de un riesgo connotativo.",
+                help="Activa la etiqueta 'DDI - Entidad Regulada' en el scoring SARLAFT.",
             )
-            numero_licencia = st.text_input(
-                "Número de Licencia",
-                placeholder="Ej: Res. SFC 0001-2023",
-            )
-            fecha_auditoria = st.date_input(
-                "Fecha Última Auditoría",
-                value=None,
-            )
-        with fi2:
-            certificaciones = st.multiselect(
-                "Certificaciones",
-                options=CertificacionesISO.ALL,
-                help="ISO 27001, PCI-DSS, SOC 2, ISO 9001, ISO 20000",
-            )
-            partner_respaldo = st.text_input(
-                "Partner de Respaldo",
-                placeholder="Ej: Davivienda",
-                help="Partner que asume la operación en caso de contingencia.",
-            )
-            pct_concentracion = st.number_input(
-                "% Concentración Operativa",
-                min_value=0.0, max_value=100.0, step=0.5, value=0.0,
-                help="% de la operación total que depende de este partner.",
-            )
-        st.markdown('<p class="section-title">⚖️ Cumplimiento SARLAFT</p>',
-                    unsafe_allow_html=True)
-        cc1, cc2 = st.columns(2)
-        with cc1:
-            riesgo = st.selectbox(
-                "Nivel de Riesgo SARLAFT",
-                NivelesRiesgo.ALL, index=1,
-                help="El Nivel de Criticidad se calculará automáticamente al registrar.",
-            )
-            pep    = st.checkbox("¿Es Persona Expuesta Políticamente (PEP)?")
-        with cc2:
-            freq        = st.selectbox("Frecuencia Revisión",
-                                       ["Anual", "Semestral", "Trimestral", "Mensual"])
-            motivo_inact = st.text_area("Si está Inactivo, ¿por qué?")
-
-        obs = st.text_area("Observaciones Adicionales de Compliance")
 
         submitted = st.form_submit_button("💾 Registrar Partner", type="primary")
 
     if submitted:
-        if not nombre or not nit:
-            st.error("Razón Social y NIT son obligatorios.")
+        if not nombre:
+            st.error("La Razón Social es obligatoria.")
             return
         try:
             nuevo = AliadoCreate(
-                nombre_razon_social=nombre, nit=nit, tipo_aliado=tipo,
+                nombre_razon_social=nombre, nit=nit.strip() or None, tipo_aliado=tipo,
                 fecha_vinculacion=fecha_vinc, ciudad=ciudad, departamento_geo=depto,
-                nivel_riesgo=riesgo, es_pep=pep, frecuencia_revision=freq,
-                observaciones_compliance=obs,
+                # Safe infrastructure defaults — not collected from UI
+                nivel_riesgo="Medio",
+                es_pep=False,
+                frecuencia_revision="Anual",
+                estado_sarlaft="Al Día",
+                contrato_firmado=True,
+                lista_ofac_ok=True,
+                listas_verificadas=True,
                 estado_hbpocorp=est_hbpo, estado_adamo=est_adamo,
                 estado_paycop=est_paycop, crypto_friendly=crypto,
                 adult_friendly=adult, permite_monetizacion=monetizacion,
@@ -1497,18 +1325,16 @@ def _tab_alta_partner(user: dict) -> None:
                 clientes_vinculados=clientes, volumen_real_mensual=volumen,
                 fecha_inicio_relacion=fecha_ini_rel,
                 fecha_fin_relacion=fecha_fin_rel,
-                motivo_inactividad=motivo_inact,
-                jurisdicciones=jur_sel,
+                jurisdicciones=jur_sel if jur_sel else [],
                 # Ficha Técnica del Riel
                 tipo_riel=tipo_riel or None,
-                sla_garantizado=sla_garantizado or None,
-                # Cumplimiento ISO & Gobernanza
                 es_entidad_regulada=es_regulada,
-                numero_licencia=numero_licencia or None,
-                fecha_ultima_auditoria=fecha_auditoria if fecha_auditoria else None,
-                certificaciones=certificaciones,
-                partner_respaldo=partner_respaldo or None,
-                pct_concentracion=pct_concentracion if pct_concentracion > 0 else None,
+                # Gobernanza defaults (no longer collected from UI)
+                certificaciones=[],
+                numero_licencia=None,
+                partner_respaldo=None,
+                pct_concentracion=None,
+                nivel_criticidad="Estándar",
             )
             with next(get_session()) as session:
                 repo  = PartnerRepository(session)
@@ -1531,187 +1357,6 @@ def _tab_alta_partner(user: dict) -> None:
             st.toast(f"✅ {nombre} registrado exitosamente", icon="✅")
         except Exception as exc:
             st.error(f"Error al registrar: {exc}")
-
-
-# ── Tab: Análisis de Riesgo ───────────────────────────────────────────────────
-
-def _tab_analisis_riesgo(user: dict) -> None:
-    """Vista de análisis SARLAFT, Due Diligence y riesgo operativo."""
-    import streamlit as st
-    from db.database import get_session
-    from db.repositories.partner_repo import PartnerRepository
-    from config.settings import Roles
-
-    es_comercial = user.get("rol") == Roles.COMERCIAL
-
-    if es_comercial:
-        st.info(
-            "🔒 Vista de solo lectura. El rol Comercial puede consultar el análisis "
-            "pero no puede modificar niveles de riesgo ni estado SARLAFT.",
-        )
-
-    try:
-        with next(get_session()) as session:
-            repo               = PartnerRepository(session)
-            termometro         = repo.get_termometro_sarlaft()
-            stats_riesgo       = repo.get_stats_riesgo()
-            stats_pipeline     = repo.get_stats_pipeline()
-            sarlaft_vencidas   = repo.get_sarlaft_vencidas()
-            revisiones_proximas = repo.get_revisiones_proximas(dias=30)
-            volumenes          = repo.get_resumen_volumen()
-    except Exception as exc:
-        st.error(f"Error al cargar análisis de riesgo: {exc}")
-        return
-
-    # ── Fila superior: termómetro SARLAFT + distribución de riesgo ───────────
-    col_sarlaft, col_riesgo = st.columns(2)
-
-    _BG     = "#1f2937"
-    _BORDER = "#293056"
-    _GRAY   = "#9ca3af"
-
-    with col_sarlaft:
-        st.markdown(
-            f'<div style="background:{_BG};border:1px solid {_BORDER};border-radius:12px;'
-            f'padding:20px 24px;margin-bottom:16px">'
-            f'<div style="color:{_GRAY};font-size:0.72rem;font-weight:600;'
-            f'text-transform:uppercase;letter-spacing:1px;margin-bottom:14px">'
-            f'🌡️ Termómetro SARLAFT</div>',
-            unsafe_allow_html=True,
-        )
-        t_total = max(sum(termometro.values()), 1)
-        for label, key, color in [
-            ("Vencidos",     "vencidos",  "#ef4444"),
-            ("Próximos 15d", "proximos",  "#f59e0b"),
-            ("Al Día",       "al_dia",    "#5fe9d0"),
-            ("Sin fecha",    "sin_fecha", "#4b5563"),
-        ]:
-            val = termometro.get(key, 0)
-            pct = round(val / t_total * 100)
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
-                f'<div style="width:100px;color:{_GRAY};font-size:0.78rem;text-align:right">{label}</div>'
-                f'<div style="flex:1;background:#111827;border-radius:6px;height:10px;overflow:hidden">'
-                f'<div style="width:{pct}%;height:100%;background:{color};border-radius:6px"></div></div>'
-                f'<div style="width:50px;text-align:right">'
-                f'<span style="color:{color};font-weight:700">{val}</span>'
-                f'<span style="color:#4b5563;font-size:0.72rem"> ({pct}%)</span></div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with col_riesgo:
-        st.markdown(
-            f'<div style="background:{_BG};border:1px solid {_BORDER};border-radius:12px;'
-            f'padding:20px 24px;margin-bottom:16px">'
-            f'<div style="color:{_GRAY};font-size:0.72rem;font-weight:600;'
-            f'text-transform:uppercase;letter-spacing:1px;margin-bottom:14px">'
-            f'⚠️ Distribución de Riesgo SARLAFT</div>',
-            unsafe_allow_html=True,
-        )
-        r_total = max(sum(stats_riesgo.values()), 1)
-        for nivel, color in [
-            ("Muy Alto", "#ef4444"),
-            ("Alto",     "#f97316"),
-            ("Medio",    "#f59e0b"),
-            ("Bajo",     "#5fe9d0"),
-        ]:
-            val = stats_riesgo.get(nivel, 0)
-            pct = round(val / r_total * 100)
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
-                f'<div style="width:65px;color:{_GRAY};font-size:0.78rem;text-align:right">{nivel}</div>'
-                f'<div style="flex:1;background:#111827;border-radius:6px;height:10px;overflow:hidden">'
-                f'<div style="width:{pct}%;height:100%;background:{color};border-radius:6px"></div></div>'
-                f'<div style="width:50px;text-align:right">'
-                f'<span style="color:{color};font-weight:700">{val}</span>'
-                f'<span style="color:#4b5563;font-size:0.72rem"> ({pct}%)</span></div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Pipeline de estados ───────────────────────────────────────────────────
-    st.markdown(
-        f'<div style="background:{_BG};border:1px solid {_BORDER};border-radius:12px;'
-        f'padding:20px 24px;margin-bottom:16px">'
-        f'<div style="color:{_GRAY};font-size:0.72rem;font-weight:600;'
-        f'text-transform:uppercase;letter-spacing:1px;margin-bottom:14px">'
-        f'📊 Pipeline de Estados</div>',
-        unsafe_allow_html=True,
-    )
-    p_total = max(sum(stats_pipeline.values()), 1)
-    pip_cols = st.columns(len(stats_pipeline) or 1)
-    for idx, (estado, cnt) in enumerate(stats_pipeline.items()):
-        color = _COLORES_PIPELINE.get(estado, "#6b7280")
-        pct   = round(cnt / p_total * 100)
-        pip_cols[idx].markdown(
-            f'<div style="text-align:center;background:#111827;border:1px solid {color}33;'
-            f'border-radius:10px;padding:14px 8px">'
-            f'<div style="color:{color};font-size:1.6rem;font-weight:800">{cnt}</div>'
-            f'<div style="color:{_GRAY};font-size:0.68rem;margin-top:4px">{estado}</div>'
-            f'<div style="color:{color};font-size:0.65rem;margin-top:2px">{pct}%</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Partners con SARLAFT vencido ──────────────────────────────────────────
-    if sarlaft_vencidas:
-        st.markdown(
-            f'<div style="background:#2a0f0f;border:1px solid #ef444466;border-radius:12px;'
-            f'padding:20px 24px;margin-bottom:16px">'
-            f'<div style="color:#ef4444;font-size:0.72rem;font-weight:700;'
-            f'text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">'
-            f'🚨 SARLAFT Vencidos ({len(sarlaft_vencidas)})</div>',
-            unsafe_allow_html=True,
-        )
-        for p in sarlaft_vencidas:
-            nombre_p = p.get("nombre_razon_social", "—")
-            nit_p    = p.get("nit", "—")
-            fecha_p  = p.get("proxima_revision_sarlaft", "—")
-            riesgo_p = p.get("nivel_riesgo", "—")
-            r_color  = _COLORES_RIESGO.get(riesgo_p, "#6b7280")
-            st.markdown(
-                f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                f'padding:8px 0;border-bottom:1px solid #293056">'
-                f'<div><span style="color:#f1f5f9;font-weight:600">{nombre_p}</span>'
-                f'<span style="color:#6b7280;font-size:0.78rem;margin-left:8px">{nit_p}</span></div>'
-                f'<div style="display:flex;gap:8px;align-items:center">'
-                f'<span style="color:{r_color};font-size:0.75rem;font-weight:600">{riesgo_p}</span>'
-                f'<span style="color:#ef4444;font-size:0.75rem">{fecha_p}</span>'
-                f'</div></div>',
-                unsafe_allow_html=True,
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ── Revisiones próximas 30 días ───────────────────────────────────────────
-    if revisiones_proximas:
-        st.markdown(
-            f'<div style="background:#1a1f0f;border:1px solid #f59e0b66;border-radius:12px;'
-            f'padding:20px 24px;margin-bottom:16px">'
-            f'<div style="color:#f59e0b;font-size:0.72rem;font-weight:700;'
-            f'text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">'
-            f'⏰ Revisiones Próximas — 30 días ({len(revisiones_proximas)})</div>',
-            unsafe_allow_html=True,
-        )
-        for p in revisiones_proximas:
-            nombre_p = p.get("nombre_razon_social", "—")
-            fecha_p  = p.get("proxima_revision_sarlaft", "—")
-            riesgo_p = p.get("nivel_riesgo", "—")
-            r_color  = _COLORES_RIESGO.get(riesgo_p, "#6b7280")
-            st.markdown(
-                f'<div style="display:flex;justify-content:space-between;'
-                f'padding:8px 0;border-bottom:1px solid #293056">'
-                f'<span style="color:#f1f5f9">{nombre_p}</span>'
-                f'<div style="display:flex;gap:8px">'
-                f'<span style="color:{r_color};font-size:0.75rem">{riesgo_p}</span>'
-                f'<span style="color:#f59e0b;font-size:0.75rem">{fecha_p}</span>'
-                f'</div></div>',
-                unsafe_allow_html=True,
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ── Monitor Operativo de Rieles ───────────────────────────────────────────────
