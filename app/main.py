@@ -606,7 +606,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
     Retorna (page, agente_username | None).
 
     page puede ser:
-      "🏛️ Gestión de Infraestructura Financiera" | "📋 Log de Auditoría" |
+      "🏛️ Gestión de Infraestructura Financiera" | "📋 Log de Auditoría" | "🔍 Screening de Cumplimiento" |
       "👥 Gestión de Agentes"  | "📚 Centro Documental" | "👤 Perfil Agente"
     agente_username solo está definido cuando page == "👤 Perfil Agente".
     """
@@ -655,6 +655,10 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         # Auditoría
         if _rol in Roles.CAN_VIEW_AUDIT:
             _nav_opts.append("📋 Log de Auditoría")
+        
+        # 🔍 Screening de Cumplimiento
+        if _rol in {"admin", "compliance", "super_admin"}:
+            _nav_opts.append("🔍 Screening de Cumplimiento")
 
         # Gestión de Agentes — equipos completos
         # Agentes ven su propio perfil (acceso directo, no por menú)
@@ -749,12 +753,21 @@ def main():
             st.stop()
         from app.components.partners_ui import page_alianzas
         page_alianzas(user)
+    ##########
     elif page == "📋 Log de Auditoría":
         if user.get("rol") not in Roles.CAN_VIEW_AUDIT:
             st.error("🚫 Acceso Denegado. No tienes permisos para ver el Log de Auditoría.")
             st.stop()
         from app.components.audit_ui import page_auditoria
         page_auditoria(user)
+    ##########
+    elif page == "🔍 Screening de Cumplimiento":
+        if user.get("rol") not in {"admin", "compliance", "super_admin"}:
+            st.error("🚫 Acceso Denegado. Su rol no cuenta con permisos para ejecutar consultas de screening.")
+            st.stop()
+        from app.components.screening_ui import render_screening_workspace
+        render_screening_workspace(user)
+    #############
     elif page == "👥 Gestión de Agentes":
         if user.get("rol") not in Roles.CAN_VIEW_AGENTES:
             st.error("🚫 Acceso Denegado. No tienes permisos para acceder a Gestión de Agentes.")
