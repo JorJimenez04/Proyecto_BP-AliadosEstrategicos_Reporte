@@ -1,9 +1,9 @@
 # ─────────────────────────────────────────────────────────────────
 # Dockerfile — AdamoServices Partner Manager
-# Base: python:3.10-slim  |  Target: Railway (PostgreSQL)
+# Base: python:3.11-slim  |  Target: Railway (PostgreSQL)
 # ─────────────────────────────────────────────────────────────────
 
-FROM python:3.10-slim AS base
+FROM python:3.11-slim AS base
 
 # Evitar archivos .pyc y que Python bufferice stdout (logs en tiempo real)
 ENV PYTHONDONTWRITEBYTECODE=1 \
