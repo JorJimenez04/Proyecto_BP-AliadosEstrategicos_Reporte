@@ -2,7 +2,7 @@
 
 > Aplicación web de gestión de Banking Partners y Aliados Estratégicos.  
 > Stack: Python 3.12 · Streamlit · PostgreSQL · SQLAlchemy (raw SQL) · Pydantic v2  
-> Última actualización: 2026-06-12 (rev. 20)
+> Última actualización: 2026-07-06 (rev. 21)
 
 ---
 
@@ -248,6 +248,28 @@ Proyecto_PartnersStatus/
 │   │   │                              # _CARPETAS_ORDEN = [Politicas, Manuales, Onboarding,
 │   │   │                              #   Procesos y Procedimientos, Governanza, Empresariales,
 │   │   │                              #   Capacitacion, Contratos, Actas y Formatos, Matrices, Tecnologia]
+│   │   ├── 📄 clientes_ui.py          # 👥 Gestión de Clientes — page_clientes(user)
+│   │   │                              # Vista unificada KYC + contratos + personas + documentos + riesgo SARLAFT
+│   │   │                              # Acceso: admin · compliance · comercial · consulta (solo lectura)
+│   │   │                              # Constantes: _ESTADO_COLOR · _NIVEL_COLOR · _EMPRESA_COLOR
+│   │   │                              #   _SERVICIOS_COLOR · _CARPETA_ICON · _TIPOS_SOCIEDAD
+│   │   │                              #   _ROLES_PERSONA · _ESTADOS_CLIENTE · _NIVELES_RIESGO
+│   │   ├── 📄 email_ui.py             # 📧 Bandeja de Cumplimiento — page_email(user)
+│   │   │                              # Centraliza correos de 3 buzones corporativos como casos gestionables
+│   │   │                              # Acceso: admin · compliance
+│   │   │                              # Estados: Nuevo · En gestión · Resuelto · Escalado
+│   │   │                              # Prioridades: Alta · Normal · Baja
+│   │   │                              # _caso_card_html(): tarjeta HTML con badges empresa/estado/prioridad
+│   │   │                              # _tiempo_relativo(): formatea delta temporal (hace Xmin/h/d)
+│   │   │                              # Empresas: Holdings BPO · Adamo Services · Paycop
+│   │   ├── 📄 screening_ui.py         # 🔍 Screening y Debida Diligencia — generación PDF institucional
+│   │   │                              # ComplianceMaestroPDF (fpdf): doble logo + header/footer corporativo
+│   │   │                              # parsear_texto_infolaft(): extrae nombre/ID/radicado/GAFI desde PDF Infolaft
+│   │   │                              # procesar_archivo_pdf(): PdfReader → parsear_texto_infolaft()
+│   │   │                              # render_resumen_validacion_ui(): microtarjeta "Certificado Limpio" / "⚠ Alerta"
+│   │   │                              # generar_pdf_consolidado(): PDF expediente con diseño Adamo + Holdings
+│   │   │                              # resolver_ruta_logo(): búsqueda multiplataforma en static/img/logos/
+│   │   │                              # Dependencias: pypdf (lectura) · fpdf2 (generación)
 │   │   └── 📄 agentes_ui.py           # Módulo INFORMATIVO de Equipos Operativos
 │   │                                  #   (gerencia / líderes de equipo — los agentes NO acceden al sistema)
 │   │                                  # EQUIPOS dict: 🛡️ Cumplimiento · 💸 Pagos · 🎧 Soporte (fallback estático)
@@ -644,6 +666,25 @@ Proyecto_PartnersStatus/
 │       │                              # get_recent_gestiones(agente_id, limit=5) — para análisis IA
 │       │                              #   retorna tipo, riesgo, pipeline, SARLAFT, PEP, listas,
 │       │                              #   alertas, observaciones; nombre parcialmente enmascarado
+│       ├── 📄 cliente_repo.py         # CRUD del módulo Gestión de Clientes
+│       │                              # ClienteRepository(session):
+│       │                              # crear() — INSERT + calcula puntaje_riesgo automático (rubrica SARLAFT)
+│       │                              # get_all() · get_by_id() · get_by_nit() · actualizar() · eliminar()
+│       │                              # get_personas() · crear_persona() · actualizar_persona() · eliminar_persona()
+│       │                              # get_contratos() · crear_contrato() · actualizar_contrato()
+│       │                              # get_servicios(contrato_id) · crear_servicio()
+│       │                              # get_documentos(cliente_id) · crear_documento() · actualizar_documento()
+│       │                              # get_historial_riesgo(cliente_id) · registrar_calificacion_riesgo()
+│       │                              # _calcular_puntaje(): rubrica SARLAFT (es_pep · cripto · jurisdicciones GAFI)
+│       │                              # _nivel_desde_puntaje() · _proxima_revision(nivel) · _auditar()
+│       ├── 📄 email_repo.py           # CRUD de la Bandeja de Cumplimiento
+│       │                              # EmailRepository(session):
+│       │                              # crear(EmailCasoCreate) · get_all(empresa, estado, prioridad, search)
+│       │                              # get_by_id() · actualizar(EmailCasoUpdate) · eliminar()
+│       │                              # cambiar_estado() · asignar_agente()
+│       │                              # Validación de estados/prioridades contra sets constantes
+│       │                              # Columna "buzón" (con tilde) → alias 'buzon' en SELECT
+│       │                              # _auditar() — registra en audit_repo en toda modificación
 │       ├── 📄 user_repo.py            # CRUD de usuarios del sistema (con bcrypt)
 │       │                              # create_user() · update_user() · get_by_username()
 │       │                              # activo = 1 (INTEGER) en inserts y queries
@@ -763,6 +804,43 @@ Repositorio centralizado de documentos regulatorios de ADAMO Services.
 1. Clic "✏️ Editar" → toggle `_nv_open_{id}` en session_state
 2. `_form_editar()` → `compliance_repo.actualizar()` + `audit_repo.registrar()`
 3. `st.rerun()` automático para reflejar cambios en la grilla
+
+---
+
+### 👥 Gestión de Clientes (`app/components/clientes_ui.py`)
+Vista unificada KYC/KYB para clientes corporativos con contratos, personas vinculadas, documentos y calificación de riesgo SARLAFT.
+
+- Accesible para todos los roles; edición restringida a `admin` y `compliance`
+- **Filtros**: Estado · Nivel de riesgo · Empresa del grupo · búsqueda texto
+- **Tarjeta de cliente**: razón social · NIT · nivel riesgo · estado · jurisdicciones
+- **Detalle (expander)**: personas vinculadas (UBOs/representantes) · contratos activos · documentos KYC · historial de calificaciones
+- **Calificación automática**: `_calcular_puntaje()` — rubrica SARLAFT con PEP, exposición cripto, jurisdicciones GAFI
+- **Próxima revisión**: calculada por nivel (Muy Alto: 30 d · Alto: 90 d · Medio: 180 d · Bajo: 365 d)
+- Auditoría automática en toda operación CREATE/UPDATE/DELETE
+
+---
+
+### 📧 Bandeja de Cumplimiento (`app/components/email_ui.py`)
+Centraliza los correos de los 3 buzones corporativos (Holdings BPO · Adamo Services · Paycop) como casos gestionables.
+
+- Acceso restringido: `admin` · `compliance`
+- **Estados de caso**: `Nuevo` · `En gestión` · `Resuelto` · `Escalado`
+- **Prioridades**: `Alta` · `Normal` · `Baja`
+- Tarjeta por caso con badges de empresa, estado, prioridad y tiempo relativo
+- Notas internas · asignación de responsable · fecha de resolución
+- Auditoría completa vía `email_repo` → `audit_repo`
+
+---
+
+### 🔍 Screening y Debida Diligencia (`app/components/screening_ui.py`)
+Generación de expedientes PDF institucionales a partir de reportes Infolaft.
+
+- **`parsear_texto_infolaft()`**: extrae nombre, documento, radicado, fecha consulta, resultados y riesgo GAFI del texto PDF
+- **`procesar_archivo_pdf()`**: `pypdf.PdfReader` → texto → `parsear_texto_infolaft()`
+- **`render_resumen_validacion_ui()`**: microtarjeta *"✓ Certificado Limpio"* o *"⚠ Alerta Detectada"* según resultados
+- **`ComplianceMaestroPDF`** (`fpdf2`): doble logo simétrico (Adamo + Holdings) · header/footer corporativo · numeración de páginas
+- **`generar_pdf_consolidado()`**: PDF expediente de debida diligencia con diseño institucional
+- **`resolver_ruta_logo()`**: búsqueda multiplataforma en `app/static/img/logos/`
 
 ---
 
@@ -893,7 +971,7 @@ git push origin main
 | `DEBUG`               | Desarrollo      | Muestra SQL en consola                    | `true` en dev, `false` en prod           |
 | `AI_PROVIDER`         | Ambos           | Proveedor LLM activo                      | `gemini` (default) · `openai`            |
 | `GEMINI_API_KEY`      | Ambos           | API key de Google AI Studio               | [aistudio.google.com](https://aistudio.google.com/apikey) · tier gratuito |
-| `GEMINI_MODEL`        | Ambos           | Modelo Gemini a usar                      | `gemini-1.5-flash`                       |
+| `GEMINI_MODEL`        | Ambos           | Modelo Gemini a usar                      | `gemini-2.0-flash` (default abril 2026)  |
 | `OPENAI_API_KEY`      | Ambos           | API key de OpenAI (alternativa)           | Solo si `AI_PROVIDER=openai`             |
 | `OPENAI_MODEL`        | Ambos           | Modelo OpenAI a usar                      | `gpt-4o-mini`                            |
 
