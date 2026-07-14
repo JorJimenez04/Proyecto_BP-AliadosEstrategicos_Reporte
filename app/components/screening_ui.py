@@ -41,7 +41,7 @@ class ComplianceMaestroPDF(FPDF):
         self.set_xy(45, 12)
         self.set_font("Helvetica", "B", 9.0)
         self.set_text_color(*COLOR_PRIMARY)
-        self.cell(120, 4.5, "EXPEDIENTE CONSOLIDADO DE DEBIDA DILIGENCIA Y CONTROL DE RIESGOS", align="C")
+        self.cell(120, 4.5, "REPORTE DE VERIFICACIÓN Y CUMPLIMIENTO LAFT", align="C")
 
         self.set_xy(45, 17)
         self.set_font("Helvetica", "", 7.0)
@@ -358,7 +358,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
 
 
     # 🗂️ ─── BLOQUE 3: DICTAMEN FINAL Y CONCLUSIÓN LEGAL ───
-    render_subseccion_moderna("3. Evaluación de Riesgo y Conclusión Legal")
+    render_subseccion_moderna("3. Evaluación del Riesgo y Dictamen del Departamento de Cumplimiento")
     
     start_y = pdf.get_y()
     pdf.set_fill_color(*COLOR_BG_GRID)
@@ -400,7 +400,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.set_font("Helvetica", "", 7.5)
     pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(0, 3.5, f"Fecha y hora del sellado digital: {s_fecha} COT", ln=1)
-    pdf.cell(0, 3.5, f"Hash de Autenticidad: ADAMO-RISK-{s_nit.replace('-', '')}-{s_radicado.upper()}", ln=1)
+    pdf.cell(0, 3.5, f"Hash de Autenticidad: HBPOAdamoServices-Compliance-{s_nit.replace('-', '')}-{s_radicado.upper()}", ln=1)
 
     return pdf.output()
 
