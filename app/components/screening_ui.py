@@ -226,10 +226,10 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.set_y(start_y + 1.8)
         pdf.set_x(22)
         pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(24, 4, "REPORTE INFOLAFT:")
+        pdf.cell(32, 4, "REPORTE INFOLAFT:")
         
         pdf.set_font("Helvetica", "", 7.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-        pdf.cell(48, 4, f"No. Consulta: {ent.get('radicado', 'N/A')}  |  Coincidencias: {ent.get('resultados', '0')}")
+        pdf.cell(52, 4, f"No. Consulta: {ent.get('radicado', 'N/A')}  |  Coincidencias: {ent.get('resultados', '0')}")
         
         pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*est_color)
         pdf.cell(0, 4, f"   Status: {est_texto}", ln=1, align="R")
@@ -319,6 +319,9 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     render_subseccion_moderna("2. Estructura Directiva y Vinculados Relacionados")
     
     start_y = pdf.get_y()
+    pdf.set_fill_color(*COLOR_BG_GRID)
+    pdf.set_draw_color(*COLOR_LINE_TENUE)
+    pdf.set_line_width(0.2)
     pdf.rect(15, start_y, 180, 16, style="FD")
     
     s_rep_nom_corta = _limitar_texto(s_rep_nom, max_caracteres=34)
@@ -358,6 +361,9 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     render_subseccion_moderna("3. Evaluación de Riesgo y Conclusión Legal")
     
     start_y = pdf.get_y()
+    pdf.set_fill_color(*COLOR_BG_GRID)
+    pdf.set_draw_color(*COLOR_LINE_TENUE)
+    pdf.set_line_width(0.2)
     pdf.rect(15, start_y, 180, 22, style="FD")
     
     pdf.set_y(start_y + 3)
