@@ -262,13 +262,57 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.cell(0, 7, f"  NIT: {s_nit}   |   Radicado: {s_radicado}   |   Analista: {s_analista}   |   {s_fecha} COT", fill=True, ln=1)
     pdf.ln(4)
 
-    # ── SECCIÓN 1: LOCALIZACIÓN Y CONTACTO ───────────────────────────────────
-    _section_title(1, "Información de Localización y Contacto")
-    sy = _bento_open(16)
-    pdf.set_x(19); _kv("Dirección Fiscal:", s_direccion, 28, 60); _kv("Jurisdicción:", s_jurisdic, 23, 57, last=True)
-    pdf.set_x(19); _kv("Teléfono:", s_telefono, 28, 60); _kv("Sitio Web:", s_web, 23, 57, last=True)
-    pdf.set_y(sy + 16)
-    pdf.ln(4)
+    # ─── SECCIÓN 1: LOCALIZACIÓN Y CONTACTO (CON REDUCCIÓN Y CORTE SEGURO) ───render_subseccion_moderna("1. Información Empresarial y de Contacto")
+    
+    start_y = pdf.get_y()
+    pdf.set_fill_color(*COLOR_BG_GRID)
+    pdf.set_draw_color(*COLOR_LINE_TENUE)
+    pdf.set_line_width(0.2)
+    
+    # Mantenemos el contenedor Bento idéntico
+    pdf.rect(15, start_y, 180, 16, style="FD")
+    
+    # 🛡️ Función de corte seguro integrada en caliente
+    def _limitar_texto(texto, max_caracteres=38):
+        if len(texto) > max_caracteres:
+            return texto[:max_caracteres - 3] + "..."
+        return texto
+
+    # Sanitizamos e imponemos límites estrictos para evitar colisiones
+    s_direccion_corta = _limitar_texto(s_direccion, max_caracteres=36)
+    s_jurisdic_corta  = _limitar_texto(s_jurisdic, max_caracteres=28)
+    s_web_corta       = _limitar_texto(s_web, max_caracteres=34)
+
+    # Posicionamos los textos de forma simétrica con coordenadas controladas
+    pdf.set_y(start_y + 2.5)
+    
+    # Columna Izquierda - Fila 1 (Dirección)
+    pdf.set_x(19)
+    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(26, 5.5, "Dirección Fiscal:")
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(64, 5.5, s_direccion_corta) # Ahora garantizamos que no se pase de su espacio asignado
+    
+    # Columna Derecha - Fila 1 (Jurisdicción)
+    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(24, 5.5, "Jurisdicción:")
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(0, 5.5, s_jurisdic_corta, ln=1)
+    
+    # Columna Izquierda - Fila 2 (Teléfono)
+    pdf.set_x(19)
+    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(26, 5.5, "Teléfono:")
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(64, 5.5, s_telefono)
+    
+    # Columna Derecha - Fila 2 (Sitio Web)
+    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(24, 5.5, "Sitio Web:")
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(0, 5.5, s_web_corta, ln=1)
+    
+    pdf.set_y(start_y + 16)
 
     # ── SECCIÓN 2: ESTRUCTURA DIRECTIVA ──────────────────────────────────────
     _section_title(2, "Estructura Directiva y Vinculados Relacionados")
