@@ -51,3 +51,6 @@ htmlcov/
 
 # Jupyter (si aplica)
 .ipynb_checkpoints/
+
+# Archivos de salida y reportes de prueba locales
+review_screening.pdf
