@@ -217,22 +217,22 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         est_texto = "CONCORDANCIA LIMPIA" if es_limpio else "REQUIERE AUDITORIA INTERNA"
         est_color = (22, 163, 74) if es_limpio else (220, 38, 38)
         
-        # Pequeño contenedor embebido interno
+        # Micro-tarjeta blanca centrada: X=19, ancho=172, margen interno 4mm → contenido desde X=23
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*COLOR_LINE_TENUE)
         pdf.set_line_width(0.15)
         pdf.rect(19, start_y, 172, 7.5, style="FD")
-        
+
         pdf.set_y(start_y + 1.8)
-        pdf.set_x(22)
+        pdf.set_x(23)
         pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(32, 4, "REPORTE INFOLAFT:")
-        
+        pdf.cell(30, 4, "REPORTE INFOLAFT:")
+
         pdf.set_font("Helvetica", "", 7.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-        pdf.cell(52, 4, f"No. Consulta: {ent.get('radicado', 'N/A')}  |  Coincidencias: {ent.get('resultados', '0')}")
-        
+        pdf.cell(60, 4, f"No. Consulta: {ent.get('radicado', 'N/A')}  |  Coincidencias: {ent.get('resultados', '0')}")
+
         pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*est_color)
-        pdf.cell(0, 4, f"   Status: {est_texto}", ln=1, align="R")
+        pdf.cell(76, 4, f"Status: {est_texto}", align="R", ln=1)
         pdf.set_y(start_y + 7.5)
 
 
