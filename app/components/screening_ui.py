@@ -7,7 +7,7 @@ import os
 import io
 from fpdf import FPDF
 
-# ─── NUEVA PALETA DE COLORES EDITORIAL PREMIUM ───
+# ─── PALETA DE COLORES EDITORIAL PREMIUM ───
 COLOR_PRIMARY = (15, 32, 67)       # Azul Marino Profundo (Autoridad / Corporativo)
 COLOR_ACCENT = (37, 99, 235)       # Azul Eléctrico (Sutiles acentos / Líneas de título)
 COLOR_TEXT_MAIN = (15, 23, 42)     # Slate 900 (Títulos de alta densidad)
@@ -15,67 +15,53 @@ COLOR_TEXT_BODY = (30, 41, 59)     # Slate 800 (Cuerpo técnico de alta legibili
 COLOR_TEXT_MUTED = (100, 116, 139) # Slate 500 (Subtítulos y etiquetas secundarias)
 COLOR_BG_GRID = (248, 250, 252)    # Slate 50 (Fondo bento homogéneo y limpio)
 COLOR_LINE_TENUE = (226, 232, 240) # Slate 200 (Bordes ultra sutiles de contenedores)
-COLOR_SUCCESS    = (22, 163, 74)   # Green 600 (Estado limpio / Aprobado)
-COLOR_DANGER     = (220, 38, 38)   # Red 600   (Alerta crítica / Requiere auditoría)
-COLOR_WARNING    = (217, 119, 6)   # Amber 600 (Revisión intensificada)
 
 
 class ComplianceMaestroPDF(FPDF):
-    """
-    PDF institucional Bento Grid premium — estética SaaS/Fintech editorial.
-
-    Regla de oro FPDF2: header() NO llama a set_xy/set_y al final.
-    El margen top=38 absorbe los ~30mm del bloque de encabezado estático
-    y garantiza que el flujo del cuerpo nunca colisione con él.
-    """
+    """Estructura de diseño institucional con doble logo simétrico."""
 
     def __init__(self, logo_adamo=None, logo_holdings=None):
         super().__init__(orientation="P", unit="mm", format="A4")
-        self.logo_adamo    = logo_adamo
+        self.logo_adamo = logo_adamo
         self.logo_holdings = logo_holdings
-        self.set_margins(left=15, top=38, right=15)
+        self.set_margins(left=15, top=42, right=15)
 
     def header(self):
-        # ── Logotipos (posicionamiento absoluto propio del encabezado) ─────────
+        current_x = self.get_x()
+
+        # Logo Izquierdo (Adamo)
         if self.logo_adamo and os.path.exists(self.logo_adamo):
-            self.image(self.logo_adamo, x=15, y=5, h=14)
+            self.image(self.logo_adamo, x=15, y=6, h=15)
+            
+        # Logo Derecho (Holdings BPO)
         if self.logo_holdings and os.path.exists(self.logo_holdings):
-            self.image(self.logo_holdings, x=167, y=8.5, h=11)
+            self.image(self.logo_holdings, x=167, y=10.5, h=12)
 
-        # ── Títulos centrales (canal protegido entre logotipos) ───────────────
-        self.set_xy(48, 9)
-        self.set_font("Helvetica", "B", 8.5)
+        # Canal central de texto protegido
+        self.set_xy(45, 12)
+        self.set_font("Helvetica", "B", 9.0)
         self.set_text_color(*COLOR_PRIMARY)
-        self.cell(114, 4.5, "EXPEDIENTE CONSOLIDADO DE DEBIDA DILIGENCIA Y CONTROL DE RIESGOS", align="C")
+        self.cell(120, 4.5, "EXPEDIENTE CONSOLIDADO DE DEBIDA DILIGENCIA Y CONTROL DE RIESGOS", align="C")
 
-        self.set_xy(48, 14.5)
-        self.set_font("Helvetica", "", 6.8)
+        self.set_xy(45, 17)
+        self.set_font("Helvetica", "", 7.0)
         self.set_text_color(*COLOR_TEXT_MUTED)
-        self.cell(114, 4, "SCREENING - PROCESOS DE VINCULACION Y MONITOREO CONTINUO", align="C")
+        self.cell(120, 4, "RESULTADOS DE SCREENING EN PROCESOS DE VINCULACIÓN Y MONITOREO CONTINUO", align="C")
 
-        # ── Separador editorial doble: acento eléctrico + borde tenue ────────
-        self.set_draw_color(*COLOR_ACCENT)
-        self.set_line_width(0.7)
-        self.line(15, 26, 195, 26)
-        self.set_draw_color(*COLOR_LINE_TENUE)
-        self.set_line_width(0.2)
-        self.line(15, 27.5, 195, 27.5)
+        # Línea divisoria principal
+        self.set_draw_color(*COLOR_PRIMARY)
+        self.set_line_width(0.6)
+        self.line(15, 30, 195, 30)
 
-        # ✓ Restablecer cursor al inicio del cuerpo.
-        # add_page() resetea a (l_margin, t_margin) ANTES de llamar a header(),
-        # no después. Si no hacemos esto, el cuerpo empieza donde header() dejó
-        # el cursor (dentro del área del encabezado) causando solapamiento con logos.
-        self.set_y(self.t_margin)  # reset_x=True por defecto → x = l_margin = 15
+        self.set_xy(current_x, 42)
 
     def footer(self):
-        self.set_y(-15)
-        self.set_draw_color(*COLOR_LINE_TENUE)
-        self.set_line_width(0.25)
-        self.line(15, self.get_y() - 1, 195, self.get_y() - 1)
-        self.set_font("Helvetica", "I", 6.8)
+        self.set_y(-18)
+        self.set_font("Helvetica", "I", 7.5)
         self.set_text_color(*COLOR_TEXT_MUTED)
-        self.cell(120, 6, "CONFIDENCIAL - Uso Exclusivo Interno de Cumplimiento ALD/CFT", 0, 0, "L")
-        self.cell(0, 6, f"Pág. {self.page_no()}/{{nb}}", 0, 0, "R")
+        self.set_draw_color(*COLOR_LINE_TENUE)
+        self.line(15, self.get_y() - 2, 195, self.get_y() - 2)
+        self.cell(0, 8, f"Reporte de Cumplimiento Certificado - Confidencial - Página {self.page_no()}/{{nb}}", 0, 0, "C")
 
 
 def parsear_texto_infolaft(texto: str) -> dict:
@@ -132,7 +118,7 @@ def procesar_archivo_pdf(uploaded_file) -> dict:
 
 
 def render_resumen_validacion_ui(datos_extracted: dict):
-    """Pinta una microtarjeta minimalista de validación digital en tiempo real"""
+    """Pinta una microtarjeta de validación digital en tiempo real para Streamlit"""
     if not datos_extracted:
         return
     
@@ -175,11 +161,7 @@ def _s(texto) -> str:
 
 
 def generar_pdf_base(datos_master: dict) -> bytes:
-    """
-    Genera el PDF institucional estilo Bento Grid premium.
-    Arquitectura modular con helpers internos de diseño. Blindaje defensivo total.
-    """
-    path_adamo    = resolver_ruta_logo("Logo Adamo general")
+    path_adamo = resolver_ruta_logo("Logo Adamo general")
     path_holdings = resolver_ruta_logo("Logo Holdings")
 
     pdf = ComplianceMaestroPDF(logo_adamo=path_adamo, logo_holdings=path_holdings)
@@ -187,249 +169,232 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=18)
 
-    # ── Sanitización centralizada usando .get() para tolerancia a fallos ─────
-    s_empresa   = _s(datos_master.get('empresa_principal', ''))
-    s_nit       = _s(datos_master.get('nit_principal', ''))
-    s_radicado  = _s(datos_master.get('radicado_caso', ''))
-    s_direccion = _s(datos_master.get('direccion', ''))
-    s_telefono  = _s(datos_master.get('telefono', ''))
-    s_jurisdic  = _s(datos_master.get('jurisdiccion', ''))
-    s_web       = _s(datos_master.get('sitio_web', ''))
-    s_rep_nom   = _s(datos_master.get('rep_legal_nom', ''))
-    s_rep_id    = _s(datos_master.get('rep_legal_id', ''))
-    s_acc_nom   = _s(datos_master.get('accionista_nom', ''))
-    s_acc_id    = _s(datos_master.get('accionista_id', ''))
-    s_estado    = _s(datos_master.get('estado_global', ''))
-    s_dictamen  = _s(datos_master.get('dictamen_motivo', ''))
-    s_rues      = _s(datos_master.get('rues_noticias_raw', ''))
-    s_fecha     = _s(datos_master.get('fecha', ''))
-    s_analista  = _s(datos_master.get('analista', 'sistema'))
+    # 🛡️ 1. DECLARACIÓN TEMPRANA DE FUNCIONES AUXILIARES (ÁMBITO LOCAL SEGURO)
+    def _limitar_texto(texto, max_caracteres=38):
+        """Previene colisiones horizontales de grillas cortando strings largos."""
+        if len(texto) > max_caracteres:
+            return texto[:max_caracteres - 3] + "..."
+        return texto
 
-    # ── Helpers de diseño editorial (closures sobre el objeto pdf) ────────────
-
-    def _section_title(numero: int, titulo: str):
-        """Encabezado de sección con guía lateral de acento eléctrico."""
-        pdf.ln(4)
-        y0 = pdf.get_y()
-        pdf.set_draw_color(*COLOR_ACCENT)
-        pdf.set_line_width(0.8)
-        pdf.line(15, y0 + 1, 15, y0 + 5.8)
-        # Restablecer draw state para que elementos siguientes no hereden el azul
-        pdf.set_draw_color(*COLOR_LINE_TENUE)
-        pdf.set_line_width(0.2)
-        pdf.set_x(20)
-        pdf.set_font("Helvetica", "B", 9)
+    def render_subseccion_moderna(titulo):
+        """Genera un encabezado de módulo premium con indicador lateral."""
         pdf.set_text_color(*COLOR_PRIMARY)
-        pdf.cell(0, 6.5, f"{numero}. {_s(titulo).upper()}", ln=1)
+        pdf.set_font("Helvetica", "B", 10)
+        current_y = pdf.get_y()
+        pdf.set_draw_color(*COLOR_ACCENT)
+        pdf.set_line_width(0.7)
+        pdf.line(15, current_y + 1.2, 15, current_y + 5.2)
+        pdf.cell(4, 6, "")
+        pdf.cell(0, 6, _s(titulo).upper(), ln=1)
+        pdf.ln(2)
+
+    def render_infolaft_snippet(entidad_rol):
+        """Inyecta los resultados estructurados de Infolaft dentro de su correspondiente tarjeta Bento."""
+        lista = datos_master.get('entidades_processed', datos_master.get('entidades_procesadas', []))
+        ent = None
+        for item in lista:
+            if isinstance(item, dict) and item.get('rol_interno') == entidad_rol:
+                ent = item
+                break
+            elif isinstance(item, str) and entidad_rol == "Representante Legal" and item == datos_master.get('rep_legal_nom'):
+                # Fallback defensivo si llega a procesarse un str plano
+                ent = {
+                    "nombre": item,
+                    "identificacion": datos_master.get('rep_legal_id', 'N/D'),
+                    "radicado": datos_master.get('radicado_caso', 'N/D'),
+                    "resultados": "0",
+                    "intensificada": "NO"
+                }
+                break
+        
+        if not ent:
+            return
+
         pdf.ln(1.5)
-
-    def _bento_open(height: float) -> float:
-        """
-        Dibuja la tarjeta Bento (fondo Slate 50 + borde Slate 200).
-        Devuelve la Y de inicio para que el caller pueda saltar el cursor al final del box.
-        """
-        y = pdf.get_y()
-        pdf.set_fill_color(*COLOR_BG_GRID)
+        start_y = pdf.get_y()
+        
+        es_limpio = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
+        est_texto = "CONCORDANCIA LIMPIA" if es_limpio else "REQUIERE AUDITORIA INTERNA"
+        est_color = (22, 163, 74) if es_limpio else (220, 38, 38)
+        
+        # Pequeño contenedor embebido interno
+        pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*COLOR_LINE_TENUE)
-        pdf.set_line_width(0.2)
-        pdf.rect(15, y, 180, height, style="FD")
-        pdf.set_y(y + 3)
-        return y
+        pdf.set_line_width(0.15)
+        pdf.rect(19, start_y, 172, 7.5, style="FD")
+        
+        pdf.set_y(start_y + 1.8)
+        pdf.set_x(22)
+        pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+        pdf.cell(24, 4, "REPORTE INFOLAFT:")
+        
+        pdf.set_font("Helvetica", "", 7.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+        pdf.cell(48, 4, f"No. Consulta: {ent.get('radicado', 'N/A')}  |  Coincidencias: {ent.get('resultados', '0')}")
+        
+        pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*est_color)
+        pdf.cell(0, 4, f"   Status: {est_texto}", ln=1, align="R")
+        pdf.set_y(start_y + 7.5)
 
-    def _kv(label: str, value: str, lw: float, vw: float, last: bool = False):
-        """
-        Par clave-valor con tipografía diferenciada:
-        etiqueta en Slate 500 Bold 7.8pt / valor en Slate 800 Regular 8.3pt.
-        last=True aplica ln de fila (cursor baja al inicio de la siguiente).
-        """
-        pdf.set_font("Helvetica", "B", 7.8)
-        pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(lw, 5.5, label)
-        pdf.set_font("Helvetica", "", 8.3)
-        pdf.set_text_color(*COLOR_TEXT_BODY)
-        pdf.cell(vw, 5.5, value, ln=1 if last else 0)
 
-    # ── BLOQUE DE IDENTIFICACIÓN PRINCIPAL ───────────────────────────────────
-    pdf.set_font("Helvetica", "B", 16)
+    # ─── 2. SANITIZACIÓN ESTRUCUTURAL DE DATOS DE ENTRADA ───
+    s_empresa   = _s(datos_master['empresa_principal'])
+    s_nit       = _s(datos_master['nit_principal'])
+    s_radicado  = _s(datos_master['radicado_caso'])
+    s_direccion = _s(datos_master['direccion'])
+    s_telefono  = _s(datos_master['telefono'])
+    s_jurisdic  = _s(datos_master['jurisdiccion'])
+    s_web       = _s(datos_master['sitio_web'])
+    s_rep_nom   = _s(datos_master['rep_legal_nom'])
+    s_rep_id    = _s(datos_master['rep_legal_id'])
+    s_acc_nom   = _s(datos_master['accionista_nom'])
+    s_acc_id    = _s(datos_master['accionista_id'])
+    s_estado    = _s(datos_master['estado_global'])
+    s_dictamen  = _s(datos_master['dictamen_motivo'])
+    s_rues      = _s(datos_master['rues_noticias_raw'])
+    s_fecha     = _s(datos_master['fecha'])
+
+    # ─── 3. ENCABEZADO DE COMPAÑÍA ESTILO DASHBOARD ───
+    pdf.set_font("Helvetica", "B", 15)
     pdf.set_text_color(*COLOR_PRIMARY)
-    pdf.cell(0, 9, s_empresa.upper(), ln=1)
+    pdf.cell(0, 8, s_empresa.upper(), ln=1)
 
-    # Meta-strip del expediente: celda con fondo tenue (sin rect() para evitar artefactos)
-    pdf.set_fill_color(*COLOR_BG_GRID)
-    pdf.set_draw_color(*COLOR_BG_GRID)  # borde invisible (mismo color que relleno)
-    pdf.set_font("Helvetica", "", 7.5)
+    pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(0, 7, f"  NIT: {s_nit}   |   Radicado: {s_radicado}   |   Analista: {s_analista}   |   {s_fecha} COT", fill=True, ln=1)
-    pdf.ln(4)
+    pdf.cell(0, 4, f"NIT Identificador: {s_nit}   |   Radicado de Control Interno: {s_radicado}", ln=1)
+    pdf.ln(6)
 
-    # ─── SECCIÓN 1: LOCALIZACIÓN Y CONTACTO (CON REDUCCIÓN Y CORTE SEGURO) ───render_subseccion_moderna("1. Información Empresarial y de Contacto")
+
+    # 🗂️ ─── BLOQUE 1: INFORMACIÓN EMPRESARIAL Y LOCALIZACIÓN ───
+    render_subseccion_moderna("1. Información Empresarial y de Contacto")
     
     start_y = pdf.get_y()
     pdf.set_fill_color(*COLOR_BG_GRID)
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.2)
     
-    # Mantenemos el contenedor Bento idéntico
-    pdf.rect(15, start_y, 180, 16, style="FD")
-    
-    # 🛡️ Función de corte seguro integrada en caliente
-    def _limitar_texto(texto, max_caracteres=38):
-        if len(texto) > max_caracteres:
-            return texto[:max_caracteres - 3] + "..."
-        return texto
+    # Contenedor principal Bento
+    pdf.rect(15, start_y, 180, 21, style="FD")
 
-    # Sanitizamos e imponemos límites estrictos para evitar colisiones
-    s_direccion_corta = _limitar_texto(s_direccion, max_caracteres=36)
-    s_jurisdic_corta  = _limitar_texto(s_jurisdic, max_caracteres=28)
-    s_web_corta       = _limitar_texto(s_web, max_caracteres=34)
+    # 🛡️ Aplicación del control de corte para evitar colisiones
+    s_direccion_corta = _limitar_texto(s_direccion, max_caracteres=72)
+    s_jurisdic_corta  = _limitar_texto(s_jurisdic, max_caracteres=32)
+    s_web_corta       = _limitar_texto(s_web, max_caracteres=50)
 
-    # Posicionamos los textos de forma simétrica con coordenadas controladas
+    # Posicionamos los textos — Dirección ocupa fila completa
     pdf.set_y(start_y + 2.5)
-    
-    # Columna Izquierda - Fila 1 (Dirección)
+
+    # Fila 1: Dirección Fiscal (ancho completo)
     pdf.set_x(19)
     pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(26, 5.5, "Dirección Fiscal:")
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(64, 5.5, s_direccion_corta) # Ahora garantizamos que no se pase de su espacio asignado
-    
-    # Columna Derecha - Fila 1 (Jurisdicción)
-    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(24, 5.5, "Jurisdicción:")
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(0, 5.5, s_jurisdic_corta, ln=1)
-    
-    # Columna Izquierda - Fila 2 (Teléfono)
+    pdf.cell(0, 5.5, s_direccion_corta, ln=1)
+
+    # Fila 2: Teléfono | Jurisdicción
     pdf.set_x(19)
     pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(26, 5.5, "Teléfono:")
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(64, 5.5, s_telefono)
-    
-    # Columna Derecha - Fila 2 (Sitio Web)
+    pdf.cell(58, 5.5, s_telefono)
     pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(24, 5.5, "Sitio Web:")
+    pdf.cell(26, 5.5, "Jurisdicción:")
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(0, 5.5, s_jurisdic_corta, ln=1)
+
+    # Fila 3: Sitio Web
+    pdf.set_x(19)
+    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(26, 5.5, "Sitio Web:")
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
     pdf.cell(0, 5.5, s_web_corta, ln=1)
+
+    pdf.set_y(start_y + 21)
     
-    pdf.set_y(start_y + 16)
+    # Inyección asociativa de resultados de la consulta de la empresa
+    render_infolaft_snippet("Empresa Principal")
+    pdf.ln(6)
 
-    # ── SECCIÓN 2: ESTRUCTURA DIRECTIVA ──────────────────────────────────────
-    _section_title(2, "Estructura Directiva y Vinculados Relacionados")
-    sy = _bento_open(16)
-    pdf.set_x(19); _kv("Representante Legal:", s_rep_nom, 34, 54); _kv("Identificación:", s_rep_id, 25, 55, last=True)
-    pdf.set_x(19); _kv("Accionista Principal:", s_acc_nom, 34, 54); _kv("Identificación:", s_acc_id, 25, 55, last=True)
-    pdf.set_y(sy + 16)
-    pdf.ln(4)
 
-    # ── SECCIÓN 3: EVALUACIÓN DE RIESGO Y CONCLUSIÓN LEGAL (ALTURA DINÁMICA) ─
-    _section_title(3, "Evaluación de Riesgo y Conclusión Legal")
+    # 🗂️ ─── BLOQUE 2: ESTRUCTURA DIRECTIVA Y ADMINISTRACIÓN ───
+    render_subseccion_moderna("2. Estructura Directiva y Vinculados Relacionados")
+    
+    start_y = pdf.get_y()
+    pdf.rect(15, start_y, 180, 16, style="FD")
+    
+    s_rep_nom_corta = _limitar_texto(s_rep_nom, max_caracteres=34)
+    s_acc_nom_corta = _limitar_texto(s_acc_nom, max_caracteres=34)
 
-    _texto_dictamen = "Sustento Tecnico: " + s_dictamen
-    _lineas_est = max(1, -(-len(_texto_dictamen) // 88))   # división techo, ~88 chars/línea a 8pt
-    _box_h3 = max(20, 10.5 + _lineas_est * 4.2)
-
-    _sy3 = pdf.get_y()
-    pdf.set_fill_color(*COLOR_BG_GRID)
-    pdf.set_draw_color(*COLOR_LINE_TENUE)
-    pdf.set_line_width(0.2)
-    pdf.rect(15, _sy3, 180, _box_h3, style="FD")
-
-    pdf.set_y(_sy3 + 3)
+    pdf.set_y(start_y + 2.5)
     pdf.set_x(19)
     pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(35, 5.5, "Dictamen de Aceptación:")
-    _d_color = COLOR_SUCCESS if "APROBADO" in s_estado else COLOR_WARNING
-    pdf.set_font("Helvetica", "B", 9.5); pdf.set_text_color(*_d_color)
-    pdf.cell(0, 5.5, s_estado, ln=1)
-
+    pdf.cell(32, 5.5, "Representante Legal:")
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(58, 5.5, s_rep_nom_corta)
+    
+    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(24, 5.5, "Identificación:")
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(0, 5.5, s_rep_id, ln=1)
+    
     pdf.set_x(19)
-    pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.multi_cell(172, 4.2, _texto_dictamen)
-
-    # Nunca retroceder: si multi_cell superó el rect estimado, avanzamos desde donde quedó
-    pdf.set_y(max(pdf.get_y() + 2, _sy3 + _box_h3))
-    pdf.ln(4)
-
-    # ── SECCIÓN 4: MATRIZ DE TRAZABILIDAD ────────────────────────────────────
-    _section_title(4, "Trazabilidad de Evidencias Indexadas (Cruce Anti-Lavado)")
-
-    _COL = (52, 26, 46, 24, 32)   # nombre, id, rol, radicado, estado — suma exacta = 180mm
-
-    # Cabecera navy + texto blanco (estética SaaS/dashboard contemporáneo)
-    pdf.set_font("Helvetica", "B", 7.8)
-    pdf.set_fill_color(*COLOR_PRIMARY)
-    pdf.set_text_color(255, 255, 255)
-    pdf.cell(_COL[0], 6.5, "  Nombre / Sujeto Consultado", border=0, fill=True)
-    pdf.cell(_COL[1], 6.5, " Identificación",               border=0, fill=True)
-    pdf.cell(_COL[2], 6.5, " Rol de Contraparte",            border=0, fill=True)
-    pdf.cell(_COL[3], 6.5, " Radicado",                      border=0, fill=True)
-    pdf.cell(_COL[4], 6.5, " Estado Analítico",              border=0, fill=True, ln=1)
-
-    pdf.set_font("Helvetica", "", 7.5)
-    pdf.set_draw_color(*COLOR_LINE_TENUE)  # bordes de filas en Slate 200 (reset tras section title)
-    lista_entidades = datos_master.get('entidades_processed', datos_master.get('entidades_procesadas', []))
-
-    for _row_idx, elemento in enumerate(lista_entidades):
-        # ── Blindaje defensivo: normaliza string plano a dict estructurado ───
-        if isinstance(elemento, str):
-            ent = {"nombre": elemento, "identificacion": "No Declarada",
-                   "rol_interno": "Sujeto de Consulta", "radicado": s_radicado,
-                   "resultados": "0", "intensificada": "NO"}
-        elif isinstance(elemento, dict):
-            ent = elemento
-        else:
-            continue
-
-        e_nombre = _s(ent.get('nombre', ''))
-        e_id     = _s(ent.get('identificacion', ''))
-        e_rol    = _s(ent.get('rol_interno', ''))
-        e_rad    = _s(ent.get('radicado', ''))
-        es_limpio  = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
-        estado_txt = "  CONCORDANCIA LIMPIA" if es_limpio else "  REQUIERE AUDITORIA"
-        estado_rgb = COLOR_SUCCESS if es_limpio else COLOR_DANGER
-
-        _row_fill = COLOR_BG_GRID if _row_idx % 2 == 0 else (255, 255, 255)
-        pdf.set_fill_color(*_row_fill)
-        pdf.set_text_color(*COLOR_TEXT_MAIN)
-        pdf.cell(_COL[0], 5.5, "  " + e_nombre[:29], border="B", fill=True)
-        pdf.cell(_COL[1], 5.5, "  " + e_id,          border="B", fill=True)
-        pdf.cell(_COL[2], 5.5, "  " + e_rol[:25],    border="B", fill=True)
-        pdf.cell(_COL[3], 5.5, "  " + e_rad,         border="B", fill=True)
-        pdf.set_text_color(*estado_rgb)
-        pdf.set_font("Helvetica", "B", 7)
-        pdf.cell(_COL[4], 5.5, estado_txt, border="B", fill=True, ln=1)
-        pdf.set_font("Helvetica", "", 7.5)
-
-    # ── SECCIÓN 5: HALLAZGOS EN FUENTES ABIERTAS ─────────────────────────────
-    pdf.ln(5)
-    _section_title(5, "Hallazgos Complementarios en Fuentes Abiertas (RUES / Prensa)")
-    pdf.set_font("Helvetica", "", 8.3)
-    pdf.set_text_color(*COLOR_TEXT_BODY)
-    _contenido_rues = s_rues.strip()
-    pdf.multi_cell(0, 4.5, _contenido_rues if _contenido_rues else
-        "No se identificaron referencias de prensa desfavorable ni anomalias "
-        "mercantiles en los sistemas publicos de verificacion consultados.")
-
-    # ── SELLO DIGITAL INSTITUCIONAL ───────────────────────────────────────────
+    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(32, 5.5, "Accionista Principal:")
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(58, 5.5, s_acc_nom_corta)
+    
+    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(24, 5.5, "Identificación:")
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(0, 5.5, s_acc_id, ln=1)
+    
+    pdf.set_y(start_y + 16)
+    
+    # Inyección asociativa de resultados del representante legal
+    render_infolaft_snippet("Representante Legal")
     pdf.ln(6)
-    _seal_y = pdf.get_y()
-    pdf.set_fill_color(*COLOR_BG_GRID)
-    pdf.set_draw_color(*COLOR_LINE_TENUE)
-    pdf.set_line_width(0.2)
-    pdf.rect(15, _seal_y, 180, 13, style="FD")
-    pdf.set_draw_color(*COLOR_ACCENT)
-    pdf.set_line_width(0.6)
-    pdf.line(15, _seal_y, 195, _seal_y)
-    pdf.set_y(_seal_y + 2)
+
+
+    # 🗂️ ─── BLOQUE 3: DICTAMEN FINAL Y CONCLUSIÓN LEGAL ───
+    render_subseccion_moderna("3. Evaluación de Riesgo y Conclusión Legal")
+    
+    start_y = pdf.get_y()
+    pdf.rect(15, start_y, 180, 22, style="FD")
+    
+    pdf.set_y(start_y + 3)
     pdf.set_x(19)
-    pdf.set_font("Helvetica", "", 7.3)
+    pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(38, 5, "Dictamen de Aceptación:  ")
+
+    dictamen_color = (22, 163, 74) if "APROBADO" in s_estado else (217, 119, 6)
+    pdf.set_text_color(*dictamen_color)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.cell(0, 5, s_estado, ln=1)
+
+    pdf.ln(1)
+    pdf.set_x(19)
+    pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.multi_cell(172, 4, "Sustento Técnico del Oficial: " + s_dictamen)
+    
+    pdf.set_y(start_y + 22)
+    pdf.ln(5)
+
+
+    # 🗂️ ─── BLOQUE 4: ANÁLISIS DE FUENTES ABIERTAS COMPLEMENTARIO ───
+    render_subseccion_moderna("4. Hallazgos Complementarios en Fuentes Abiertas (RUES / Prensa)")
+
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(*COLOR_TEXT_BODY)
+    contenido_rues = s_rues.strip()
+    pdf.multi_cell(0, 4.2, contenido_rues if contenido_rues else
+        "No se identificaron referencias de prensa desfavorable o anomalías mercantiles en los sistemas públicos de verificación.")
+
+    # Sellado de seguridad digital y metadatos
+    pdf.ln(7)
+    pdf.set_font("Helvetica", "", 7.5)
     pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(0, 4, f"Sellado: {s_fecha} COT   |   Responsable: {s_analista}", ln=1)
-    pdf.set_x(19)
-    pdf.set_font("Helvetica", "B", 7.3)
-    pdf.set_text_color(*COLOR_PRIMARY)
-    pdf.cell(0, 4, f"Hash de Autenticidad: ADAMO-RISK-{s_nit.replace('-', '')}-{s_radicado.upper()}", ln=1)
+    pdf.cell(0, 3.5, f"Fecha y hora del sellado digital: {s_fecha} COT", ln=1)
+    pdf.cell(0, 3.5, f"Hash de Autenticidad: ADAMO-RISK-{s_nit.replace('-', '')}-{s_radicado.upper()}", ln=1)
 
     return pdf.output()
 
@@ -572,19 +537,6 @@ def render_screening_workspace(user: dict):
     if "v6_f_errores" not in st.session_state:
         st.session_state["v6_f_errores"] = []
 
-    # Alerta de identidad corporativa — posicionada al inicio para acción inmediata
-    _missing_logos = []
-    if not resolver_ruta_logo("Logo Adamo general"): _missing_logos.append("'Logo Adamo general'")
-    if not resolver_ruta_logo("Logo Holdings"): _missing_logos.append("'Logo Holdings'")
-    if _missing_logos:
-        st.markdown(
-            f'<div class="ar-alert-strip ar-alert-strip-warning" style="margin-bottom: 18px; font-size: 0.82rem;">'
-            f'⚠️ <b>Alerta de Identidad Corporativa:</b> No se detectan los archivos '
-            f'{", ".join(_missing_logos)} en <code>app/static/img/logos/</code>. '
-            f'El PDF se generará sin logotipos institucionales.</div>',
-            unsafe_allow_html=True
-        )
-
     # 🏢 SECCIÓN MODULE 1: Información Corporativa
     with st.container():
         st.markdown('<p class="ar-section-title">1. Información Corporativa y Evidencia Digital</p>', unsafe_allow_html=True)
@@ -607,14 +559,7 @@ def render_screening_workspace(user: dict):
                 parsed_empresa["rol_interno"] = "Empresa Principal"
                 render_resumen_validacion_ui(parsed_empresa)
             else:
-                st.markdown(
-                    '<div style="border: 1px dashed var(--border); border-radius: var(--radius-md); '
-                    'padding: 18px 14px; margin-top: 10px; text-align: center; opacity: 0.5;">'
-                    '<span style="font-size: 1.4rem;">📄</span>'
-                    '<p style="margin: 6px 0 0 0; font-size: 0.75rem; color: var(--fg-subtle);">'
-                    'Esperando reporte Infolaft de la sociedad</p></div>',
-                    unsafe_allow_html=True
-                )
+                st.caption("Esperando archivo PDF oficial de la sociedad...")
 
     st.markdown('<div class="ar-divider" style="margin: 25px 0;"></div>', unsafe_allow_html=True)
 
@@ -635,14 +580,7 @@ def render_screening_workspace(user: dict):
                 parsed_replegal["rol_interno"] = "Representante Legal"
                 render_resumen_validacion_ui(parsed_replegal)
             else:
-                st.markdown(
-                    '<div style="border: 1px dashed var(--border); border-radius: var(--radius-md); '
-                    'padding: 18px 14px; margin-top: 10px; text-align: center; opacity: 0.5;">'
-                    '<span style="font-size: 1.4rem;">📄</span>'
-                    '<p style="margin: 6px 0 0 0; font-size: 0.75rem; color: var(--fg-subtle);">'
-                    'Esperando reporte Infolaft del representante legal</p></div>',
-                    unsafe_allow_html=True
-                )
+                st.caption("Esperando archivo PDF oficial del representante...")
 
     st.markdown('<div class="ar-divider" style="margin: 25px 0;"></div>', unsafe_allow_html=True)
 
@@ -665,14 +603,7 @@ def render_screening_workspace(user: dict):
         
         with col_m3_right:
             if st.session_state.get("v6_chk_accionista_es_rep", False):
-                st.markdown(
-                    '<div class="ar-alert-strip" style="margin-top: 10px; font-size: 0.82rem; '
-                    'border-left: 3px solid var(--ai); padding: 10px 14px; '
-                    'background: rgba(37, 99, 235, 0.06); border-radius: var(--radius-sm);">'
-                    'ℹ️ <b>Modo duplicidad cero activo.</b> El reporte Infolaft del representante '
-                    'se duplica automáticamente como evidencia del accionista.</div>',
-                    unsafe_allow_html=True
-                )
+                st.info("ℹ️ Sistema en modo de duplicidad cero.")
             else:
                 st.markdown("<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-bottom:5px;'>📄 Reporte Infolaft (Accionista)</p>", unsafe_allow_html=True)
                 file_accionista = st.file_uploader("Subir PDF Infolaft del Accionista", type=["pdf"], key="v6_pdf_acc", label_visibility="collapsed")
@@ -688,6 +619,13 @@ def render_screening_workspace(user: dict):
         st.markdown('<p class="ar-section-title">4. Dictamen del Oficial y Sustento Técnico</p>', unsafe_allow_html=True)
         st.text_area("Análisis Argumentativo Legal (Enfoque Basado en Riesgo) *", placeholder="Sustente rigurosamente el dictamen técnico de aceptación, rechazo o condicionamiento...", key="v6_dictamen_motivo")
         st.text_area("Notas de Prensa y Validation de Registro Mercantil (RUES)", placeholder="Pegue aquí el bloque de texto con los hallazgos de background check en fuentes abiertas...", key="v6_rues_noticias_raw")
+
+    # Mapeo de logos corporativos
+    missing_logos = []
+    if not resolver_ruta_logo("Logo Adamo general"): missing_logos.append("'Logo Adamo general'")
+    if not resolver_ruta_logo("Logo Holdings"): missing_logos.append("'Logo Holdings'")
+    if missing_logos:
+        st.warning(f"⚠️ Alerta de Identidad: No se detectan los archivos {', '.join(missing_logos)} en la ruta 'app/static/img/logos/'.")
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.button("⚡ Compilar y Validar Expediente de Caso", on_click=callback_ejecutar_compilacion, args=(user,), use_container_width=True)
