@@ -305,11 +305,11 @@ def render_screening_workspace(user: dict):
             </div>
             <br>
         """, unsafe_allow_html=True)
-        
+        # Botón de descarga con mapeo dinámico y sanitizado de nombre
         st.download_button(
             label="📥 Descargar Expediente Maestro de Cumplimiento Certificado (.pdf)",
             data=st.session_state["v6_f_pdf_bytes"],
-            file_name=f"Expediente_Consolidado_{st.session_state['v6_f_nit']}.pdf",
+            file_name=st.session_state.get("v6_f_filename", "Reporte_Compliance_Final.pdf"),
             mime="application/pdf",
             use_container_width=True
         )
