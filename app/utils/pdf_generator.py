@@ -241,59 +241,100 @@ def generar_pdf_base(datos_master: dict) -> bytes:
 
     # 🗂️ ─── SECCIÓN 1: IDENTIFICACIÓN CORPORATIVA Y DE CONTACTO ───
     render_subseccion_moderna("1. Identificación de la Entidad Evaluada")
-    
+
     start_y = pdf.get_y()
+
+    # ── Constantes de la grilla sincronizada ──
+    COL_IZQ_X   = 19    # Margen interno izquierdo (4mm desde el borde del bento)
+    COL_DER_X   = 109   # 19 + 82col + 8mm canaleta = 109 → termina en 191mm (4mm del borde derecho)
+    ANCHO_COL   = 82    # Ambas columnas simétricas
+    H_LABEL     = 3.0   # Altura etiqueta (Helvetica Bold 6.5pt)
+    H_VALUE     = 4.2   # Altura valor (Helvetica 8.5pt)
+    H_GAP       = 2.5   # Respiración entre filas
+    PADDING_TOP = 3.5
+    PADDING_BOT = 3.0
+
+    # ── Pre-cálculo de h_row1 para que ambas columnas compartan el mismo eje Y ──
+    pdf.set_font("Helvetica", "", 8.5)
+    lineas_direccion = max(1, int(pdf.get_string_width(s_direccion) / ANCHO_COL) + 1)
+    h_row1 = H_LABEL + (lineas_direccion * H_VALUE)
+    h_row2 = H_LABEL + H_VALUE
+    h_row3 = H_LABEL + H_VALUE
+    altura_bento_dinamica = PADDING_TOP + h_row1 + H_GAP + h_row2 + H_GAP + h_row3 + PADDING_BOT
+
+    # ── Contenedor Bento dinámico ──
     pdf.set_fill_color(*COLOR_BG_GRID)
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.2)
-    pdf.rect(15, start_y, 180, 28, style="FD")  # Caja expandida para unificar datos
+    pdf.rect(15, start_y, 180, altura_bento_dinamica, style="FD")
 
-    # Truncamientos preventivos
-    s_direccion_corta = _limitar_texto(s_direccion, max_caracteres=36)
-    s_jurisdic_corta  = _limitar_texto(s_jurisdic, max_caracteres=28)
-    s_web_corta       = _limitar_texto(s_web, max_caracteres=34)
-    s_rep_nom_corta   = _limitar_texto(s_rep_nom, max_caracteres=34)
-    s_acc_nom_corta   = _limitar_texto(s_acc_nom, max_caracteres=34)
+    # ── Ejes Y fijos de cada fila (determinísticos, independientes del flujo) ──
+    y_row1 = start_y + PADDING_TOP
+    y_row2 = y_row1 + h_row1 + H_GAP
+    y_row3 = y_row2 + h_row2 + H_GAP
 
-    pdf.set_y(start_y + 2.5)
-    
-    # Fila 1: Datos de Contacto
-    pdf.set_x(19)
-    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(26, 5.5, "Dirección Fiscal:")
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(64, 5.5, s_direccion_corta)
-    
-    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(24, 5.5, "Jurisdicción:")
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(0, 5.5, s_jurisdic_corta, ln=1)
-    
-    # Fila 2: Canales
-    pdf.set_x(19)
-    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(26, 5.5, "Teléfono:")
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(64, 5.5, s_telefono)
-    
-    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(24, 5.5, "Sitio Web:")
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(0, 5.5, s_web_corta, ln=1)
+    # ── Divisores horizontales sutiles entre filas ──
+    pdf.set_draw_color(*COLOR_LINE_TENUE)
+    pdf.set_line_width(0.15)
+    pdf.line(COL_IZQ_X, y_row2 - H_GAP / 2, 191, y_row2 - H_GAP / 2)
+    pdf.line(COL_IZQ_X, y_row3 - H_GAP / 2, 191, y_row3 - H_GAP / 2)
 
-    # Fila 3: Administración y Control
-    pdf.set_x(19)
-    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(26, 5.5, "Rep. Legal:")
+    # ═══════════════════════════════════════════════════════════════
+    # FILA 1 — DIRECCIÓN FISCAL (izq)  |  JURISDICCIÓN COMERCIAL (der)
+    # ═══════════════════════════════════════════════════════════════
+
+    pdf.set_xy(COL_IZQ_X, y_row1)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(ANCHO_COL, H_LABEL, "DIRECCIÓN FISCAL", ln=1)
+    pdf.set_x(COL_IZQ_X)
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(64, 5.5, s_rep_nom_corta)
-    
-    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(24, 5.5, "Socio Principal:")
+    pdf.multi_cell(ANCHO_COL, H_VALUE, s_direccion)
+
+    pdf.set_xy(COL_DER_X, y_row1)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(ANCHO_COL, H_LABEL, "JURISDICCIÓN COMERCIAL", ln=1)
+    pdf.set_xy(COL_DER_X, y_row1 + H_LABEL)
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(0, 5.5, s_acc_nom_corta, ln=1)
-    
-    pdf.set_y(start_y + 28)
+    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_jurisdic, max_caracteres=38))
+
+    # ═══════════════════════════════════════════════════════════════
+    # FILA 2 — REPRESENTANTE LEGAL (izq)  |  SOCIO/ACCIONISTA (der)
+    # ═══════════════════════════════════════════════════════════════
+
+    pdf.set_xy(COL_IZQ_X, y_row2)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(ANCHO_COL, H_LABEL, "REPRESENTANTE LEGAL", ln=1)
+    pdf.set_xy(COL_IZQ_X, y_row2 + H_LABEL)
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_rep_nom, max_caracteres=38))
+
+    pdf.set_xy(COL_DER_X, y_row2)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(ANCHO_COL, H_LABEL, "SOCIO O ACCIONISTA PRINCIPAL", ln=1)
+    pdf.set_xy(COL_DER_X, y_row2 + H_LABEL)
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_acc_nom, max_caracteres=38))
+
+    # ═══════════════════════════════════════════════════════════════
+    # FILA 3 — TELÉFONO DE CONTACTO (izq)  |  CANAL DIGITAL (der)
+    # ═══════════════════════════════════════════════════════════════
+
+    pdf.set_xy(COL_IZQ_X, y_row3)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(ANCHO_COL, H_LABEL, "TELÉFONO DE CONTACTO", ln=1)
+    pdf.set_xy(COL_IZQ_X, y_row3 + H_LABEL)
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(ANCHO_COL, H_VALUE, s_telefono)
+
+    pdf.set_xy(COL_DER_X, y_row3)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(ANCHO_COL, H_LABEL, "CANAL DIGITAL / SITIO WEB", ln=1)
+    pdf.set_xy(COL_DER_X, y_row3 + H_LABEL)
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_web, max_caracteres=38))
+
+    # ── Restaurar cursor al final del bento para no solapar la siguiente sección ──
+    pdf.set_y(start_y + altura_bento_dinamica)
     pdf.ln(6)
 
 
@@ -302,6 +343,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     
     render_infolaft_snippet("Empresa Principal")
     render_infolaft_snippet("Representante Legal")
+    render_infolaft_snippet("Accionista Mayoritario")
     pdf.ln(6)
 
 
@@ -323,10 +365,10 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.set_y(start_y + 3)
     pdf.set_x(19)
     pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(42, 5, "Declaración de Viabilidad: ")
+    pdf.cell(42, 5, "Resultado de Screening & Adverse Media: ")
 
     es_aprobado = "APROBADO" in s_estado
-    estado_texto_formal = "HABILITADO S/ALERTAS DE CUMPLIMIENTO" if es_aprobado else "REQUIERE CONTROL ADICIONAL DE CUMPLIMIENTO"
+    estado_texto_formal = "Perfil de riesgo bajo || Sin alertas de cumplimiento" if es_aprobado else "Requiere Control Adicional De Cumplimiento"
     dictamen_color = (22, 163, 74) if es_aprobado else (217, 119, 6)
     
     pdf.set_text_color(*dictamen_color)
@@ -355,7 +397,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.set_text_color(*COLOR_TEXT_BODY)
     contenido_rues = s_rues.strip()
     pdf.multi_cell(0, 4.2, contenido_rues if contenido_rues else
-        "No se identificaron referencias de prensa adversa, sanciones administrativas o anomalías mercantiles en los sistemas públicos consultados.")
+        "El análisis de screening y medios adversos concluyó sin hallazgos de referencias de prensa negativa, sanciones administrativas o anomalías mercantiles en las fuentes públicas consultadas.")
 
     # Sello de seguridad y autenticidad del sistema
     pdf.ln(8)
