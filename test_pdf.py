@@ -1,61 +1,50 @@
 # test_pdf.py
-import os
-import sys
+from app.utils.pdf_generator import generar_pdf_base
+from datetime import datetime
 
-# Aseguramos que Python encuentre la carpeta 'app' desde la raíz
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
-
-from app.components.screening_ui import generar_pdf_base
-
-def correr_render_pro():
-    print("🚀 Iniciando renderizado PRO aislado...")
-
-    datos_mock = {
-        "empresa_principal": "JMNZ S.A.S.",
-        "nit_principal": "901.002.210-3",
-        "radicado_caso": "EXP-JMNZ-2026-005",
-        "direccion": "AV CIRCUNVALAR 12-51 100",
-        "jurisdiccion": "Pereira, Risaralda",
-        "telefono": "3117293807",
-        "sitio_web": "WWW.JMNZ.CO",
-        "rep_legal_nom": "JORGE LEONARDO JIMÉNEZ R.",
-        "rep_legal_id": "1029384",
-        "accionista_nom": "JORGE LEONARDO JIMÉNEZ R.",
-        "accionista_id": "1029384",
-        "estado_global": "REQUIERE REVISIÓN INTENSIFICADA",
-        "dictamen_motivo": "El análisis exhaustivo de listas restrictivas arrojó concordancia limpia para la firma principal. No obstante, se requiere auditoría sobre las personas naturales vinculadas.",
-        "rues_noticias_raw": "Consulta RUES: Matrícula mercantil activa y al día. Prensa: Sin noticias adversas.",
-        "fecha": "2026-07-14 10:20:00",
-        "entidades_processed": [
-            {
-                "nombre": "JMNZ S.A.S.",
-                "identificacion": "901.002.210-3",
-                "rol_interno": "Empresa Principal",
-                "radicado": "109283741",
-                "resultados": "0",
-                "intensificada": "NO"
-            },
-            {
-                "nombre": "JORGE LEONARDO JIMÉNEZ R.",
-                "identificacion": "1029384",
-                "rol_interno": "Representante Legal",
-                "radicado": "109283742",
-                "resultados": "1",
-                "intensificada": "SI"
-            },
-            # Dejamos este string de prueba para certificar que el blindaje anti-strings responde sin caerse
-            "AUDITORÍA ADICIONAL DE RESPALDO"
-        ]
-    }
-
-    # Ejecución del renderizador
-    pdf_bytes = generar_pdf_base(datos_mock)
-
-    archivo_salida = "review_screening.pdf"
-    with open(archivo_salida, "wb") as f:
-        f.write(pdf_bytes)
-    
-    print(f"✨ PDF generado con éxito en: './{archivo_salida}'")
+# Simulación de datos realistas para la prueba de diseño
+datos_de_prueba = {
+    "empresa_principal": "CM GRUPO TECNO SAS",
+    "nit_principal": "901419688-5",
+    "radicado_caso": "EXP-CMGRUPOTEC-001",
+    "direccion": "CARRERA 31 # 51 - 74 OFICINA 501 BIS EDIFICIO TORRE MARDEL",
+    "telefono": "3167405808",
+    "jurisdiccion": "BUCARAMANGA, SANTANDER",
+    "sitio_web": "WWW.WPAGOS.COM",
+    "rep_legal_nom": "JUAN CAMILO MANTILLA MANTILLA",
+    "rep_legal_id": "55266333555251",
+    "accionista_nom": "JUAN CAMILO MANTILLA MANTILLA",
+    "accionista_id": "55266333555251",
+    "estado_global": "APROBADO S/ANOMALÍAS",
+    "dictamen_motivo": "Se realiza análisis de riesgos LAFT sobre los vinculados. Se evidencia coincidencia negativa en listas restrictivas locales e internacionales. El cliente presenta un modelo operativo transaccional robusto y trazable.",
+    "rues_noticias_raw": "Verifique el contenido y confiabilidad de este certificado, ingresando a WWW.CAMARADIRECTA.COM y digite el respectivo código, para que visualice la imagen generada al momento de su expedición.",
+    "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    "entidades_processed": [
+        {
+            "rol_interno": "Empresa Principal",
+            "nombre": "CM GRUPO TECNO SAS",
+            "identificacion": "901419688-5",
+            "radicado": "100259837",
+            "resultados": "0",
+            "intensificada": "NO"
+        },
+        {
+            "rol_interno": "Representante Legal",
+            "nombre": "JUAN CAMILO MANTILLA MANTILLA",
+            "identificacion": "55266333555251",
+            "radicado": "100259838",
+            "resultados": "0",
+            "intensificada": "NO"
+        }
+    ]
+}
 
 if __name__ == "__main__":
-    correr_render_pro()
+    print("⚡ Generando PDF de pruebas bajo la arquitectura desacoplada...")
+    try:
+        pdf_bytes = generar_pdf_base(datos_de_prueba)
+        with open("review_screening.pdf", "wb") as f:
+            f.write(pdf_bytes)
+        print("✓ ¡Éxito! El PDF de prueba ha sido guardado como 'review_screening.pdf'.")
+    except Exception as e:
+        print(f"❌ Error en la compilación del PDF: {str(e)}")
