@@ -12,8 +12,19 @@ import sys
 from pathlib import Path
 import os
 
-# Asegurar que la raíz del proyecto esté en el path ANTES de cualquier import local
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# 🛡️ REGISTRO DINÁMICO DE RUTAS (Evita ModuleNotFoundError en Local y Producción)
+# Obtenemos la ruta absoluta de 'app/main.py' y su directorio padre ('app/')
+current_dir = Path(__file__).resolve().parent          # Ruta a /app/app
+root_dir = current_dir.parent                          # Ruta a /app (raíz del proyecto)
+
+# Registramos ambas rutas al inicio del sys.path para soporte multiplataforma
+for path_dir in [root_dir, current_dir]:
+    path_str = str(path_dir)
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
+
+# Registramos la variable de entorno para heredar las rutas en subprocesos de producción
+os.environ["PYTHONPATH"] = f"{root_dir}{os.pathsep}{current_dir}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"
 
 from config.settings import (
     APP_NAME, APP_ENV, Roles, SECRET_KEY_IS_DEFAULT
@@ -46,31 +57,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-## ── CSS corporativo AdamoServices (Tu diseño original) ───────
-#st.markdown("""
-#<style>
-#    .stApp { color: #111827; }
-#    .stApp p, .stApp span, .stApp div { color: #d1d5db; }
-#    .stApp label { color: #d1d5db !important; font-size: 0.85rem !important; }
-#    .stApp h1, .stApp h2, .stApp h3, .stApp h4 { color: #f9fafb !important; }
-#    [data-testid="stSidebar"] { background-color: #111827; border-right: 1px solid #293056; }
-#    .stButton > button[kind="primary"] {
-#        background: linear-gradient(135deg, #5fe9d0 0%, #7839ee 100%);
-#        color: #101323 !important; font-weight: 700; border: none; border-radius: 8px;
-#    }
-#    .section-title {
-#        font-size: 0.75rem; font-weight: 700; color: #5fe9d0;
-#        text-transform: uppercase; letter-spacing: 1.2px;
-#        border-bottom: 1px solid #293056; padding-bottom: 6px; margin-bottom: 14px;
-#    }
-#    .badge { display:inline-block; padding:3px 12px; border-radius:20px; font-size:0.75rem; font-weight:700; }
-#</style>
-#""", unsafe_allow_html=True)
 st.markdown("""
 <style>
 /* ═══════════════════════════════════════════════════════════════
-   ADAMO RISK — Design System v2
-   Extraído de Lovable · Inter + JetBrains Mono · Dark theme
+    ADAMO RISK — Design System v2
+    Extraído de Lovable · Inter + JetBrains Mono · Dark theme
 ═══════════════════════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -445,7 +436,7 @@ code, .stApp code, pre {
 ::-webkit-scrollbar-thumb:hover { background: #374151; }
 
 /* ══════════════════════════════════════════════════════════
-   COMPONENTES REUTILIZABLES — usar en st.markdown()
+    COMPONENTES REUTILIZABLES — usar en st.markdown()
 ══════════════════════════════════════════════════════════ */
 
 /* Tarjeta glass */
@@ -643,8 +634,6 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         )
 
         # ── Navegación principal ──────────────────────────────
-        # Clave interna _radio_nav — nunca se escribe desde fuera del widget.
-        # on_change limpia nav_agente cuando el usuario vuelve al radio.
         _rol = user.get("rol", "")
         _nav_opts = []
 
@@ -661,7 +650,6 @@ def sidebar(user: dict) -> tuple[str, str | None]:
             _nav_opts.append("🔍 Screening de Cumplimiento")
 
         # Gestión de Agentes — equipos completos
-        # Agentes ven su propio perfil (acceso directo, no por menú)
         if _rol in Roles.CAN_VIEW_AGENTES:
             _nav_opts.append("👥 Gestión de Agentes")
 
@@ -719,7 +707,6 @@ def sidebar(user: dict) -> tuple[str, str | None]:
                             key=f"btn_agente_{agente['username']}",
                             use_container_width=True,
                         ):
-                            # Solo escribimos en nav_agente, nunca en _radio_nav
                             st.session_state["nav_agente"] = agente["username"]
 
         # Derivar página activa: agente tiene precedencia sobre el radio
