@@ -4,15 +4,16 @@ import io
 import re
 import pypdf
 from fpdf import FPDF
+from PIL import Image as PILImage  # 🚀 Para calcular el Aspect Ratio de las capturas
 
 # ─── PALETA DE COLORES EDITORIAL PREMIUM (FINTECH) ───
-COLOR_PRIMARY = (15, 32, 67)       # Azul Marino Profundo (Confianza e Institucionalidad)
-COLOR_ACCENT = (37, 99, 235)       # Azul Eléctrico (Enfoque Tecnológico Fintech)
-COLOR_TEXT_MAIN = (15, 23, 42)     # Slate 900 (Lectura limpia de títulos)
-COLOR_TEXT_BODY = (30, 41, 59)     # Slate 800 (Cuerpo técnico de alta legibilidad)
-COLOR_TEXT_MUTED = (100, 116, 139) # Slate 500 (Etiquetas secundarias de control)
-COLOR_BG_GRID = (248, 250, 252)    # Slate 50 (Fondo bento homogéneo de baja densidad)
-COLOR_LINE_TENUE = (226, 232, 240) # Slate 200 (Bordes sutiles y limpios)
+COLOR_PRIMARY = (15, 32, 67)       # Azul Marino Profundo
+COLOR_ACCENT = (37, 99, 235)       # Azul Eléctrico
+COLOR_TEXT_MAIN = (15, 23, 42)     # Slate 900
+COLOR_TEXT_BODY = (30, 41, 59)     # Slate 800
+COLOR_TEXT_MUTED = (100, 116, 139) # Slate 500
+COLOR_BG_GRID = (248, 250, 252)    # Slate 50
+COLOR_LINE_TENUE = (226, 232, 240) # Slate 200
 
 
 class ComplianceMaestroPDF(FPDF):
@@ -28,15 +29,13 @@ class ComplianceMaestroPDF(FPDF):
         current_x = self.get_x()
 
         # 📐 ALINEACIÓN SIMÉTRICA OPTIMIZADA CON LOGOS MÁS GRANDES (Y_mid = 16.5mm)
-        # Logo Izquierdo (Adamo / Paycop) -> h=13mm, y=10mm (Midpoint = 16.5mm)
         if self.logo_adamo and os.path.exists(self.logo_adamo):
             self.image(self.logo_adamo, x=15, y=10, h=13)
             
-        # Logo Derecho (Holdings BPO / HBPO) -> h=12mm, y=10.5mm (Midpoint = 16.5mm)
         if self.logo_holdings and os.path.exists(self.logo_holdings):
             self.image(self.logo_holdings, x=163, y=10.5, h=12)
 
-        # Canal central de texto protegido (Y_mid = 16.5mm)
+        # Canal central de texto protegido
         self.set_xy(45, 11.5)
         self.set_font("Helvetica", "B", 9.0)
         self.set_text_color(*COLOR_PRIMARY)
@@ -77,7 +76,6 @@ def parsear_texto_infolaft(texto: str) -> dict:
         "intensificada": "NO"
     }
     
-    # 1. Normalización a una sola línea para evitar problemas de saltos de línea físicos
     texto_plano = " ".join(texto.split())
 
     # Extracción de metadatos con Regex de amplio espectro
@@ -87,7 +85,6 @@ def parsear_texto_infolaft(texto: str) -> dict:
     
     id_match = re.search(r"(?:DOCUMENTO DE IDENTIDAD|IDENTIFICACI[ÓO]N|NIT|C[ÉE]DULA)[:\s]*([\d\.\s-]+)", texto_plano, re.IGNORECASE)
     if id_match: 
-        # Limpiar caracteres indeseados como puntos finales
         cleaned_id = re.sub(r"[^\d-]", "", id_match.group(1).strip())
         if cleaned_id:
             res["identificacion"] = cleaned_id
@@ -104,7 +101,7 @@ def parsear_texto_infolaft(texto: str) -> dict:
     if gafi_match: 
         res["intensificada"] = gafi_match.group(1).upper()
 
-    # 2. Localización física del candidato a Nombre
+    # Localización física del candidato a Nombre
     lines = [line.strip() for line in texto.split("\n") if line.strip()]
     nombre_candidato = ""
     
@@ -124,7 +121,7 @@ def parsear_texto_infolaft(texto: str) -> dict:
                 nombre_candidato = lines[i+1]
             break
 
-    # 3. Aislamiento por Marcas de Corte (Desecha el ruido regulatorio adjunto al nombre)
+    # Aislamiento por Marcas de Corte
     if nombre_candidato:
         marcas_de_corte = [
             r"DOCUMENTO\s*DE\s*IDENTIDAD",
@@ -140,21 +137,18 @@ def parsear_texto_infolaft(texto: str) -> dict:
         
         nombre_limpio = nombre_candidato
         for marca in marcas_de_corte:
-            # Dividimos la cadena donde aparezca el metadato y nos quedamos con el fragmento izquierdo
             nombre_limpio = re.split(marca, nombre_limpio, flags=re.IGNORECASE)[0]
         
-        # Limpieza de caracteres y signos residuales al principio y al final del nombre
         nombre_limpio = re.sub(r"[\s,:\-\.\?¿]+$", "", nombre_limpio).strip()
         nombre_limpio = re.sub(r"^[\s,:\-\.\?¿]+", "", nombre_limpio).strip()
         
         if len(nombre_limpio) >= 3:
-            res["nombre"] = nombre_limpio.upper()  # Formateado institucional limpio
+            res["nombre"] = nombre_limpio.upper()
 
     return res
 
 
 def procesar_archivo_pdf(uploaded_file) -> dict:
-    """Extrae el texto completo de un archivo en memoria"""
     if uploaded_file is None:
         return None
     try:
@@ -169,7 +163,6 @@ def procesar_archivo_pdf(uploaded_file) -> dict:
 
 
 def resolver_ruta_logo(nombre_base: str) -> str:
-    """Apunta directamente a la ruta física en el proyecto"""
     folder = os.path.join("app", "static", "img", "logos")
     if not os.path.exists(folder):
         folder = os.path.join("static", "img", "logos")
@@ -184,7 +177,6 @@ def resolver_ruta_logo(nombre_base: str) -> str:
 
 
 def _s(texto) -> str:
-    """Sanitiza cadenas para FPDF: elimina caracteres fuera del rango latin-1."""
     if not texto:
         return ""
     return str(texto).replace("\u00bf", "").encode("latin-1", "ignore").decode("latin-1")
@@ -199,15 +191,16 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=18)
 
-    # 🛡️ 1. DECLARACIÓN TEMPRANA DE FUNCIONES AUXILIARES
+    # 🛡️ DECLARACIÓN TEMPRANA DE FUNCIONES AUXILIARES
     def _limitar_texto(texto, max_caracteres=38):
-        """Previene colisiones horizontales de grillas cortando strings largos."""
         if len(texto) > max_caracteres:
             return texto[:max_caracteres - 3] + "..."
         return texto
 
     def render_subseccion_moderna(titulo):
-        """Genera un encabezado de módulo premium con indicador lateral."""
+        # 🛡️ Control de desborde preventivo para encabezados de sección
+        if pdf.get_y() > 245:
+            pdf.add_page()
         pdf.set_text_color(*COLOR_PRIMARY)
         pdf.set_font("Helvetica", "B", 10)
         current_y = pdf.get_y()
@@ -219,7 +212,6 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.ln(2)
 
     def render_infolaft_snippet(entidad_rol):
-        """Genera tarjetas de vinculado estilo Bento con soporte multilínea dinámico y cero pérdida de información."""
         lista = datos_master.get('entidades_processed', datos_master.get('entidades_procesadas', []))
         ent = None
         for item in lista:
@@ -238,106 +230,103 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         if not ent:
             return
 
-        pdf.ln(2.0)  # Separación constante entre tarjetas
-        s_y = pdf.get_y()
-
         # Determinar estatus y paleta de colores semánticos
         es_limpio = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
-        
         if es_limpio:
-            badge_bg = (240, 253, 244)      # Emerald 50 (Verde sutil)
-            badge_border = (187, 247, 208)  # Emerald 200
-            badge_text = (21, 128, 61)      # Emerald 700
-            est_texto = "SIN COINCIDENCIAS" # Sincronizado exactamente con tu última UI
+            badge_bg = (240, 253, 244)
+            badge_border = (187, 247, 208)
+            badge_text = (21, 128, 61)
+            est_texto = "SIN COINCIDENCIAS"
         else:
-            badge_bg = (254, 242, 242)      # Red 50 (Rojo sutil)
-            badge_border = (254, 202, 202)  # Red 200
-            badge_text = (185, 28, 28)      # Red 700
+            badge_bg = (254, 242, 242)
+            badge_border = (254, 202, 202)
+            badge_text = (185, 28, 28)
             est_texto = "REQUIERE AUDITORÍA INTERNA LAFT"
 
         # ── Parámetros de alineación síncrona ──
         SNIP_IZQ = 23
         SNIP_DER = 109
-        SNIP_W   = 82   # Ancho de columna seguro
+        SNIP_W   = 82
         H_LBL    = 3.0
         H_DET    = 3.5
         PAD_TOP  = 3.5
         PAD_BOT  = 3.0
 
-        # Texto completo sin límites de caracteres (100% visible)
         texto_completo = f"{entidad_rol.upper()}: {ent.get('nombre', 'N/D')}"
 
-        # 📊 Cálculo dinámico de líneas requeridas por el nombre
+        # Cálculo dinámico de líneas requeridas por el nombre
         pdf.set_font("Helvetica", "B", 8.5)
         ancho_texto_medido = pdf.get_string_width(texto_completo)
         lineas_nombre = max(1, int(ancho_texto_medido / SNIP_W) + 1)
         h_nombre = lineas_nombre * 3.8
-
-        # La altura de la fila de contenido se adapta si el texto supera la altura del badge (6.0)
         h_row_contenido = max(h_nombre, 6.0)
 
-        # Ejes Y calculados dinámicamente de forma secuencial
-        y_lbl = s_y + PAD_TOP
-        y_val_bdg = y_lbl + H_LBL + 1.2
-        y_div = y_val_bdg + h_row_contenido + 2.0  # Espacio de amortiguación antes del divisor
-        y_det = y_div + 1.5
-        
-        # Altura total dinámica del Bento
-        H_SNIP = (y_det + H_DET + PAD_BOT) - s_y
+        # Altura Bento de esta tarjeta
+        H_SNIP = PAD_TOP + H_LBL + 1.2 + h_row_contenido + 2.0 + 1.5 + H_DET + PAD_BOT
 
-        # 1. Dibujar el contenedor Bento blanco de fondo (con su altura adaptada)
+        # 🛡️ CONTROL DE DESBORDE DE TARJETA INDIVIDUAL (Si no cabe en la página, salta de página)
+        if pdf.get_y() + H_SNIP > 262:
+            pdf.add_page()
+
+        pdf.ln(2.0)
+        s_y = pdf.get_y()
+
+        # Dibujar Bento
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*COLOR_LINE_TENUE)
         pdf.set_line_width(0.2)
         pdf.rect(19, s_y, 172, H_SNIP, style="FD")
 
-        # 2. Divisor horizontal interno
+        # Ejes Y calculados dinámicamente
+        y_lbl = s_y + PAD_TOP
+        y_val_bdg = y_lbl + H_LBL + 1.2
+        y_div = y_val_bdg + h_row_contenido + 2.0
+        y_det = y_div + 1.5
+
+        # Divisor horizontal interno
         pdf.set_draw_color(*COLOR_LINE_TENUE)
         pdf.set_line_width(0.15)
         pdf.line(SNIP_IZQ, y_div, 187, y_div)
 
-        # ── Columna Izquierda: Rol Evaluado y Nombre (Multi-línea Inteligente) ──
+        # Columna Izquierda: Nombre
         pdf.set_xy(SNIP_IZQ, y_lbl)
         pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
         pdf.cell(SNIP_W, H_LBL, "VINCULADO / ROL EVALUADO")
         
         pdf.set_xy(SNIP_IZQ, y_val_bdg)
         pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-        # multi_cell se encarga de crear el salto de línea elegante si el nombre es kilométrico
         pdf.multi_cell(SNIP_W, 3.8, _s(texto_completo))
 
-        # ── Columna Derecha: Placa de Estatus LAFT ──
+        # Columna Derecha: Badge
         pdf.set_xy(SNIP_DER, y_lbl)
         pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
         pdf.cell(74, H_LBL, "ESTATUS DE EVALUACIÓN LAFT")
         
-        # Placa física del Badge de Estatus (Derecha)
         pdf.set_fill_color(*badge_bg)
         pdf.set_draw_color(*badge_border)
         pdf.set_line_width(0.15)
         pdf.rect(SNIP_DER, y_val_bdg, 74, 6.0, style="FD")
         
-        # Texto centrado dentro del Badge
         pdf.set_xy(SNIP_DER + 3, y_val_bdg + 1.0)
         pdf.set_font("Helvetica", "B", 7.0); pdf.set_text_color(*badge_text)
         pdf.cell(68, 4.2, est_texto)
 
-        # ── Fila de Detalle Técnica (Abajo del divisor) ──
+        # Detalle técnico
         pdf.set_xy(SNIP_IZQ, y_det)
         pdf.set_font("Helvetica", "", 7.0); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        
         detalle_str = f"No. Registro Consulta: {ent.get('radicado', 'N/A')}   |   Coincidencias Halladas: {ent.get('resultados', '0')}   |   Monitoreo Intensificado (GAFI): {ent.get('intensificada', 'NO')}"
         pdf.cell(164, H_DET, _s(detalle_str))
 
-        # Posicionar cursor para la siguiente tarjeta
         pdf.set_y(s_y + H_SNIP)
 
-    # ─── 2. SANITIZACIÓN ESTRUCTURAL DE DATOS ───
+
+    # ─── SANITIZACIÓN ESTRUCTURAL DE DATOS ───
     s_empresa   = _s(datos_master['empresa_principal'])
     s_nit       = _s(datos_master['nit_principal'])
     s_radicado  = _s(datos_master['radicado_caso'])
     s_direccion = _s(datos_master['direccion'])
     s_telefono  = _s(datos_master['telefono'])
+    s_correo    = _s(datos_master.get('correo_contacto', 'No Registrado'))
     s_jurisdic  = _s(datos_master['jurisdiccion'])
     s_web       = _s(datos_master['sitio_web'])
     s_rep_nom   = _s(datos_master['rep_legal_nom'])
@@ -349,7 +338,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     s_rues      = _s(datos_master['rues_noticias_raw'])
     s_fecha     = _s(datos_master['fecha'])
 
-    # ─── 3. ENCABEZADO DE COMPAÑÍA ESTILO DASHBOARD ───
+    # ─── ENCABEZADO DE COMPAÑÍA ESTILO DASHBOARD ───
     pdf.set_font("Helvetica", "B", 15)
     pdf.set_text_color(*COLOR_PRIMARY)
     pdf.cell(0, 8, s_empresa.upper(), ln=1)
@@ -363,31 +352,30 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     # 🗂️ ─── SECCIÓN 1: IDENTIFICACIÓN CORPORATIVA Y DE CONTACTO ───
     render_subseccion_moderna("1. Identificación de la Entidad Evaluada")
 
-    start_y = pdf.get_y()
-
-    # Recuperamos el nuevo campo con un fallback seguro
-    s_correo = _s(datos_master.get('correo_contacto', 'No registrado'))
-
-    # ── Constantes de la grilla sincronizada (Adaptada a 4 filas) ──
-    COL_IZQ_X   = 19    # Margen interno izquierdo
-    COL_DER_X   = 109   # Margen interno derecho
-    ANCHO_COL   = 82    # Ambas columnas simétricas
-    H_LABEL     = 3.0   # Altura etiqueta
-    H_VALUE     = 4.2   # Altura valor
-    H_GAP       = 2.5   # Respiración entre filas
+    # Parámetros de la grilla adaptada a 4 filas
+    COL_IZQ_X   = 19
+    COL_DER_X   = 109
+    ANCHO_COL   = 82
+    H_LABEL     = 3.0
+    H_VALUE     = 4.2
+    H_GAP       = 2.5
     PADDING_TOP = 3.5
     PADDING_BOT = 3.0
 
-    # ── Pre-cálculo de alturas dinámicas ──
+    # Pre-cálculo de alturas dinámicas
     pdf.set_font("Helvetica", "", 8.5)
     lineas_direccion = max(1, int(pdf.get_string_width(s_direccion) / ANCHO_COL) + 1)
-    
     h_row1 = H_LABEL + (lineas_direccion * H_VALUE)
     h_row2 = H_LABEL + H_VALUE
     h_row3 = H_LABEL + H_VALUE
     h_row4 = H_LABEL + H_VALUE
-    
     altura_bento_dinamica = PADDING_TOP + h_row1 + H_GAP + h_row2 + H_GAP + h_row3 + H_GAP + h_row4 + PADDING_BOT
+
+    # 🛡️ CONTROL DE DESBORDE DE BENTO SECCIÓN 1
+    if pdf.get_y() + altura_bento_dinamica > 262:
+        pdf.add_page()
+
+    start_y = pdf.get_y()
 
     # Contenedor Bento principal
     pdf.set_fill_color(*COLOR_BG_GRID)
@@ -395,22 +383,20 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.set_line_width(0.2)
     pdf.rect(15, start_y, 180, altura_bento_dinamica, style="FD")
 
-    # Ejes Y calculados determinísticamente
+    # Ejes Y calculados
     y_row1 = start_y + PADDING_TOP
     y_row2 = y_row1 + h_row1 + H_GAP
     y_row3 = y_row2 + h_row2 + H_GAP
     y_row4 = y_row3 + h_row3 + H_GAP
 
-    # Divisores horizontales sutiles
+    # Divisores horizontales
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.15)
     pdf.line(COL_IZQ_X, y_row2 - H_GAP / 2, 191, y_row2 - H_GAP / 2)
     pdf.line(COL_IZQ_X, y_row3 - H_GAP / 2, 191, y_row3 - H_GAP / 2)
     pdf.line(COL_IZQ_X, y_row4 - H_GAP / 2, 191, y_row4 - H_GAP / 2)
 
-    # ═══════════════════════════════════════════════════════════════
-    # FILA 1 — DIRECCIÓN FISCAL (izq)  |  JURISDICCIÓN COMERCIAL (der)
-    # ═══════════════════════════════════════════════════════════════
+    # Fila 1
     pdf.set_xy(COL_IZQ_X, y_row1)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(ANCHO_COL, H_LABEL, "DIRECCIÓN FISCAL", ln=1)
@@ -425,9 +411,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
     pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_jurisdic, max_caracteres=38))
 
-    # ═══════════════════════════════════════════════════════════════
-    # FILA 2 — REPRESENTANTE LEGAL (izq)  |  SOCIO/ACCIONISTA (der)
-    # ═══════════════════════════════════════════════════════════════
+    # Fila 2
     pdf.set_xy(COL_IZQ_X, y_row2)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(ANCHO_COL, H_LABEL, "REPRESENTANTE LEGAL", ln=1)
@@ -442,9 +426,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
     pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_acc_nom, max_caracteres=38))
 
-    # ═══════════════════════════════════════════════════════════════
-    # FILA 3 — TELÉFONO DE CONTACTO (izq)  |  CORREO ELECTRÓNICO (der)
-    # ═══════════════════════════════════════════════════════════════
+    # Fila 3
     pdf.set_xy(COL_IZQ_X, y_row3)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(ANCHO_COL, H_LABEL, "TELÉFONO DE CONTACTO", ln=1)
@@ -459,9 +441,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
     pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_correo, max_caracteres=38))
 
-    # ═══════════════════════════════════════════════════════════════
-    # FILA 4 — CANAL DIGITAL (izq)  |  RADICADO / EXPEDIENTE (der)
-    # ═══════════════════════════════════════════════════════════════
+    # Fila 4
     pdf.set_xy(COL_IZQ_X, y_row4)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(ANCHO_COL, H_LABEL, "CANAL DIGITAL / SITIO WEB", ln=1)
@@ -476,7 +456,6 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*COLOR_PRIMARY)
     pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_radicado, max_caracteres=38))
 
-    # Restaurar cursor al final del bento
     pdf.set_y(start_y + altura_bento_dinamica)
     pdf.ln(6)
 
@@ -493,100 +472,84 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     # 🗂️ ─── SECCIÓN 3: CONCEPTO TÉCNICO Y DECLARACIÓN DE CUMPLIMIENTO ───
     render_subseccion_moderna("3. Concepto Técnico de Cumplimiento")
 
-    start_y = pdf.get_y()
-
     es_aprobado    = "APROBADO" in s_estado
-    estado_str     = "APROBADO || SIN COINCIDENCIAS" if es_aprobado else "REVISIÓN ADICIONAL REQUERIDA"
+    estado_str     = "APROBADO  SIN COINCIDENCIAS" if es_aprobado else "REVISIÓN ADICIONAL REQUERIDA"
     categoria_str  = "RIESGO BAJO" if es_aprobado else "RIESGO INTENSIFICADO"
     
-    # Colores semánticos
     if es_aprobado:
-        badge_bg = (240, 253, 244)      # Emerald 50
-        badge_border = (187, 247, 208)  # Emerald 200
-        badge_text = (21, 128, 61)      # Emerald 700
+        badge_bg = (240, 253, 244)
+        badge_border = (187, 247, 208)
+        badge_text = (21, 128, 61)
     else:
-        badge_bg = (254, 243, 199)      # Amber 50
-        badge_border = (253, 230, 138)  # Amber 200
-        badge_text = (180, 83, 9)       # Amber 700
+        badge_bg = (254, 243, 199)
+        badge_border = (253, 230, 138)
+        badge_text = (180, 83, 9)
 
-    # Coordenadas y dimensiones de la grilla
     S3_IZQ   = 19
     S3_DER   = 109
     S3_W     = 82
-    S3_H_LBL = 3.0      # Altura de las etiquetas grises
-    S3_H_BDG = 6.0      # Altura del Badge (Incrementado para dar aire interno)
-    S3_GAP   = 5.5      # Espacio de separación entre fila 1 y fila 2 (Incrementado)
-    S3_PAD_T = 4.5      # Padding superior del Bento
-    S3_PAD_B = 4.5      # Padding inferior del Bento
+    S3_H_LBL = 3.0
+    S3_H_BDG = 6.0
+    S3_GAP   = 5.5
+    S3_PAD_T = 4.5
+    S3_PAD_B = 4.5
 
-    # Pre-cálculo dinámico de líneas del dictamen (Sustento Técnico)
     pdf.set_font("Helvetica", "I", 8)
     saltos_dict  = s_dictamen.count('\n')
     lineas_dict  = max(1, int(pdf.get_string_width(s_dictamen.replace('\n', ' ')) / 168) + 1) + saltos_dict
     h_dictamen   = lineas_dict * 4.2
-
-    # Distribución determinista de ejes Y para evitar colisiones
-    y_r1_lbl = start_y + S3_PAD_T
-    y_r1_bdg = y_r1_lbl + S3_H_LBL + 1.2
     
-    # El divisor se ubica exactamente en la mitad del GAP de respiración
-    y_divisor = y_r1_bdg + S3_H_BDG + (S3_GAP / 2.0)
-    
-    y_r2_lbl = y_divisor + (S3_GAP / 2.0)
-    y_r2_val = y_r2_lbl + S3_H_LBL + 1.2
+    # Altura del Bento de Sección 3
+    altura_bento_s3 = S3_PAD_T + S3_H_LBL + 1.2 + S3_H_BDG + S3_GAP + S3_H_LBL + 1.2 + h_dictamen + S3_PAD_B
 
-    # Altura total dinámica del Bento
-    altura_bento_s3 = (y_r2_val + h_dictamen + S3_PAD_B) - start_y
+    # 🛡️ CONTROL DE DESBORDE DE BENTO SECCIÓN 3
+    if pdf.get_y() + altura_bento_s3 > 262:
+        pdf.add_page()
 
-    # Dibujo del contenedor Bento principal
+    start_y = pdf.get_y()
+
     pdf.set_fill_color(*COLOR_BG_GRID)
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.2)
     pdf.rect(15, start_y, 180, altura_bento_s3, style="FD")
 
-    # Dibujo del divisor sutil horizontal
+    y_r1_lbl = start_y + S3_PAD_T
+    y_r1_bdg = y_r1_lbl + S3_H_LBL + 1.2
+    y_divisor = y_r1_bdg + S3_H_BDG + (S3_GAP / 2.0)
+    y_r2_lbl = y_divisor + (S3_GAP / 2.0)
+    y_r2_val = y_r2_lbl + S3_H_LBL + 1.2
+
+    # Divisor horizontal
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.15)
     pdf.line(S3_IZQ, y_divisor, 191, y_divisor)
 
-    # ═══════════════════════════════════════════════════════════════
-    # FILA 1 — Resultado (izq) | Categoría (der) con Status Badges
-    # ═══════════════════════════════════════════════════════════════
-    
-    # ── Columna Izquierda: Resultado LAFT ──
+    # Fila 1 - Badges
     pdf.set_xy(S3_IZQ, y_r1_lbl)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(S3_W, S3_H_LBL, "RESULTADO FORMAL DE EVALUACIÓN LAFT")
     
-    # Placa física Badge Izquierdo
     pdf.set_fill_color(*badge_bg)
     pdf.set_draw_color(*badge_border)
     pdf.rect(S3_IZQ, y_r1_bdg, 74, S3_H_BDG, style="FD")
     
-    # Texto centrado verticalmente dentro del Badge
     pdf.set_xy(S3_IZQ + 3, y_r1_bdg + 1.0)
     pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*badge_text)
     pdf.cell(68, 4.2, estado_str)
 
-    # ── Columna Derecha: Categoría de Riesgo ──
     pdf.set_xy(S3_DER, y_r1_lbl)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(S3_W, S3_H_LBL, "CATEGORÍA DE RIESGO FINAL")
     
-    # Placa física Badge Derecho
     pdf.set_fill_color(*badge_bg)
     pdf.set_draw_color(*badge_border)
     pdf.rect(S3_DER, y_r1_bdg, 74, S3_H_BDG, style="FD")
     
-    # Texto centrado verticalmente dentro del Badge
     pdf.set_xy(S3_DER + 3, y_r1_bdg + 1.0)
     pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*badge_text)
     pdf.cell(68, 4.2, categoria_str)
 
-    # ═══════════════════════════════════════════════════════════════
-    # FILA 2 — Sustento Técnico (Ancho Completo)
-    # ═══════════════════════════════════════════════════════════════
-    
+    # Fila 2 - Dictamen
     pdf.set_xy(S3_IZQ, y_r2_lbl)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(172, S3_H_LBL, "SUSTENTO TÉCNICO DEL OFICIAL DE CUMPLIMIENTO", ln=1)
@@ -595,7 +558,6 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(*COLOR_TEXT_BODY)
     pdf.multi_cell(172, 4.2, s_dictamen)
 
-    # Restaurar cursor de salida
     pdf.set_y(start_y + altura_bento_s3)
     pdf.ln(6)
 
@@ -603,44 +565,45 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     # 🗂️ ─── SECCIÓN 4: ANÁLISIS DE FUENTES ABIERTAS COMPLEMENTARIO ───
     render_subseccion_moderna("4. Análisis de Contexto y Registro Público")
 
-    start_y = pdf.get_y()
-
     contenido_rues = s_rues.strip() if s_rues.strip() else \
         "El análisis de screening y medios adversos concluyó sin hallazgos de referencias de prensa negativa, sanciones administrativas o anomalías mercantiles en las fuentes públicas consultadas."
 
-    # Pre-cálculo dinámico de altura (Ancho seguro de columna: 172mm)
     pdf.set_font("Helvetica", "", 8.5)
     saltos_rues  = contenido_rues.count('\n')
     lineas_rues  = max(1, int(pdf.get_string_width(contenido_rues.replace('\n', ' ')) / 172) + 1) + saltos_rues
     h_rues       = lineas_rues * 4.2
     
-    # Altura del Bento con márgenes internos holgados
     altura_bento_rues = 4.5 + 3.0 + 1.5 + h_rues + 4.5
 
-    # Dibujo del contenedor Bento principal (Margen simétrico exacto de 15 a 195)
+    # 🛡️ CONTROL DE DESBORDE DE BENTO SECCIÓN 4 (¡Evita el desborde de Image 2!)
+    if pdf.get_y() + altura_bento_rues > 262:
+        pdf.add_page()
+
+    start_y = pdf.get_y()
+
+    # Dibujo del contenedor Bento principal
     pdf.set_fill_color(*COLOR_BG_GRID)
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.2)
     pdf.rect(15, start_y, 180, altura_bento_rues, style="FD")
 
-    # Posicionamiento con márgenes de seguridad alineados a X = 19
     pdf.set_xy(19, start_y + 4.5)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(172, 3.0, "ANÁLISIS DE ADVERSE MEDIA Y VALIDACIÓN EN REGISTRO MERCANTIL", ln=1)
     
-    # Espaciado y renderizado del cuerpo de texto
     pdf.set_xy(19, start_y + 4.5 + 3.0 + 1.5)
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
     pdf.multi_cell(172, 4.2, contenido_rues)
 
     pdf.set_y(start_y + altura_bento_rues)
 
-    # Sello de seguridad y autenticidad del sistema
+    # Sello de seguridad
     pdf.ln(8)
     pdf.set_font("Helvetica", "", 7.5)
     pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(0, 3.5, f"Estampa de Tiempo de Evaluación: {s_fecha} COT", ln=1)
     pdf.cell(0, 3.5, f"Código de Verificación del Reporte: HBPO-COMPLIANCE-{s_nit.replace('-', '')}-{s_radicado.upper()}", ln=1)
+
 
     # 🗂️ ─── SECCIÓN DE ANEXOS: REGISTRO DE EVIDENCIAS DIGITALES (IMÁGENES) ───
     imagenes_evidencia = datos_master.get("evidencias_imagenes", [])
@@ -648,7 +611,6 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     if imagenes_evidencia:
         pdf.add_page()  # Abrir página limpia para el anexo
         
-        # Encabezado del Anexo
         pdf.set_text_color(*COLOR_PRIMARY)
         pdf.set_font("Helvetica", "B", 12)
         pdf.cell(0, 8, "ANEXO: REGISTRO DE EVIDENCIAS DIGITALES", ln=1)
@@ -666,15 +628,35 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         import tempfile
         
         for idx, img_bytes in enumerate(imagenes_evidencia):
-            # Creamos un archivo temporal para procesar los bytes de forma limpia en FPDF
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img:
                 temp_img.write(img_bytes)
                 temp_path = temp_img.name
             
             try:
-                # Comprobación matemática de espacio vertical restante para que no se corte la imagen
-                espacio_disponible = 297 - pdf.get_y() - 25 # Alto A4 (297) menos margen de seguridad (25)
-                if espacio_disponible < 90: # Necesitamos al menos 90mm libres para la tarjeta
+                # 🚀 LECTURA DINÁMICA DEL ASPECT RATIO DE LA IMAGEN (¡Para solucionar Image 1!)
+                with PILImage.open(temp_path) as img:
+                    img_w, img_h = img.size
+                
+                aspect = img_h / img_w  # Proporción de la imagen (alto / ancho)
+                
+                # Definir límites de la caja contenedora de la imagen
+                max_width = 160.0
+                max_height = 145.0  # Límite vertical estricto para evitar golpear el footer
+                
+                # Escalado proporcional de la imagen
+                render_w = max_width
+                render_h = max_width * aspect
+                
+                if render_h > max_height:
+                    render_h = max_height
+                    render_w = max_height / aspect
+                
+                # Centrado horizontal exacto dentro de los márgenes de 15mm y 195mm
+                pos_x = 15.0 + (180.0 - render_w) / 2.0
+                
+                # 🛡️ CONTROL DE DESBORDE DE IMAGEN (Si no cabe verticalmente en la página actual, salta)
+                espacio_disponible = 270.0 - pdf.get_y()  # Límite seguro antes del pie de página (270mm)
+                if (render_h + 10) > espacio_disponible:
                     pdf.add_page()
                 
                 # Etiqueta de identificación
@@ -683,11 +665,11 @@ def generar_pdf_base(datos_master: dict) -> bytes:
                 pdf.cell(0, 5, f"EVIDENCIA DIGITAL NO. {idx + 1} - SOPORTE DE CONSULTA", ln=1)
                 pdf.ln(2)
                 
-                # Insertar imagen de forma simétrica centrada (Ancho fijo de 160mm, alto auto-proporcional)
-                pdf.image(temp_path, x=25, y=pdf.get_y(), w=160)
+                # Renderizado simétrico escalado
+                pdf.image(temp_path, x=pos_x, y=pdf.get_y(), w=render_w, h=render_h)
                 
-                # Espacio aproximado ocupado por la imagen para el cursor Y
-                pdf.ln(95)
+                # Cursor Y avanza exactamente lo que mide la imagen + separación
+                pdf.set_y(pdf.get_y() + render_h + 8)
                 
             except Exception as e:
                 pdf.set_font("Helvetica", "I", 8.0)
@@ -695,15 +677,15 @@ def generar_pdf_base(datos_master: dict) -> bytes:
                 pdf.cell(0, 5, f"[Error al compilar la evidencia {idx + 1}: Formato no soportado]", ln=1)
                 pdf.ln(4)
             finally:
-                # Limpieza estricta de archivos en disco del servidor
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
 
-    # 🛡️ RETORNO SEGURO MULTI-VERSIÓN (Detecta dinámicamente si es bytes, bytearray o str)
+    # Retorno seguro
     out = pdf.output()
     if isinstance(out, (bytes, bytearray)):
         return bytes(out)
     return str(out).encode('latin-1')
+
 
 def compilar_expediente_completo(bytes_base: bytes, infolaft_bytes_list: list) -> bytes:
     """Fusiona el expediente de salida con las evidencias PDF de Infolaft."""
