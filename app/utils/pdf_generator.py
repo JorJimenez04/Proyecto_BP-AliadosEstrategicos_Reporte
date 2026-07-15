@@ -590,12 +590,68 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.cell(0, 3.5, f"Estampa de Tiempo de Evaluación: {s_fecha} COT", ln=1)
     pdf.cell(0, 3.5, f"Código de Verificación del Reporte: HBPO-COMPLIANCE-{s_nit.replace('-', '')}-{s_radicado.upper()}", ln=1)
 
+    # 🗂️ ─── SECCIÓN DE ANEXOS: REGISTRO DE EVIDENCIAS DIGITALES (IMÁGENES) ───
+    imagenes_evidencia = datos_master.get("evidencias_imagenes", [])
+    
+    if imagenes_evidencia:
+        pdf.add_page()  # Abrir página limpia para el anexo
+        
+        # Encabezado del Anexo
+        pdf.set_text_color(*COLOR_PRIMARY)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, "ANEXO: REGISTRO DE EVIDENCIAS DIGITALES", ln=1)
+        
+        pdf.set_draw_color(*COLOR_PRIMARY)
+        pdf.set_line_width(0.4)
+        pdf.line(15, pdf.get_y() + 1, 195, pdf.get_y() + 1)
+        pdf.ln(6)
+        
+        pdf.set_font("Helvetica", "", 8.5)
+        pdf.set_text_color(*COLOR_TEXT_BODY)
+        pdf.multi_cell(0, 4.2, "Como respaldo del proceso de debida diligencia y validación en fuentes abiertas, se adjuntan de manera íntegra las capturas de pantalla tomadas de los portales de verificación pública:")
+        pdf.ln(4)
+
+        import tempfile
+        
+        for idx, img_bytes in enumerate(imagenes_evidencia):
+            # Creamos un archivo temporal para procesar los bytes de forma limpia en FPDF
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img:
+                temp_img.write(img_bytes)
+                temp_path = temp_img.name
+            
+            try:
+                # Comprobación matemática de espacio vertical restante para que no se corte la imagen
+                espacio_disponible = 297 - pdf.get_y() - 25 # Alto A4 (297) menos margen de seguridad (25)
+                if espacio_disponible < 90: # Necesitamos al menos 90mm libres para la tarjeta
+                    pdf.add_page()
+                
+                # Etiqueta de identificación
+                pdf.set_font("Helvetica", "B", 8.0)
+                pdf.set_text_color(*COLOR_TEXT_MUTED)
+                pdf.cell(0, 5, f"EVIDENCIA DIGITAL NO. {idx + 1} - SOPORTE DE CONSULTA", ln=1)
+                pdf.ln(2)
+                
+                # Insertar imagen de forma simétrica centrada (Ancho fijo de 160mm, alto auto-proporcional)
+                pdf.image(temp_path, x=25, y=pdf.get_y(), w=160)
+                
+                # Espacio aproximado ocupado por la imagen para el cursor Y
+                pdf.ln(95)
+                
+            except Exception as e:
+                pdf.set_font("Helvetica", "I", 8.0)
+                pdf.set_text_color(220, 38, 38)
+                pdf.cell(0, 5, f"[Error al compilar la evidencia {idx + 1}: Formato no soportado]", ln=1)
+                pdf.ln(4)
+            finally:
+                # Limpieza estricta de archivos en disco del servidor
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+
     # 🛡️ RETORNO SEGURO MULTI-VERSIÓN (Detecta dinámicamente si es bytes, bytearray o str)
     out = pdf.output()
     if isinstance(out, (bytes, bytearray)):
         return bytes(out)
     return str(out).encode('latin-1')
-
 
 def compilar_expediente_completo(bytes_base: bytes, infolaft_bytes_list: list) -> bytes:
     """Fusiona el expediente de salida con las evidencias PDF de Infolaft."""

@@ -43,6 +43,7 @@ def callback_ejecutar_compilacion(user: dict):
     
     v_direccion = st.session_state.get("v6_direccion", "").strip()
     v_telefono = st.session_state.get("v6_telefono", "").strip()
+    v_correo = st.session_state.get("v6_correo", "").strip()
     v_jurisdiccion = st.session_state.get("v6_jurisdiccion", "").strip()
     v_sitio_web = st.session_state.get("v6_sitio_web", "").strip()
     v_rues_news = st.session_state.get("v6_rues_noticias_raw", "").strip()
@@ -96,11 +97,23 @@ def callback_ejecutar_compilacion(user: dict):
     alertas_vivas = any([ent['resultados'] != "0" or ent['intensificada'] == "SI" for ent in entidades_lista])
     estado_global = "REQUIERE REVISIÓN INTENSIFICADA" if alertas_vivas else "APROBADO S/ANOMALÍAS"
 
+    # Procesamiento de imágenes de evidencias en memoria RAM
+    evidencias_cargadas = st.session_state.get("v6_evidencias_imagenes", [])
+    bytes_evidencias = []
+    if evidencias_cargadas:
+        for f in evidencias_cargadas:
+            try:
+                f.seek(0)
+                bytes_evidencias.append(f.read())
+            except Exception:
+                continue
+
     payload_maestro = {
         "empresa_principal": v_empresa,
         "nit_principal": v_nit,
         "direccion": v_direccion if v_direccion else "No Declarada",
         "telefono": v_telefono if v_telefono else "No Declarado",
+        "correo_contacto": v_correo if v_correo else "No Registrado",
         "jurisdiccion": v_jurisdiccion,
         "sitio_web": v_sitio_web if v_sitio_web else "No Registrado",
         "rep_legal_nom": v_rep_nom,
@@ -112,6 +125,7 @@ def callback_ejecutar_compilacion(user: dict):
         "rues_noticias_raw": v_rues_news,
         "estado_global": estado_global,
         "entidades_processed": entidades_lista,
+        "evidencias_imagenes": bytes_evidencias,  # Inyectamos el array de bytes
         "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "analista": user.get("username", "sistema")
     }
@@ -229,11 +243,21 @@ def render_screening_workspace(user: dict):
 
     st.markdown('<div class="ar-divider" style="margin: 25px 0;"></div>', unsafe_allow_html=True)
 
-    # 🧠 SECCIÓN MODULE 4: Dictamen del Oficial
+    # 🧠 SECCIÓN MODULE 4: Dictamen del Oficial e Imágenes de Evidencia
     with st.container():
         st.markdown('<p class="ar-section-title">4. Dictamen del Oficial y Sustento Técnico</p>', unsafe_allow_html=True)
         st.text_area("Análisis Argumentativo Legal (Enfoque Basado en Riesgo) *", placeholder="Sustente rigurosamente el dictamen técnico de aceptación, rechazo o condicionamiento...", key="v6_dictamen_motivo")
         st.text_area("Notas de Prensa y Validation de Registro Mercantil (RUES)", placeholder="Pegue aquí el bloque de texto con los hallazgos de background check en fuentes abiertas...", key="v6_rues_noticias_raw")
+        
+        # 📸 Cargador de Capturas de Pantalla / Evidencias
+        st.markdown("<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-top:15px; margin-bottom:5px;'>📸 Registro de Evidencias de Consultas Abiertas (Capturas de Pantalla)</p>", unsafe_allow_html=True)
+        st.file_uploader(
+            "Arrastra capturas de pantalla de RUES, Procuraduría, Contraloría o Google News",
+            type=["png", "jpg", "jpeg"],
+            accept_multiple_files=True,
+            key="v6_evidencias_imagenes",
+            label_visibility="collapsed"
+        )
 
     # Mapeo de logos
     missing_logos = []
