@@ -28,7 +28,6 @@ class ComplianceMaestroPDF(FPDF):
         current_x = self.get_x()
 
         # 📐 ALINEACIÓN SIMÉTRICA OPTIMIZADA CON LOGOS MÁS GRANDES (Y_mid = 16.5mm)
-        
         # Logo Izquierdo (Adamo / Paycop) -> h=13mm, y=10mm (Midpoint = 16.5mm)
         if self.logo_adamo and os.path.exists(self.logo_adamo):
             self.image(self.logo_adamo, x=15, y=10, h=13)
@@ -61,7 +60,7 @@ class ComplianceMaestroPDF(FPDF):
         self.set_text_color(*COLOR_TEXT_MUTED)
         self.set_draw_color(*COLOR_LINE_TENUE)
         self.line(15, self.get_y() - 2, 195, self.get_y() - 2)
-        self.cell(0, 8, f"Certificación de Cumplimiento - Confidencial - Página {self.page_no()}/{{nb}}", 0, 0, "C")
+        self.cell(0, 8, f"Certificación de Cumplimiento - Confidencial Interno/Externo - Página {self.page_no()}/{{nb}}", 0, 0, "C")
 
 
 def parsear_texto_infolaft(texto: str) -> dict:
@@ -125,7 +124,9 @@ def resolver_ruta_logo(nombre_base: str) -> str:
         
     if os.path.exists(folder):
         for archivo in os.listdir(folder):
-            if archivo.lower().startswith(nombre_base.lower()):
+            if archivo.lower().startswith(nombre_base.lower().replace(" ", "_")):
+                return os.path.join(folder, archivo)
+            elif archivo.lower().startswith(nombre_base.lower()):
                 return os.path.join(folder, archivo)
     return None
 
@@ -189,7 +190,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         s_y = pdf.get_y()
 
         es_limpio  = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
-        est_texto  = "SIN COINCIDENCIAS" if es_limpio else "REQUIERE AUDITORÍA INTERNA LAFT"
+        est_texto  = "SIN COINCIDENCIAS / CONCORDANTE" if es_limpio else "REQUIERE AUDITORÍA INTERNA LAFT"
         est_color  = (22, 163, 74) if es_limpio else (220, 38, 38)
 
         # ── Constantes de la mini-grilla ──
@@ -490,7 +491,6 @@ def generar_pdf_base(datos_master: dict) -> bytes:
 
 
     # 🗂️ ─── SECCIÓN 4: ANÁLISIS DE FUENTES ABIERTAS COMPLEMENTARIO ───
-    # Acortamos el título principal para evitar el desborde en el extremo derecho
     render_subseccion_moderna("4. Análisis de Contexto y Registro Público")
 
     start_y = pdf.get_y()
@@ -537,3 +537,22 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     if isinstance(out, (bytes, bytearray)):
         return bytes(out)
     return str(out).encode('latin-1')
+
+
+def compilar_expediente_completo(bytes_base: bytes, infolaft_bytes_list: list) -> bytes:
+    """Fusiona el expediente de salida con las evidencias PDF de Infolaft."""
+    writer = pypdf.PdfWriter()
+    reader_base = pypdf.PdfReader(io.BytesIO(bytes_base))
+    for page in reader_base.pages:
+        writer.add_page(page)
+    for b in infolaft_bytes_list:
+        if not b: continue
+        try:
+            reader_evi = pypdf.PdfReader(io.BytesIO(b))
+            for page in reader_evi.pages:
+                writer.add_page(page)
+        except Exception:
+            continue
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
