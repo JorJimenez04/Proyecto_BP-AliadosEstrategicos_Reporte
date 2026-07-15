@@ -108,6 +108,7 @@ def callback_ejecutar_compilacion(user: dict):
             except Exception:
                 continue
 
+    # Estructura de datos consolidada para el generador
     payload_maestro = {
         "empresa_principal": v_empresa,
         "nit_principal": v_nit,
@@ -125,7 +126,7 @@ def callback_ejecutar_compilacion(user: dict):
         "rues_noticias_raw": v_rues_news,
         "estado_global": estado_global,
         "entidades_processed": entidades_lista,
-        "evidencias_imagenes": bytes_evidencias,  # Inyectamos el array de bytes
+        "evidencias_imagenes": bytes_evidencias,
         "fecha": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "analista": user.get("username", "sistema")
     }
@@ -138,6 +139,7 @@ def callback_ejecutar_compilacion(user: dict):
         except Exception:
             return None
 
+    # Extracción de binarios PDF de Infolaft
     infolaft_bytes = [
         b for fk in ("v6_pdf_empresa", "v6_pdf_rep", "v6_pdf_acc")
         if (b := _leer_bytes_uploader(st.session_state.get(fk))) is not None
@@ -149,6 +151,18 @@ def callback_ejecutar_compilacion(user: dict):
     st.session_state["v6_f_nit"] = v_nit
     st.session_state["v6_f_estado_global"] = estado_global
     st.session_state["v6_f_dictamen"] = v_dictamen
+
+    # 🚀 Sanitización dinámica ultra segura de Razón Social y Radicado para el nombre del archivo
+    emp_clean = "".join(c if (c.isalnum() or c in ("_", "-")) else "_" for c in v_empresa)
+    rad_clean = "".join(c if (c.isalnum() or c in ("_", "-")) else "_" for c in v_radicado)
+    
+    # Reducción de guiones bajos consecutivos para mantener una estética premium
+    while "__" in emp_clean: emp_clean = emp_clean.replace("__", "_")
+    while "__" in rad_clean: rad_clean = rad_clean.replace("__", "_")
+    emp_clean = emp_clean.strip("_").upper()
+    rad_clean = rad_clean.strip("_").upper()
+    
+    st.session_state["v6_f_filename"] = f"Reporte_Compliance_{emp_clean}_{rad_clean}.pdf"
 
 
 def render_screening_workspace(user: dict):
