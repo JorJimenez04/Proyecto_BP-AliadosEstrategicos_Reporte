@@ -106,16 +106,19 @@ def parsear_texto_infolaft(texto: str) -> dict:
     nombre_candidato = ""
     
     for i, line in enumerate(lines):
-        if "SU CONSULTA FUE:" in line.upper():
-            sub_text = line.upper().replace("SU CONSULTA FUE:", "").strip()
-            if sub_text and len(sub_text) > 3 and not any(x in sub_text for x in ["DOCUMENTO", "NIT", "FECHA"]):
+        line_upper = line.upper()
+        if "SU CONSULTA FUE" in line_upper:
+            # 🚀 CONTROL CON REGEX: Limpia de forma segura "SU CONSULTA FUE" con o sin dos puntos ":"
+            sub_text = re.sub(r"SU CONSULTA FUE:?", "", line, flags=re.IGNORECASE).strip()
+            if sub_text and len(sub_text) > 3 and not any(x in sub_text.upper() for x in ["DOCUMENTO", "NIT", "FECHA"]):
                 nombre_candidato = sub_text
             elif i + 1 < len(lines):
                 nombre_candidato = lines[i+1]
             break
-        elif "DATOS CONSULTADOS" in line.upper():
-            sub_text = line.upper().replace("DATOS CONSULTADOS:", "").strip()
-            if sub_text and len(sub_text) > 3 and not any(x in sub_text for x in ["DOCUMENTO", "NIT", "FECHA"]):
+        elif "DATOS CONSULTADOS" in line_upper:
+            # 🚀 CONTROL CON REGEX: Limpia de forma segura "DATOS CONSULTADOS" con o sin dos puntos ":"
+            sub_text = re.sub(r"DATOS CONSULTADOS:?", "", line, flags=re.IGNORECASE).strip()
+            if sub_text and len(sub_text) > 3 and not any(x in sub_text.upper() for x in ["DOCUMENTO", "NIT", "FECHA"]):
                 nombre_candidato = sub_text
             elif i + 1 < len(lines):
                 nombre_candidato = lines[i+1]
