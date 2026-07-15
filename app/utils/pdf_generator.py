@@ -64,7 +64,10 @@ class ComplianceMaestroPDF(FPDF):
 
 
 def parsear_texto_infolaft(texto: str) -> dict:
-    """Analiza las cadenas de texto del PDF de Infolaft mediante expresiones regulares"""
+    """
+    Analiza el texto plano extraído del PDF de Infolaft y extrae la información 
+    estructurada del vinculado aplicando un algoritmo de aislamiento por marcas de corte.
+    """
     res = {
         "nombre": "No detectado",
         "identificacion": "No detectado",
@@ -73,30 +76,79 @@ def parsear_texto_infolaft(texto: str) -> dict:
         "resultados": "0",
         "intensificada": "NO"
     }
-    texto_plano = texto.replace("\n", " ")
-
-    radicado_match = re.search(r"NÚMERO DE CONSULTA:\s*.*?\b(\d{9})\b", texto_plano, re.IGNORECASE)
-    if radicado_match: res["radicado"] = radicado_match.group(1)
     
-    id_match = re.search(r"DOCUMENTO DE IDENTIDAD:\s*([\d-]+)", texto_plano, re.IGNORECASE)
-    if id_match: res["identificacion"] = id_match.group(1).strip()
+    # 1. Normalización a una sola línea para evitar problemas de saltos de línea físicos
+    texto_plano = " ".join(texto.split())
 
-    fecha_match = re.search(r"FECHA Y HORA DE CONSULTA:?\s*([\d/]+ [\d:]+)", texto_plano, re.IGNORECASE)
-    if fecha_match: res["fecha_consulta"] = fecha_match.group(1).strip()
+    # Extracción de metadatos con Regex de amplio espectro
+    radicado_match = re.search(r"(?:NÚMERO DE CONSULTA|CONSULTA N[ÚU]MERO|RADICADO)[:\s]*\b(\d{5,12})\b", texto_plano, re.IGNORECASE)
+    if radicado_match: 
+        res["radicado"] = radicado_match.group(1)
+    
+    id_match = re.search(r"(?:DOCUMENTO DE IDENTIDAD|IDENTIFICACI[ÓO]N|NIT|C[ÉE]DULA)[:\s]*([\d\.\s-]+)", texto_plano, re.IGNORECASE)
+    if id_match: 
+        # Limpiar caracteres indeseados como puntos finales
+        cleaned_id = re.sub(r"[^\d-]", "", id_match.group(1).strip())
+        if cleaned_id:
+            res["identificacion"] = cleaned_id
 
-    resultados_match = re.search(r"RESUMEN DE RESULTADOS:\s*(\d+)", texto_plano, re.IGNORECASE)
-    if resultados_match: res["resultados"] = resultados_match.group(1)
+    fecha_match = re.search(r"(?:FECHA Y HORA DE CONSULTA|FECHA CONSULTA)[:\s]*([\d/]+ [\d:]+(?:\s*(?:AM|PM))?)", texto_plano, re.IGNORECASE)
+    if fecha_match: 
+        res["fecha_consulta"] = fecha_match.group(1).strip()
 
-    gafi_match = re.search(r"RIESGO GAFI\??:\s*(NO|SI)", texto_plano, re.IGNORECASE)
-    if gafi_match: res["intensificada"] = gafi_match.group(1)
+    resultados_match = re.search(r"(?:RESUMEN DE RESULTADOS|COINCIDENCIAS|RESULTADOS)[:\s]*(\d+)", texto_plano, re.IGNORECASE)
+    if resultados_match: 
+        res["resultados"] = resultados_match.group(1)
 
+    gafi_match = re.search(r"(?:RIESGO GAFI|MONITOREO INTENSIFICADO)\??[:\s]*(SI|NO)", texto_plano, re.IGNORECASE)
+    if gafi_match: 
+        res["intensificada"] = gafi_match.group(1).upper()
+
+    # 2. Localización física del candidato a Nombre
     lines = [line.strip() for line in texto.split("\n") if line.strip()]
+    nombre_candidato = ""
+    
     for i, line in enumerate(lines):
-        if "SU CONSULTA FUE:" in line:
-            if i + 1 < len(lines) and "DOCUMENTO" not in lines[i+1]: res["nombre"] = lines[i+1]
-            elif i - 1 >= 0 and "DATOS CONSULTADOS" not in lines[i-1]: res["nombre"] = lines[i-1]
-        elif "DATOS CONSULTADOS" in line and i + 1 < len(lines) and "SU CONSULTA" not in lines[i+1]:
-            res["nombre"] = lines[i+1]
+        if "SU CONSULTA FUE:" in line.upper():
+            sub_text = line.upper().replace("SU CONSULTA FUE:", "").strip()
+            if sub_text and len(sub_text) > 3 and not any(x in sub_text for x in ["DOCUMENTO", "NIT", "FECHA"]):
+                nombre_candidato = sub_text
+            elif i + 1 < len(lines):
+                nombre_candidato = lines[i+1]
+            break
+        elif "DATOS CONSULTADOS" in line.upper():
+            sub_text = line.upper().replace("DATOS CONSULTADOS:", "").strip()
+            if sub_text and len(sub_text) > 3 and not any(x in sub_text for x in ["DOCUMENTO", "NIT", "FECHA"]):
+                nombre_candidato = sub_text
+            elif i + 1 < len(lines):
+                nombre_candidato = lines[i+1]
+            break
+
+    # 3. Aislamiento por Marcas de Corte (Desecha el ruido regulatorio adjunto al nombre)
+    if nombre_candidato:
+        marcas_de_corte = [
+            r"DOCUMENTO\s*DE\s*IDENTIDAD",
+            r"REQUIERE\s*DEBIDA",
+            r"DEBIDA\s*DILIGENCIA",
+            r"POR\s*CONCEPTO\s*PEP",
+            r"RIESGO\s*GAFI",
+            r"JURISDICCI[ÓO]N\s*DE\s*RIESGO",
+            r"FECHA\s*Y\s*HORA",
+            r"N[ÚU]MERO\s*DE\s*CONSULTA",
+            r"RESUMEN\s*DE\s*RESULTADOS"
+        ]
+        
+        nombre_limpio = nombre_candidato
+        for marca in marcas_de_corte:
+            # Dividimos la cadena donde aparezca el metadato y nos quedamos con el fragmento izquierdo
+            nombre_limpio = re.split(marca, nombre_limpio, flags=re.IGNORECASE)[0]
+        
+        # Limpieza de caracteres y signos residuales al principio y al final del nombre
+        nombre_limpio = re.sub(r"[\s,:\-\.\?¿]+$", "", nombre_limpio).strip()
+        nombre_limpio = re.sub(r"^[\s,:\-\.\?¿]+", "", nombre_limpio).strip()
+        
+        if len(nombre_limpio) >= 3:
+            res["nombre"] = nombre_limpio.upper()  # Formateado institucional limpio
 
     return res
 
