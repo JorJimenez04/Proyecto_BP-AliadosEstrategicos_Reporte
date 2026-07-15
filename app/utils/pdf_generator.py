@@ -101,27 +101,44 @@ def parsear_texto_infolaft(texto: str) -> dict:
     if gafi_match: 
         res["intensificada"] = gafi_match.group(1).upper()
 
-    # Localización física del candidato a Nombre
+    # 🚀 NUEVO: Localización física del candidato con escaneo prospectivo multilínea
     lines = [line.strip() for line in texto.split("\n") if line.strip()]
     nombre_candidato = ""
     
+    # Palabras de control administrativo que nunca pueden componer un nombre real
+    palabras_prohibidas = [
+        "DOCUMENTO", "IDENTIDAD", "NIT", "CÉDULA", "CEDULA", 
+        "SU CONSULTA", "DATOS CONSULTADOS", "FECHA", "HORA", 
+        "NÚMERO", "NUMERO", "RESULTADOS", "COINCIDENCIAS", 
+        "RIESGO", "GAFI", "DEBIDA", "DILIGENCIA", "PEP", "JURISDICCIÓN"
+    ]
+
     for i, line in enumerate(lines):
         line_upper = line.upper()
-        if "SU CONSULTA FUE" in line_upper:
-            # 🚀 CONTROL CON REGEX: Limpia de forma segura "SU CONSULTA FUE" con o sin dos puntos ":"
-            sub_text = re.sub(r"SU CONSULTA FUE:?", "", line, flags=re.IGNORECASE).strip()
-            if sub_text and len(sub_text) > 3 and not any(x in sub_text.upper() for x in ["DOCUMENTO", "NIT", "FECHA"]):
-                nombre_candidato = sub_text
-            elif i + 1 < len(lines):
-                nombre_candidato = lines[i+1]
-            break
-        elif "DATOS CONSULTADOS" in line_upper:
-            # 🚀 CONTROL CON REGEX: Limpia de forma segura "DATOS CONSULTADOS" con o sin dos puntos ":"
-            sub_text = re.sub(r"DATOS CONSULTADOS:?", "", line, flags=re.IGNORECASE).strip()
-            if sub_text and len(sub_text) > 3 and not any(x in sub_text.upper() for x in ["DOCUMENTO", "NIT", "FECHA"]):
-                nombre_candidato = sub_text
-            elif i + 1 < len(lines):
-                nombre_candidato = lines[i+1]
+        if "SU CONSULTA FUE" in line_upper or "DATOS CONSULTADOS" in line_upper:
+            # Opción A: Intentar limpiar la misma línea por si el nombre está al lado
+            cleaned_same_line = re.sub(r"(?:SU CONSULTA FUE|DATOS CONSULTADOS)[:\s]*", "", line, flags=re.IGNORECASE).strip()
+            if cleaned_same_line and len(cleaned_same_line) > 3 and not any(p in cleaned_same_line.upper() for p in palabras_prohibidas):
+                nombre_candidato = cleaned_same_line
+                break
+            
+            # Opción B: Escaneo dinámico hacia abajo (hasta 5 líneas físicas)
+            for j in range(1, 6):
+                if i + j < len(lines):
+                    candidate_line = lines[i + j].strip()
+                    candidate_upper = candidate_line.upper()
+                    
+                    # Filtros de exclusión secuenciales
+                    if not candidate_line:
+                        continue
+                    if any(p in candidate_upper for p in palabras_prohibidas):
+                        continue
+                    if re.match(r"^[\d\.\s-]+$", candidate_line): # Si es solo números (NIT o cédula), se ignora
+                        continue
+                    
+                    # Si superó todos los filtros, ¡este es el nombre real!
+                    nombre_candidato = candidate_line
+                    break
             break
 
     # Aislamiento por Marcas de Corte
