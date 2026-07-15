@@ -78,10 +78,16 @@ def parsear_texto_infolaft(texto: str) -> dict:
     
     texto_plano = " ".join(texto.split())
 
-    # Extracción de metadatos con Regex de amplio espectro
+    # 1. Extracción de Metadatos (Radicado con soporte de cabeceras pegadas)
     radicado_match = re.search(r"(?:NÚMERO DE CONSULTA|CONSULTA N[ÚU]MERO|RADICADO)[:\s]*\b(\d{5,12})\b", texto_plano, re.IGNORECASE)
     if radicado_match: 
         res["radicado"] = radicado_match.group(1)
+    else:
+        # Fallback para cabeceras pegadas de Infolaft (ej: 2368666298NÚMERO DE CONSULTA)
+        rad_pegado = re.search(r"(\d{5,12})(?:N[ÚU]MERO DE CONSULTA|CONSULTA|P[AÁ]GINA)", texto_plano, re.IGNORECASE)
+        if rad_pegado:
+            num = rad_pegado.group(1)
+            res["radicado"] = num[-9:] if len(num) > 9 else num
     
     id_match = re.search(r"(?:DOCUMENTO DE IDENTIDAD|IDENTIFICACI[ÓO]N|NIT|C[ÉE]DULA)[:\s]*([\d\.\s-]+)", texto_plano, re.IGNORECASE)
     if id_match: 
@@ -101,47 +107,25 @@ def parsear_texto_infolaft(texto: str) -> dict:
     if gafi_match: 
         res["intensificada"] = gafi_match.group(1).upper()
 
-    # 🚀 NUEVO: Localización física del candidato con escaneo prospectivo multilínea
-    lines = [line.strip() for line in texto.split("\n") if line.strip()]
+    # 2. Extracción de Nombre con Regex de Alta Especificidad (Resuelve el "No detectado")
     nombre_candidato = ""
-    
-    # Palabras de control administrativo que nunca pueden componer un nombre real
-    palabras_prohibidas = [
-        "DOCUMENTO", "IDENTIDAD", "NIT", "CÉDULA", "CEDULA", 
-        "SU CONSULTA", "DATOS CONSULTADOS", "FECHA", "HORA", 
-        "NÚMERO", "NUMERO", "RESULTADOS", "COINCIDENCIAS", 
-        "RIESGO", "GAFI", "DEBIDA", "DILIGENCIA", "PEP", "JURISDICCIÓN"
-    ]
-
-    for i, line in enumerate(lines):
-        line_upper = line.upper()
-        if "SU CONSULTA FUE" in line_upper or "DATOS CONSULTADOS" in line_upper:
-            # Opción A: Intentar limpiar la misma línea por si el nombre está al lado
-            cleaned_same_line = re.sub(r"(?:SU CONSULTA FUE|DATOS CONSULTADOS)[:\s]*", "", line, flags=re.IGNORECASE).strip()
-            if cleaned_same_line and len(cleaned_same_line) > 3 and not any(p in cleaned_same_line.upper() for p in palabras_prohibidas):
-                nombre_candidato = cleaned_same_line
+    match_su_consulta = re.search(r"SU CONSULTA FUE[:\s]+([^\n\?]+)", texto, re.IGNORECASE)
+    if match_su_consulta:
+        nombre_candidato = match_su_consulta.group(1).strip()
+    else:
+        # Fallback de seguridad basado en bloques físicos si no existe la frase de Infolaft tradicional
+        lines = [line.strip() for line in texto.split("\n") if line.strip()]
+        for i, line in enumerate(lines):
+            if "DATOS CONSULTADOS" in line.upper():
+                for j in range(1, 4):
+                    if i + j < len(lines):
+                        candidate = lines[i+j].strip()
+                        if candidate and not any(p in candidate.upper() for p in ["DOCUMENTO", "IDENTIDAD", "NIT", "CÉDULA", "FECHA", "NÚMERO"]):
+                            nombre_candidato = candidate
+                            break
                 break
-            
-            # Opción B: Escaneo dinámico hacia abajo (hasta 5 líneas físicas)
-            for j in range(1, 6):
-                if i + j < len(lines):
-                    candidate_line = lines[i + j].strip()
-                    candidate_upper = candidate_line.upper()
-                    
-                    # Filtros de exclusión secuenciales
-                    if not candidate_line:
-                        continue
-                    if any(p in candidate_upper for p in palabras_prohibidas):
-                        continue
-                    if re.match(r"^[\d\.\s-]+$", candidate_line): # Si es solo números (NIT o cédula), se ignora
-                        continue
-                    
-                    # Si superó todos los filtros, ¡este es el nombre real!
-                    nombre_candidato = candidate_line
-                    break
-            break
 
-    # Aislamiento por Marcas de Corte
+    # 3. Aislamiento final por Marcas de Corte
     if nombre_candidato:
         marcas_de_corte = [
             r"DOCUMENTO\s*DE\s*IDENTIDAD",
@@ -172,6 +156,10 @@ def procesar_archivo_pdf(uploaded_file) -> dict:
     if uploaded_file is None:
         return None
     try:
+        # 🚀 RESETEAR EL CURSOR DE LECTURA DEL BUFFER (BytesIO)
+        if hasattr(uploaded_file, "seek"):
+            uploaded_file.seek(0)
+            
         reader = pypdf.PdfReader(uploaded_file)
         full_text = ""
         for page in reader.pages:
