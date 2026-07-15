@@ -162,6 +162,7 @@ def render_screening_workspace(user: dict):
             st.text_input("Código de Radicado Único Interno *", placeholder="Ej: EXP-COMPANYNAME-2026", key="v6_radicado_caso")
             st.text_input("Dirección Fiscal / Domicilio", placeholder="Dirección de la Empresa", key="v6_direccion")
             st.text_input("Teléfono de Contacto Operativo", placeholder="Telefono de contacto", key="v6_telefono")
+            st.text_input("Correo Electronico de Contacto", placeholder="Ej: contacto@empresa.com", key="v6_correo")
             st.text_input("Jurisdicción de Riesgo / Ciudad *", placeholder="País y Ciudad de Registro empresarial", key="v6_jurisdiccion")
             st.text_input("Canal Digital / Sitio Web", placeholder="Ej: www.companyname.co", key="v6_sitio_web")
         

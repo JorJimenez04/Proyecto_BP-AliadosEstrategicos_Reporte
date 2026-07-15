@@ -299,45 +299,52 @@ def generar_pdf_base(datos_master: dict) -> bytes:
 
     start_y = pdf.get_y()
 
-    # ── Constantes de la grilla sincronizada ──
-    COL_IZQ_X   = 19    # Margen interno izquierdo (4mm desde el borde del bento)
-    COL_DER_X   = 109   # 19 + 82col + 8mm canaleta = 109 → termina en 191mm (4mm del borde derecho)
+    # Recuperamos el nuevo campo con un fallback seguro
+    s_correo = _s(datos_master.get('correo_contacto', 'No registrado'))
+
+    # ── Constantes de la grilla sincronizada (Adaptada a 4 filas) ──
+    COL_IZQ_X   = 19    # Margen interno izquierdo
+    COL_DER_X   = 109   # Margen interno derecho
     ANCHO_COL   = 82    # Ambas columnas simétricas
-    H_LABEL     = 3.0   # Altura etiqueta (Helvetica Bold 6.5pt)
-    H_VALUE     = 4.2   # Altura valor (Helvetica 8.5pt)
+    H_LABEL     = 3.0   # Altura etiqueta
+    H_VALUE     = 4.2   # Altura valor
     H_GAP       = 2.5   # Respiración entre filas
     PADDING_TOP = 3.5
     PADDING_BOT = 3.0
 
-    # ── Pre-cálculo de h_row1 para que ambas columnas compartan el mismo eje Y ──
+    # ── Pre-cálculo de alturas dinámicas ──
     pdf.set_font("Helvetica", "", 8.5)
     lineas_direccion = max(1, int(pdf.get_string_width(s_direccion) / ANCHO_COL) + 1)
+    
     h_row1 = H_LABEL + (lineas_direccion * H_VALUE)
     h_row2 = H_LABEL + H_VALUE
     h_row3 = H_LABEL + H_VALUE
-    altura_bento_dinamica = PADDING_TOP + h_row1 + H_GAP + h_row2 + H_GAP + h_row3 + PADDING_BOT
+    h_row4 = H_LABEL + H_VALUE
+    
+    altura_bento_dinamica = PADDING_TOP + h_row1 + H_GAP + h_row2 + H_GAP + h_row3 + H_GAP + h_row4 + PADDING_BOT
 
-    # ── Contenedor Bento dinámico ──
+    # Contenedor Bento principal
     pdf.set_fill_color(*COLOR_BG_GRID)
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.2)
     pdf.rect(15, start_y, 180, altura_bento_dinamica, style="FD")
 
-    # ── Ejes Y fijos de cada fila (determinísticos, independientes del flujo) ──
+    # Ejes Y calculados determinísticamente
     y_row1 = start_y + PADDING_TOP
     y_row2 = y_row1 + h_row1 + H_GAP
     y_row3 = y_row2 + h_row2 + H_GAP
+    y_row4 = y_row3 + h_row3 + H_GAP
 
-    # ── Divisores horizontales sutiles entre filas ──
+    # Divisores horizontales sutiles
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.15)
     pdf.line(COL_IZQ_X, y_row2 - H_GAP / 2, 191, y_row2 - H_GAP / 2)
     pdf.line(COL_IZQ_X, y_row3 - H_GAP / 2, 191, y_row3 - H_GAP / 2)
+    pdf.line(COL_IZQ_X, y_row4 - H_GAP / 2, 191, y_row4 - H_GAP / 2)
 
     # ═══════════════════════════════════════════════════════════════
     # FILA 1 — DIRECCIÓN FISCAL (izq)  |  JURISDICCIÓN COMERCIAL (der)
     # ═══════════════════════════════════════════════════════════════
-
     pdf.set_xy(COL_IZQ_X, y_row1)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(ANCHO_COL, H_LABEL, "DIRECCIÓN FISCAL", ln=1)
@@ -355,7 +362,6 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     # ═══════════════════════════════════════════════════════════════
     # FILA 2 — REPRESENTANTE LEGAL (izq)  |  SOCIO/ACCIONISTA (der)
     # ═══════════════════════════════════════════════════════════════
-
     pdf.set_xy(COL_IZQ_X, y_row2)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(ANCHO_COL, H_LABEL, "REPRESENTANTE LEGAL", ln=1)
@@ -371,9 +377,8 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_acc_nom, max_caracteres=38))
 
     # ═══════════════════════════════════════════════════════════════
-    # FILA 3 — TELÉFONO DE CONTACTO (izq)  |  CANAL DIGITAL (der)
+    # FILA 3 — TELÉFONO DE CONTACTO (izq)  |  CORREO ELECTRÓNICO (der)
     # ═══════════════════════════════════════════════════════════════
-
     pdf.set_xy(COL_IZQ_X, y_row3)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
     pdf.cell(ANCHO_COL, H_LABEL, "TELÉFONO DE CONTACTO", ln=1)
@@ -383,12 +388,29 @@ def generar_pdf_base(datos_master: dict) -> bytes:
 
     pdf.set_xy(COL_DER_X, y_row3)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, "CANAL DIGITAL / SITIO WEB", ln=1)
+    pdf.cell(ANCHO_COL, H_LABEL, "CORREO ELECTRÓNICO DE CONTACTO", ln=1)
     pdf.set_xy(COL_DER_X, y_row3 + H_LABEL)
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_correo, max_caracteres=38))
+
+    # ═══════════════════════════════════════════════════════════════
+    # FILA 4 — CANAL DIGITAL (izq)  |  RADICADO / EXPEDIENTE (der)
+    # ═══════════════════════════════════════════════════════════════
+    pdf.set_xy(COL_IZQ_X, y_row4)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(ANCHO_COL, H_LABEL, "CANAL DIGITAL / SITIO WEB", ln=1)
+    pdf.set_xy(COL_IZQ_X, y_row4 + H_LABEL)
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
     pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_web, max_caracteres=38))
 
-    # ── Restaurar cursor al final del bento para no solapar la siguiente sección ──
+    pdf.set_xy(COL_DER_X, y_row4)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(ANCHO_COL, H_LABEL, "IDENTIFICADOR ÚNICO DE EXPEDIENTE", ln=1)
+    pdf.set_xy(COL_DER_X, y_row4 + H_LABEL)
+    pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*COLOR_PRIMARY)
+    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_radicado, max_caracteres=38))
+
+    # Restaurar cursor al final del bento
     pdf.set_y(start_y + altura_bento_dinamica)
     pdf.ln(6)
 
