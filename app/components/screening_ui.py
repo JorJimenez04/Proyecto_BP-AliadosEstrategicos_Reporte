@@ -157,13 +157,13 @@ def render_screening_workspace(user: dict):
         col_m1_left, col_m1_right = st.columns([1.1, 0.9])
         
         with col_m1_left:
-            st.text_input("Razón Social de la Empresa *", placeholder="Ej: JMNZ S.A.S.", key="v6_empresa_master")
-            st.text_input("NIT Comercial (Con Dígito de Verificación) *", placeholder="Ej: 902049753-0", key="v6_nit_master")
-            st.text_input("Código de Radicado Único Interno *", placeholder="Ej: EXP-JMNZ-2026", key="v6_radicado_caso")
-            st.text_input("Dirección Fiscal / Domicilio", placeholder="Ej: Av. Circunvalar No. 12-45", key="v6_direccion")
-            st.text_input("Teléfono de Contacto Operativo", placeholder="Ej: +57 312 456 7890", key="v6_telefono")
-            st.text_input("Jurisdicción de Riesgo / Ciudad *", placeholder="Ej: Pereira, Risaralda", key="v6_jurisdiccion")
-            st.text_input("Canal Digital / Sitio Web", placeholder="Ej: www.jmnz.co", key="v6_sitio_web")
+            st.text_input("Razón Social de la Empresa *", placeholder="Ej: CompanyName S.A.S.", key="v6_empresa_master")
+            st.text_input("NIT Comercial (Con Dígito de Verificación) *", placeholder="Ej: 900.000.000-1", key="v6_nit_master")
+            st.text_input("Código de Radicado Único Interno *", placeholder="Ej: EXP-COMPANYNAME-2026", key="v6_radicado_caso")
+            st.text_input("Dirección Fiscal / Domicilio", placeholder="Dirección de la Empresa", key="v6_direccion")
+            st.text_input("Teléfono de Contacto Operativo", placeholder="Telefono de contacto", key="v6_telefono")
+            st.text_input("Jurisdicción de Riesgo / Ciudad *", placeholder="País y Ciudad de Registro empresarial", key="v6_jurisdiccion")
+            st.text_input("Canal Digital / Sitio Web", placeholder="Ej: www.companyname.co", key="v6_sitio_web")
         
         with col_m1_right:
             st.markdown("<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-bottom:5px;'>📄 Reporte Infolaft (Sociedad)</p>", unsafe_allow_html=True)

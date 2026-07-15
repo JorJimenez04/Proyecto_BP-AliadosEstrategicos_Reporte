@@ -27,24 +27,26 @@ class ComplianceMaestroPDF(FPDF):
     def header(self):
         current_x = self.get_x()
 
-        # Logo Izquierdo (Adamo / Paycop)
+        # 📐 ALINEACIÓN SIMÉTRICA OPTIMIZADA CON LOGOS MÁS GRANDES (Y_mid = 16.5mm)
+        
+        # Logo Izquierdo (Adamo / Paycop) -> h=13mm, y=10mm (Midpoint = 16.5mm)
         if self.logo_adamo and os.path.exists(self.logo_adamo):
-            self.image(self.logo_adamo, x=15, y=6, h=15)
+            self.image(self.logo_adamo, x=15, y=10, h=13)
             
-        # Logo Derecho (Holdings BPO / HBPO)
+        # Logo Derecho (Holdings BPO / HBPO) -> h=12mm, y=10.5mm (Midpoint = 16.5mm)
         if self.logo_holdings and os.path.exists(self.logo_holdings):
-            self.image(self.logo_holdings, x=167, y=10.5, h=12)
+            self.image(self.logo_holdings, x=163, y=10.5, h=12)
 
-        # Canal central de texto protegido
-        self.set_xy(45, 12)
+        # Canal central de texto protegido (Y_mid = 16.5mm)
+        self.set_xy(45, 11.5)
         self.set_font("Helvetica", "B", 9.0)
         self.set_text_color(*COLOR_PRIMARY)
-        self.cell(120, 4.5, "INFORME DE EVALUACIÓN DE RIESGO Y COMPLIANCE CORPORATIVO", align="C")
+        self.cell(115, 4.5, "INFORME DE EVALUACIÓN DE RIESGO Y COMPLIANCE CORPORATIVO", align="C")
 
-        self.set_xy(45, 17)
-        self.set_font("Helvetica", "", 7.0)
+        self.set_xy(45, 16.5)
+        self.set_font("Helvetica", "", 6.5)
         self.set_text_color(*COLOR_TEXT_MUTED)
-        self.cell(120, 4, "SISTEMA DE DEBIDA DILIGENCIA PREVENTIVA - HBPO | ADAMO | PAYCOP", align="C")
+        self.cell(115, 4, "VERIFICACIÓN DE ANTECEDENTES, LISTAS DE CONTROL Y VALIDACIÓN DE SEGURIDAD OPERATIVA", align="C")
 
         # Línea divisoria principal
         self.set_draw_color(*COLOR_PRIMARY)
@@ -59,7 +61,7 @@ class ComplianceMaestroPDF(FPDF):
         self.set_text_color(*COLOR_TEXT_MUTED)
         self.set_draw_color(*COLOR_LINE_TENUE)
         self.line(15, self.get_y() - 2, 195, self.get_y() - 2)
-        self.cell(0, 8, f"Certificación de Cumplimiento - Confidencial Interno/Externo - Página {self.page_no()}/{{nb}}", 0, 0, "C")
+        self.cell(0, 8, f"Certificación de Cumplimiento - Confidencial - Página {self.page_no()}/{{nb}}", 0, 0, "C")
 
 
 def parsear_texto_infolaft(texto: str) -> dict:
@@ -164,7 +166,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.ln(2)
 
     def render_infolaft_snippet(entidad_rol):
-        """Inyecta los resultados estructurados de Infolaft con simetría perfecta."""
+        """Row-by-Row Grid: labels 6.5pt bold muted + values 8.5pt, col izq/der sincronizadas."""
         lista = datos_master.get('entidades_processed', datos_master.get('entidades_procesadas', []))
         ent = None
         for item in lista:
@@ -180,35 +182,65 @@ def generar_pdf_base(datos_master: dict) -> bytes:
                     "intensificada": "NO"
                 }
                 break
-        
         if not ent:
             return
 
         pdf.ln(1.5)
-        start_y = pdf.get_y()
-        
-        es_limpio = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
-        est_texto = "SIN COINCIDENCIAS / CONCORDANTE" if es_limpio else "REQUIERE AUDITORÍA INTERNA LAFT"
-        est_color = (22, 163, 74) if es_limpio else (220, 38, 38)
-        
-        # Micro-tarjeta interna blanca perfectamente simétrica
+        s_y = pdf.get_y()
+
+        es_limpio  = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
+        est_texto  = "SIN COINCIDENCIAS" if es_limpio else "REQUIERE AUDITORÍA INTERNA LAFT"
+        est_color  = (22, 163, 74) if es_limpio else (220, 38, 38)
+
+        # ── Constantes de la mini-grilla ──
+        SNIP_IZQ = 23
+        SNIP_DER = 109
+        SNIP_W   = 78
+        H_LBL    = 2.5
+        H_VAL    = 4.2
+        H_DET    = 3.2
+        PAD_TOP  = 2.0
+        PAD_BOT  = 1.5
+        H_SNIP   = PAD_TOP + H_LBL + H_VAL + 1.5 + H_DET + PAD_BOT
+
+        # Bento blanco
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*COLOR_LINE_TENUE)
         pdf.set_line_width(0.15)
-        pdf.rect(19, start_y, 172, 7.5, style="FD")
-        
-        pdf.set_y(start_y + 1.8)
-        pdf.set_x(22)
-        
-        pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(30, 4, "VERIFICACIÓN LAFT:")
-        
-        pdf.set_font("Helvetica", "", 7.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-        pdf.cell(60, 4, f"No. Registro: {ent.get('radicado', 'N/A')}  |  Coincidencias: {ent.get('resultados', '0')}")
-        
-        pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*est_color)
-        pdf.cell(76, 4, f"Estatus: {est_texto}", ln=1, align="R")
-        pdf.set_y(start_y + 7.5)
+        pdf.rect(19, s_y, 172, H_SNIP, style="FD")
+
+        y_lbl = s_y + PAD_TOP
+        y_val = y_lbl + H_LBL
+        y_div = y_val + H_VAL + 0.75
+        y_det = y_val + H_VAL + 1.5
+
+        # Divisor sutil entre fila principal y fila detalle
+        pdf.set_draw_color(*COLOR_LINE_TENUE)
+        pdf.set_line_width(0.15)
+        pdf.line(SNIP_IZQ, y_div, 187, y_div)
+
+        # Izq: ROL EVALUADO
+        pdf.set_xy(SNIP_IZQ, y_lbl)
+        pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+        pdf.cell(SNIP_W, H_LBL, "ROL EVALUADO")
+        pdf.set_xy(SNIP_IZQ, y_val)
+        pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+        pdf.cell(SNIP_W, H_VAL, _limitar_texto(entidad_rol, max_caracteres=34))
+
+        # Der: ESTATUS LAFT
+        pdf.set_xy(SNIP_DER, y_lbl)
+        pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+        pdf.cell(SNIP_W, H_LBL, "ESTATUS LAFT")
+        pdf.set_xy(SNIP_DER, y_val)
+        pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*est_color)
+        pdf.cell(SNIP_W, H_VAL, _limitar_texto(est_texto, max_caracteres=34))
+
+        # Fila detalle (ancho completo): datos de registro
+        pdf.set_xy(SNIP_IZQ, y_det)
+        pdf.set_font("Helvetica", "", 7.0); pdf.set_text_color(*COLOR_TEXT_MUTED)
+        pdf.cell(0, H_DET, f"No. Registro: {ent.get('radicado', 'N/A')}   |   Coincidencias: {ent.get('resultados', '0')}   |   Riesgo GAFI: {ent.get('intensificada', 'NO')}")
+
+        pdf.set_y(s_y + H_SNIP)
 
 
     # ─── 2. SANITIZACIÓN ESTRUCTURAL DE DATOS ───
@@ -343,61 +375,155 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     
     render_infolaft_snippet("Empresa Principal")
     render_infolaft_snippet("Representante Legal")
-    render_infolaft_snippet("Accionista Mayoritario")
+    render_infolaft_snippet("Accionista / Beneficiario Final")
     pdf.ln(6)
 
 
     # 🗂️ ─── SECCIÓN 3: CONCEPTO TÉCNICO Y DECLARACIÓN DE CUMPLIMIENTO ───
     render_subseccion_moderna("3. Concepto Técnico de Cumplimiento")
-    
-    start_y = pdf.get_y()
-    
-    # Cálculo dinámico del Bento
-    lineas_dictamen = pdf.get_string_width(s_dictamen) / 172.0
-    altura_texto = max(1, int(lineas_dictamen) + 1) * 4.2
-    altura_bento_dinamica = 14 + altura_texto
 
+    start_y = pdf.get_y()
+
+    es_aprobado    = "APROBADO" in s_estado
+    estado_str     = "APROBADO  SIN COINCIDENCIAS" if es_aprobado else "REVISIÓN ADICIONAL REQUERIDA"
+    categoria_str  = "RIESGO BAJO" if es_aprobado else "RIESGO INTENSIFICADO"
+    
+    # Colores semánticos
+    if es_aprobado:
+        badge_bg = (240, 253, 244)      # Emerald 50
+        badge_border = (187, 247, 208)  # Emerald 200
+        badge_text = (21, 128, 61)      # Emerald 700
+    else:
+        badge_bg = (254, 243, 199)      # Amber 50
+        badge_border = (253, 230, 138)  # Amber 200
+        badge_text = (180, 83, 9)       # Amber 700
+
+    # Coordenadas y dimensiones de la grilla
+    S3_IZQ   = 19
+    S3_DER   = 109
+    S3_W     = 82
+    S3_H_LBL = 3.0      # Altura de las etiquetas grises
+    S3_H_BDG = 6.0      # Altura del Badge (Incrementado para dar aire interno)
+    S3_GAP   = 5.5      # Espacio de separación entre fila 1 y fila 2 (Incrementado)
+    S3_PAD_T = 4.5      # Padding superior del Bento
+    S3_PAD_B = 4.5      # Padding inferior del Bento
+
+    # Pre-cálculo dinámico de líneas del dictamen (Sustento Técnico)
+    pdf.set_font("Helvetica", "I", 8)
+    saltos_dict  = s_dictamen.count('\n')
+    lineas_dict  = max(1, int(pdf.get_string_width(s_dictamen.replace('\n', ' ')) / 168) + 1) + saltos_dict
+    h_dictamen   = lineas_dict * 4.2
+
+    # Distribución determinista de ejes Y para evitar colisiones
+    y_r1_lbl = start_y + S3_PAD_T
+    y_r1_bdg = y_r1_lbl + S3_H_LBL + 1.2
+    
+    # El divisor se ubica exactamente en la mitad del GAP de respiración
+    y_divisor = y_r1_bdg + S3_H_BDG + (S3_GAP / 2.0)
+    
+    y_r2_lbl = y_divisor + (S3_GAP / 2.0)
+    y_r2_val = y_r2_lbl + S3_H_LBL + 1.2
+
+    # Altura total dinámica del Bento
+    altura_bento_s3 = (y_r2_val + h_dictamen + S3_PAD_B) - start_y
+
+    # Dibujo del contenedor Bento principal
     pdf.set_fill_color(*COLOR_BG_GRID)
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.2)
-    pdf.rect(15, start_y, 180, altura_bento_dinamica, style="FD")
-    
-    pdf.set_y(start_y + 3)
-    pdf.set_x(19)
-    pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(42, 5, "Resultado de Screening & Adverse Media: ")
+    pdf.rect(15, start_y, 180, altura_bento_s3, style="FD")
 
-    es_aprobado = "APROBADO" in s_estado
-    estado_texto_formal = "Perfil de riesgo bajo || Sin alertas de cumplimiento" if es_aprobado else "Requiere Control Adicional De Cumplimiento"
-    dictamen_color = (22, 163, 74) if es_aprobado else (217, 119, 6)
-    
-    pdf.set_text_color(*dictamen_color)
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.cell(0, 5, estado_texto_formal, ln=1)
+    # Dibujo del divisor sutil horizontal
+    pdf.set_draw_color(*COLOR_LINE_TENUE)
+    pdf.set_line_width(0.15)
+    pdf.line(S3_IZQ, y_divisor, 191, y_divisor)
 
-    pdf.ln(1)
+    # ═══════════════════════════════════════════════════════════════
+    # FILA 1 — Resultado (izq) | Categoría (der) con Status Badges
+    # ═══════════════════════════════════════════════════════════════
     
-    pdf.set_x(19)
-    pdf.set_font("Helvetica", "B", 8); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(0, 4.5, "Sustento del Oficial de Cumplimiento:", ln=1)
+    # ── Columna Izquierda: Resultado LAFT ──
+    pdf.set_xy(S3_IZQ, y_r1_lbl)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(S3_W, S3_H_LBL, "RESULTADO FORMAL DE EVALUACIÓN LAFT")
     
-    pdf.set_x(19)
-    pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.set_font("Helvetica", "I", 8)
+    # Placa física Badge Izquierdo
+    pdf.set_fill_color(*badge_bg)
+    pdf.set_draw_color(*badge_border)
+    pdf.rect(S3_IZQ, y_r1_bdg, 74, S3_H_BDG, style="FD")
+    
+    # Texto centrado verticalmente dentro del Badge
+    pdf.set_xy(S3_IZQ + 3, y_r1_bdg + 1.0)
+    pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*badge_text)
+    pdf.cell(68, 4.2, estado_str)
+
+    # ── Columna Derecha: Categoría de Riesgo ──
+    pdf.set_xy(S3_DER, y_r1_lbl)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(S3_W, S3_H_LBL, "CATEGORÍA DE RIESGO FINAL")
+    
+    # Placa física Badge Derecho
+    pdf.set_fill_color(*badge_bg)
+    pdf.set_draw_color(*badge_border)
+    pdf.rect(S3_DER, y_r1_bdg, 74, S3_H_BDG, style="FD")
+    
+    # Texto centrado verticalmente dentro del Badge
+    pdf.set_xy(S3_DER + 3, y_r1_bdg + 1.0)
+    pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*badge_text)
+    pdf.cell(68, 4.2, categoria_str)
+
+    # ═══════════════════════════════════════════════════════════════
+    # FILA 2 — Sustento Técnico (Ancho Completo)
+    # ═══════════════════════════════════════════════════════════════
+    
+    pdf.set_xy(S3_IZQ, y_r2_lbl)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(172, S3_H_LBL, "SUSTENTO TÉCNICO DEL OFICIAL DE CUMPLIMIENTO", ln=1)
+    
+    pdf.set_xy(S3_IZQ, y_r2_val)
+    pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(*COLOR_TEXT_BODY)
     pdf.multi_cell(172, 4.2, s_dictamen)
-    
-    pdf.set_y(start_y + altura_bento_dinamica)
+
+    # Restaurar cursor de salida
+    pdf.set_y(start_y + altura_bento_s3)
     pdf.ln(6)
 
 
     # 🗂️ ─── SECCIÓN 4: ANÁLISIS DE FUENTES ABIERTAS COMPLEMENTARIO ───
-    render_subseccion_moderna("4. Análisis Complementario de Contexto (Registro Público / RUES / Prensa)")
+    # Acortamos el título principal para evitar el desborde en el extremo derecho
+    render_subseccion_moderna("4. Análisis de Contexto y Registro Público")
 
+    start_y = pdf.get_y()
+
+    contenido_rues = s_rues.strip() if s_rues.strip() else \
+        "El análisis de screening y medios adversos concluyó sin hallazgos de referencias de prensa negativa, sanciones administrativas o anomalías mercantiles en las fuentes públicas consultadas."
+
+    # Pre-cálculo dinámico de altura (Ancho seguro de columna: 172mm)
     pdf.set_font("Helvetica", "", 8.5)
-    pdf.set_text_color(*COLOR_TEXT_BODY)
-    contenido_rues = s_rues.strip()
-    pdf.multi_cell(0, 4.2, contenido_rues if contenido_rues else
-        "El análisis de screening y medios adversos concluyó sin hallazgos de referencias de prensa negativa, sanciones administrativas o anomalías mercantiles en las fuentes públicas consultadas.")
+    saltos_rues  = contenido_rues.count('\n')
+    lineas_rues  = max(1, int(pdf.get_string_width(contenido_rues.replace('\n', ' ')) / 172) + 1) + saltos_rues
+    h_rues       = lineas_rues * 4.2
+    
+    # Altura del Bento con márgenes internos holgados
+    altura_bento_rues = 4.5 + 3.0 + 1.5 + h_rues + 4.5
+
+    # Dibujo del contenedor Bento principal (Margen simétrico exacto de 15 a 195)
+    pdf.set_fill_color(*COLOR_BG_GRID)
+    pdf.set_draw_color(*COLOR_LINE_TENUE)
+    pdf.set_line_width(0.2)
+    pdf.rect(15, start_y, 180, altura_bento_rues, style="FD")
+
+    # Posicionamiento con márgenes de seguridad alineados a X = 19
+    pdf.set_xy(19, start_y + 4.5)
+    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(172, 3.0, "ANÁLISIS DE ADVERSE MEDIA Y VALIDACIÓN EN REGISTRO MERCANTIL", ln=1)
+    
+    # Espaciado y renderizado del cuerpo de texto
+    pdf.set_xy(19, start_y + 4.5 + 3.0 + 1.5)
+    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.multi_cell(172, 4.2, contenido_rues)
+
+    pdf.set_y(start_y + altura_bento_rues)
 
     # Sello de seguridad y autenticidad del sistema
     pdf.ln(8)
@@ -406,23 +532,8 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.cell(0, 3.5, f"Estampa de Tiempo de Evaluación: {s_fecha} COT", ln=1)
     pdf.cell(0, 3.5, f"Código de Verificación del Reporte: HBPO-COMPLIANCE-{s_nit.replace('-', '')}-{s_radicado.upper()}", ln=1)
 
-    return pdf.output()
-
-
-def compilar_expediente_completo(bytes_base: bytes, infolaft_bytes_list: list) -> bytes:
-    """Fusiona el expediente de salida con las evidencias PDF de Infolaft."""
-    writer = pypdf.PdfWriter()
-    reader_base = pypdf.PdfReader(io.BytesIO(bytes_base))
-    for page in reader_base.pages:
-        writer.add_page(page)
-    for b in infolaft_bytes_list:
-        if not b: continue
-        try:
-            reader_evi = pypdf.PdfReader(io.BytesIO(b))
-            for page in reader_evi.pages:
-                writer.add_page(page)
-        except Exception:
-            continue
-    out = io.BytesIO()
-    writer.write(out)
-    return out.getvalue()
+    # 🛡️ RETORNO SEGURO MULTI-VERSIÓN (Detecta dinámicamente si es bytes, bytearray o str)
+    out = pdf.output()
+    if isinstance(out, (bytes, bytearray)):
+        return bytes(out)
+    return str(out).encode('latin-1')
