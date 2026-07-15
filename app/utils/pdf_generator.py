@@ -167,7 +167,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.ln(2)
 
     def render_infolaft_snippet(entidad_rol):
-        """Genera tarjetas de vinculado estilo Bento con alineación síncrona y badges cromáticos."""
+        """Genera tarjetas de vinculado estilo Bento con soporte multilínea dinámico y cero pérdida de información."""
         lista = datos_master.get('entidades_processed', datos_master.get('entidades_procesadas', []))
         ent = None
         for item in lista:
@@ -196,7 +196,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
             badge_bg = (240, 253, 244)      # Emerald 50 (Verde sutil)
             badge_border = (187, 247, 208)  # Emerald 200
             badge_text = (21, 128, 61)      # Emerald 700
-            est_texto = "CONCORDANTE  SIN COINCIDENCIAS"
+            est_texto = "SIN COINCIDENCIAS" # Sincronizado exactamente con tu última UI
         else:
             badge_bg = (254, 242, 242)      # Red 50 (Rojo sutil)
             badge_border = (254, 202, 202)  # Red 200
@@ -206,44 +206,58 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         # ── Parámetros de alineación síncrona ──
         SNIP_IZQ = 23
         SNIP_DER = 109
-        SNIP_W   = 74
+        SNIP_W   = 82   # Ancho de columna seguro
         H_LBL    = 3.0
-        H_VAL    = 4.5
         H_DET    = 3.5
         PAD_TOP  = 3.5
         PAD_BOT  = 3.0
-        H_SNIP   = PAD_TOP + H_LBL + 1.2 + 6.0 + 3.0 + H_DET + PAD_BOT  # Altura total robusta (24.2mm)
 
-        # 1. Dibujar el contenedor Bento blanco de fondo
+        # Texto completo sin límites de caracteres (100% visible)
+        texto_completo = f"{entidad_rol.upper()}: {ent.get('nombre', 'N/D')}"
+
+        # 📊 Cálculo dinámico de líneas requeridas por el nombre
+        pdf.set_font("Helvetica", "B", 8.5)
+        ancho_texto_medido = pdf.get_string_width(texto_completo)
+        lineas_nombre = max(1, int(ancho_texto_medido / SNIP_W) + 1)
+        h_nombre = lineas_nombre * 3.8
+
+        # La altura de la fila de contenido se adapta si el texto supera la altura del badge (6.0)
+        h_row_contenido = max(h_nombre, 6.0)
+
+        # Ejes Y calculados dinámicamente de forma secuencial
+        y_lbl = s_y + PAD_TOP
+        y_val_bdg = y_lbl + H_LBL + 1.2
+        y_div = y_val_bdg + h_row_contenido + 2.0  # Espacio de amortiguación antes del divisor
+        y_det = y_div + 1.5
+        
+        # Altura total dinámica del Bento
+        H_SNIP = (y_det + H_DET + PAD_BOT) - s_y
+
+        # 1. Dibujar el contenedor Bento blanco de fondo (con su altura adaptada)
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*COLOR_LINE_TENUE)
         pdf.set_line_width(0.2)
         pdf.rect(19, s_y, 172, H_SNIP, style="FD")
-
-        # Ejes Y calculados determinísticamente para evitar colisiones
-        y_lbl = s_y + PAD_TOP
-        y_val_bdg = y_lbl + H_LBL + 1.2
-        y_div = y_val_bdg + 6.0 + 1.5
-        y_det = y_div + 1.5
 
         # 2. Divisor horizontal interno
         pdf.set_draw_color(*COLOR_LINE_TENUE)
         pdf.set_line_width(0.15)
         pdf.line(SNIP_IZQ, y_div, 187, y_div)
 
-        # ── Columna Izquierda: Rol Evaluado y Nombre ──
+        # ── Columna Izquierda: Rol Evaluado y Nombre (Multi-línea Inteligente) ──
         pdf.set_xy(SNIP_IZQ, y_lbl)
         pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
         pdf.cell(SNIP_W, H_LBL, "VINCULADO / ROL EVALUADO")
         
-        pdf.set_xy(SNIP_IZQ, y_val_bdg + 1.0)  # Sutil desfase para alinear con el badge derecho
+        pdf.set_xy(SNIP_IZQ, y_val_bdg)
         pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-        pdf.cell(SNIP_W, H_VAL, _limitar_texto(f"{entidad_rol.upper()}: {ent.get('nombre', 'N/D')}", max_caracteres=36))
+        # multi_cell se encarga de crear el salto de línea elegante si el nombre es kilométrico
+        pdf.multi_cell(SNIP_W, 3.8, _s(texto_completo))
 
         # ── Columna Derecha: Placa de Estatus LAFT ──
         pdf.set_xy(SNIP_DER, y_lbl)
         pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(SNIP_W, H_LBL, "ESTATUS DE EVALUACIÓN LAFT")
+        pdf.cell(74, H_LBL, "ESTATUS DE EVALUACIÓN LAFT")
         
         # Placa física del Badge de Estatus (Derecha)
         pdf.set_fill_color(*badge_bg)
@@ -251,7 +265,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.set_line_width(0.15)
         pdf.rect(SNIP_DER, y_val_bdg, 74, 6.0, style="FD")
         
-        # Texto dentro del Badge
+        # Texto centrado dentro del Badge
         pdf.set_xy(SNIP_DER + 3, y_val_bdg + 1.0)
         pdf.set_font("Helvetica", "B", 7.0); pdf.set_text_color(*badge_text)
         pdf.cell(68, 4.2, est_texto)
@@ -261,7 +275,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.set_font("Helvetica", "", 7.0); pdf.set_text_color(*COLOR_TEXT_MUTED)
         
         detalle_str = f"No. Registro Consulta: {ent.get('radicado', 'N/A')}   |   Coincidencias Halladas: {ent.get('resultados', '0')}   |   Monitoreo Intensificado (GAFI): {ent.get('intensificada', 'NO')}"
-        pdf.cell(164, H_DET, detalle_str)
+        pdf.cell(164, H_DET, _s(detalle_str))
 
         # Posicionar cursor para la siguiente tarjeta
         pdf.set_y(s_y + H_SNIP)
