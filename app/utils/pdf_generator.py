@@ -167,7 +167,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.ln(2)
 
     def render_infolaft_snippet(entidad_rol):
-        """Row-by-Row Grid: labels 6.5pt bold muted + values 8.5pt, col izq/der sincronizadas."""
+        """Genera tarjetas de vinculado estilo Bento con alineación síncrona y badges cromáticos."""
         lista = datos_master.get('entidades_processed', datos_master.get('entidades_procesadas', []))
         ent = None
         for item in lista:
@@ -186,63 +186,85 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         if not ent:
             return
 
-        pdf.ln(1.5)
+        pdf.ln(2.0)  # Separación constante entre tarjetas
         s_y = pdf.get_y()
 
-        es_limpio  = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
-        est_texto  = "SIN COINCIDENCIAS / CONCORDANTE" if es_limpio else "REQUIERE AUDITORÍA INTERNA LAFT"
-        est_color  = (22, 163, 74) if es_limpio else (220, 38, 38)
+        # Determinar estatus y paleta de colores semánticos
+        es_limpio = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
+        
+        if es_limpio:
+            badge_bg = (240, 253, 244)      # Emerald 50 (Verde sutil)
+            badge_border = (187, 247, 208)  # Emerald 200
+            badge_text = (21, 128, 61)      # Emerald 700
+            est_texto = "CONCORDANTE  SIN COINCIDENCIAS"
+        else:
+            badge_bg = (254, 242, 242)      # Red 50 (Rojo sutil)
+            badge_border = (254, 202, 202)  # Red 200
+            badge_text = (185, 28, 28)      # Red 700
+            est_texto = "REQUIERE AUDITORÍA INTERNA LAFT"
 
-        # ── Constantes de la mini-grilla ──
+        # ── Parámetros de alineación síncrona ──
         SNIP_IZQ = 23
         SNIP_DER = 109
-        SNIP_W   = 78
-        H_LBL    = 2.5
-        H_VAL    = 4.2
-        H_DET    = 3.2
-        PAD_TOP  = 2.0
-        PAD_BOT  = 1.5
-        H_SNIP   = PAD_TOP + H_LBL + H_VAL + 1.5 + H_DET + PAD_BOT
+        SNIP_W   = 74
+        H_LBL    = 3.0
+        H_VAL    = 4.5
+        H_DET    = 3.5
+        PAD_TOP  = 3.5
+        PAD_BOT  = 3.0
+        H_SNIP   = PAD_TOP + H_LBL + 1.2 + 6.0 + 3.0 + H_DET + PAD_BOT  # Altura total robusta (24.2mm)
 
-        # Bento blanco
+        # 1. Dibujar el contenedor Bento blanco de fondo
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(*COLOR_LINE_TENUE)
-        pdf.set_line_width(0.15)
+        pdf.set_line_width(0.2)
         pdf.rect(19, s_y, 172, H_SNIP, style="FD")
 
+        # Ejes Y calculados determinísticamente para evitar colisiones
         y_lbl = s_y + PAD_TOP
-        y_val = y_lbl + H_LBL
-        y_div = y_val + H_VAL + 0.75
-        y_det = y_val + H_VAL + 1.5
+        y_val_bdg = y_lbl + H_LBL + 1.2
+        y_div = y_val_bdg + 6.0 + 1.5
+        y_det = y_div + 1.5
 
-        # Divisor sutil entre fila principal y fila detalle
+        # 2. Divisor horizontal interno
         pdf.set_draw_color(*COLOR_LINE_TENUE)
         pdf.set_line_width(0.15)
         pdf.line(SNIP_IZQ, y_div, 187, y_div)
 
-        # Izq: ROL EVALUADO
+        # ── Columna Izquierda: Rol Evaluado y Nombre ──
         pdf.set_xy(SNIP_IZQ, y_lbl)
         pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(SNIP_W, H_LBL, "ROL EVALUADO")
-        pdf.set_xy(SNIP_IZQ, y_val)
-        pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-        pdf.cell(SNIP_W, H_VAL, _limitar_texto(entidad_rol, max_caracteres=34))
+        pdf.cell(SNIP_W, H_LBL, "VINCULADO / ROL EVALUADO")
+        
+        pdf.set_xy(SNIP_IZQ, y_val_bdg + 1.0)  # Sutil desfase para alinear con el badge derecho
+        pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+        pdf.cell(SNIP_W, H_VAL, _limitar_texto(f"{entidad_rol.upper()}: {ent.get('nombre', 'N/D')}", max_caracteres=36))
 
-        # Der: ESTATUS LAFT
+        # ── Columna Derecha: Placa de Estatus LAFT ──
         pdf.set_xy(SNIP_DER, y_lbl)
         pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(SNIP_W, H_LBL, "ESTATUS LAFT")
-        pdf.set_xy(SNIP_DER, y_val)
-        pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*est_color)
-        pdf.cell(SNIP_W, H_VAL, _limitar_texto(est_texto, max_caracteres=34))
+        pdf.cell(SNIP_W, H_LBL, "ESTATUS DE EVALUACIÓN LAFT")
+        
+        # Placa física del Badge de Estatus (Derecha)
+        pdf.set_fill_color(*badge_bg)
+        pdf.set_draw_color(*badge_border)
+        pdf.set_line_width(0.15)
+        pdf.rect(SNIP_DER, y_val_bdg, 74, 6.0, style="FD")
+        
+        # Texto dentro del Badge
+        pdf.set_xy(SNIP_DER + 3, y_val_bdg + 1.0)
+        pdf.set_font("Helvetica", "B", 7.0); pdf.set_text_color(*badge_text)
+        pdf.cell(68, 4.2, est_texto)
 
-        # Fila detalle (ancho completo): datos de registro
+        # ── Fila de Detalle Técnica (Abajo del divisor) ──
         pdf.set_xy(SNIP_IZQ, y_det)
         pdf.set_font("Helvetica", "", 7.0); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(0, H_DET, f"No. Registro: {ent.get('radicado', 'N/A')}   |   Coincidencias: {ent.get('resultados', '0')}   |   Riesgo GAFI: {ent.get('intensificada', 'NO')}")
+        
+        detalle_str = f"No. Registro Consulta: {ent.get('radicado', 'N/A')}   |   Coincidencias Halladas: {ent.get('resultados', '0')}   |   Monitoreo Intensificado (GAFI): {ent.get('intensificada', 'NO')}"
+        pdf.cell(164, H_DET, detalle_str)
 
+        # Posicionar cursor para la siguiente tarjeta
         pdf.set_y(s_y + H_SNIP)
-
 
     # ─── 2. SANITIZACIÓN ESTRUCTURAL DE DATOS ───
     s_empresa   = _s(datos_master['empresa_principal'])
@@ -386,7 +408,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     start_y = pdf.get_y()
 
     es_aprobado    = "APROBADO" in s_estado
-    estado_str     = "APROBADO  SIN COINCIDENCIAS" if es_aprobado else "REVISIÓN ADICIONAL REQUERIDA"
+    estado_str     = "APROBADO || SIN COINCIDENCIAS" if es_aprobado else "REVISIÓN ADICIONAL REQUERIDA"
     categoria_str  = "RIESGO BAJO" if es_aprobado else "RIESGO INTENSIFICADO"
     
     # Colores semánticos
