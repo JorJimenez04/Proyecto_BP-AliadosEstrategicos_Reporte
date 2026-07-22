@@ -64,8 +64,8 @@ class ComplianceMaestroPDF(FPDF):
 
 def parsear_texto_infolaft(texto: str) -> dict:
     """
-    Analiza el texto plano extraído del PDF de Infolaft y extrae la información 
-    estructurada del vinculado aplicando un algoritmo de aislamiento por marcas de corte.
+    Analiza el texto plano del PDF de Infolaft y extrae la información de manera universal
+    mediante filtrado de palabras clave del sistema y patrones de expresiones regulares.
     """
     res = {
         "nombre": "No detectado",
@@ -78,76 +78,62 @@ def parsear_texto_infolaft(texto: str) -> dict:
     
     texto_plano = " ".join(texto.split())
 
-    # 1. Extracción de Metadatos (Radicado con soporte de cabeceras pegadas)
-    radicado_match = re.search(r"(?:NÚMERO DE CONSULTA|CONSULTA N[ÚU]MERO|RADICADO)[:\s]*\b(\d{5,12})\b", texto_plano, re.IGNORECASE)
-    if radicado_match: 
-        res["radicado"] = radicado_match.group(1)
-    else:
-        # Fallback para cabeceras pegadas de Infolaft (ej: 2368666298NÚMERO DE CONSULTA)
-        rad_pegado = re.search(r"(\d{5,12})(?:N[ÚU]MERO DE CONSULTA|CONSULTA|P[AÁ]GINA)", texto_plano, re.IGNORECASE)
-        if rad_pegado:
-            num = rad_pegado.group(1)
-            res["radicado"] = num[-9:] if len(num) > 9 else num
-    
-    id_match = re.search(r"(?:DOCUMENTO DE IDENTIDAD|IDENTIFICACI[ÓO]N|NIT|C[ÉE]DULA)[:\s]*([\d\.\s-]+)", texto_plano, re.IGNORECASE)
-    if id_match: 
-        cleaned_id = re.sub(r"[^\d-]", "", id_match.group(1).strip())
-        if cleaned_id:
-            res["identificacion"] = cleaned_id
+    # 1. Extracción del Radicado / Número de Consulta (Busca números de 8 a 10 dígitos)
+    rad_match = re.search(r"NÚMERO DE CONSULTA.*?\b(\d{8,10})\b", texto_plano, re.IGNORECASE)
+    if not rad_match:
+        rad_match = re.search(r"\b(3\d{8}|1\d{8})\b", texto_plano)
+    if rad_match:
+        res["radicado"] = rad_match.group(1)
 
-    fecha_match = re.search(r"(?:FECHA Y HORA DE CONSULTA|FECHA CONSULTA)[:\s]*([\d/]+ [\d:]+(?:\s*(?:AM|PM))?)", texto_plano, re.IGNORECASE)
-    if fecha_match: 
+    # 2. Fecha y Hora de Consulta
+    fecha_match = re.search(r"FECHA Y HORA DE CONSULTA[:\s]*([\d/]+ [\d:]+)", texto_plano, re.IGNORECASE)
+    if fecha_match:
         res["fecha_consulta"] = fecha_match.group(1).strip()
 
-    resultados_match = re.search(r"(?:RESUMEN DE RESULTADOS|COINCIDENCIAS|RESULTADOS)[:\s]*(\d+)", texto_plano, re.IGNORECASE)
-    if resultados_match: 
-        res["resultados"] = resultados_match.group(1)
+    # 3. Resumen de Resultados (Coincidencias en listas)
+    res_match = re.search(r"RESUMEN DE RESULTADOS[:\s]*(\d+)", texto_plano, re.IGNORECASE)
+    if res_match:
+        res["resultados"] = res_match.group(1)
 
-    gafi_match = re.search(r"(?:RIESGO GAFI|MONITOREO INTENSIFICADO)\??[:\s]*(SI|NO)", texto_plano, re.IGNORECASE)
-    if gafi_match: 
+    # 4. Monitoreo Intensificado / GAFI / PEP
+    gafi_match = re.search(r"GAFI\??[:\s]*(SI|NO)", texto_plano, re.IGNORECASE)
+    if gafi_match:
         res["intensificada"] = gafi_match.group(1).upper()
 
-    # 2. Extracción de Nombre con Regex de Alta Especificidad (Resuelve el "No detectado")
-    nombre_candidato = ""
-    match_su_consulta = re.search(r"SU CONSULTA FUE[:\s]+([^\n\?]+)", texto, re.IGNORECASE)
-    if match_su_consulta:
-        nombre_candidato = match_su_consulta.group(1).strip()
+    # 5. Identificación / Tax ID / NIT / Cédula (ej: 35-2938958 o formato estándar)
+    id_match = re.search(r"\b(\d{2,3}-\d{6,8}|\d{7,10}-\d)\b", texto)
+    if id_match:
+        res["identificacion"] = id_match.group(1).strip()
     else:
-        # Fallback de seguridad basado en bloques físicos si no existe la frase de Infolaft tradicional
-        lines = [line.strip() for line in texto.split("\n") if line.strip()]
-        for i, line in enumerate(lines):
-            if "DATOS CONSULTADOS" in line.upper():
-                for j in range(1, 4):
-                    if i + j < len(lines):
-                        candidate = lines[i+j].strip()
-                        if candidate and not any(p in candidate.upper() for p in ["DOCUMENTO", "IDENTIDAD", "NIT", "CÉDULA", "FECHA", "NÚMERO"]):
-                            nombre_candidato = candidate
-                            break
-                break
+        id_gen = re.search(r"DOCUMENTO DE IDENTIDAD.*?\b([\d\.-]{6,15})\b", texto_plano, re.IGNORECASE)
+        if id_gen and id_gen.group(1) != res["radicado"]:
+            res["identificacion"] = id_gen.group(1).strip()
 
-    # 3. Aislamiento final por Marcas de Corte
-    if nombre_candidato:
-        marcas_de_corte = [
-            r"DOCUMENTO\s*DE\s*IDENTIDAD",
-            r"REQUIERE\s*DEBIDA",
-            r"DEBIDA\s*DILIGENCIA",
-            r"POR\s*CONCEPTO\s*PEP",
-            r"RIESGO\s*GAFI",
-            r"JURISDICCI[ÓO]N\s*DE\s*RIESGO",
-            r"FECHA\s*Y\s*HORA",
-            r"N[ÚU]MERO\s*DE\s*CONSULTA",
-            r"RESUMEN\s*DE\s*RESULTADOS"
-        ]
+    # 6. Nombre del Vinculado (Filtrado por Exclusión de Términos del Sistema)
+    lineas = [l.strip() for l in texto.split("\n") if l.strip()]
+    
+    keywords_sistema = [
+        "REPORTE DE BÚSQUEDA", "DATOS CONSULTADOS", "SU CONSULTA FUE",
+        "DOCUMENTO DE IDENTIDAD", "RESUMEN DE RESULTADOS", "LISTAS CONSULTADAS",
+        "LISTA DE COINCIDENCIAS", "NOTA LEGAL", "PÁGINA", "CONSULTADO POR",
+        "FECHA Y HORA", "NÚMERO DE CONSULTA", "NO SE OBTUVIERON RESULTADOS",
+        "PARA LA BÚSQUEDA REALIZADA", "REQUIERE DEBIDA DILIGENCIA", "LISTAS CONSULTADAS"
+    ]
+
+    for line in lineas:
+        line_up = line.upper()
+        # Ignorar si es una etiqueta del sistema
+        if any(kw in line_up for kw in keywords_sistema):
+            continue
+        # Ignorar si es únicamente un número o ID
+        if re.match(r"^[\d\.\s-]+$", line):
+            continue
+        if len(line) < 3:
+            continue
         
-        nombre_limpio = nombre_candidato
-        for marca in marcas_de_corte:
-            nombre_limpio = re.split(marca, nombre_limpio, flags=re.IGNORECASE)[0]
-        
-        nombre_limpio = re.sub(r"[\s,:\-\.\?¿]+$", "", nombre_limpio).strip()
-        nombre_limpio = re.sub(r"^[\s,:\-\.\?¿]+", "", nombre_limpio).strip()
-        
-        if len(nombre_limpio) >= 3:
-            res["nombre"] = nombre_limpio.upper()
+        # La primera línea con texto real que no pertenece al sistema es la Razón Social / Nombre
+        res["nombre"] = line.upper()
+        break
 
     return res
 
