@@ -6,11 +6,11 @@ Vista unificada KYC + contratos + personas + documentos + riesgo SARLAFT.
 
 from __future__ import annotations
 import logging
-from datetime import date, timedelta
+from datetime import date
 from typing import Optional
 import streamlit as st
 
-from config.settings import Roles, Jurisdicciones
+from config.settings import Jurisdicciones
 
 logger = logging.getLogger(__name__)
 
@@ -596,11 +596,9 @@ padding:14px 18px;margin-bottom:8px;'>
 def _tab_contratos(ficha: dict, user: dict) -> None:
     rol      = user.get("rol", "")
     contratos = ficha.get("contratos", [])
-    empresas_con_contrato = {c["empresa_grupo"] for c in contratos}
 
     for empresa in _EMPRESAS_GRUPO:
         contrato = next((c for c in contratos if c["empresa_grupo"] == empresa), None)
-        emp_color = _EMPRESA_COLOR.get(empresa, "#6b7280")
 
         with st.expander(f"**{empresa}**", expanded=bool(contrato)):
             if not contrato:
@@ -672,7 +670,6 @@ def _tab_contratos(ficha: dict, user: dict) -> None:
                         servicios_disponibles = [s for s in _SERVICIOS if s not in servicios_existentes]
 
                         for sv in servicios_todos:
-                            sv_color = _SERVICIOS_COLOR.get(sv["servicio"], "#6b7280")
                             sv_badge = _badge(sv.get("estado",""), _ESTADO_COLOR.get(sv.get("estado",""), "#6b7280"))
                             st.markdown(f"{sv['servicio']} {sv_badge}", unsafe_allow_html=True)
                             if sv.get("estado") == "Activo":

@@ -1376,7 +1376,6 @@ def _panel_rendimiento(user: dict) -> None:
     equipo_filtro: Optional[str] = None if es_admin else "Cumplimiento"
 
     # ── Cargar tabla desde BD ─────────────────────────────
-    import pandas as pd
     from db.database import get_session
     from db.repositories.agente_repo import AgenteRepository
 

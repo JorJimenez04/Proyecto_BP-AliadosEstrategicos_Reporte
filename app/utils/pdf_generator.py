@@ -324,9 +324,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     s_jurisdic  = _s(datos_master['jurisdiccion'])
     s_web       = _s(datos_master['sitio_web'])
     s_rep_nom   = _s(datos_master['rep_legal_nom'])
-    s_rep_id    = _s(datos_master['rep_legal_id'])
     s_acc_nom   = _s(datos_master['accionista_nom'])
-    s_acc_id    = _s(datos_master['accionista_id'])
     s_estado    = _s(datos_master['estado_global'])
     s_dictamen  = _s(datos_master['dictamen_motivo'])
     s_rues      = _s(datos_master['rues_noticias_raw'])
@@ -665,7 +663,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
                 # Cursor Y avanza exactamente lo que mide la imagen + separación
                 pdf.set_y(pdf.get_y() + render_h + 8)
                 
-            except Exception as e:
+            except Exception:
                 pdf.set_font("Helvetica", "I", 8.0)
                 pdf.set_text_color(220, 38, 38)
                 pdf.cell(0, 5, f"[Error al compilar la evidencia {idx + 1}: Formato no soportado]", ln=1)

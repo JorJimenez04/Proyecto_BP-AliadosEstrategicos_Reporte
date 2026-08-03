@@ -1126,42 +1126,10 @@ def page_partners(user: dict) -> None:
     del_activo  = st.session_state.get("delete_id")
 
     for fila in filas:
-        fid          = _idx(fila, "id")
-        nombre       = _idx(fila, "nombre_razon_social", "—")
-        nit          = _idx(fila, "nit", "—")
-        tipo         = _idx(fila, "tipo_aliado", "—")
-        estado_pip   = _idx(fila, "estado_pipeline", "—")
-        criticidad   = _idx(fila, "nivel_criticidad", "Estándar")
-        riesgo       = _idx(fila, "nivel_riesgo", "—")
-        sarlaft      = _idx(fila, "estado_sarlaft", "—")
-        es_pep_fila  = bool(_idx(fila, "es_pep", False))
-        es_regulada  = bool(_idx(fila, "es_entidad_regulada", False))
-        puntaje      = _idx(fila, "puntaje_riesgo", 0) or 0
-        tipo_riel    = _idx(fila, "tipo_riel") or ""
-        fecha_rev    = _idx(fila, "fecha_proxima_revision")
+        fid = _idx(fila, "id")
 
-        # ── Colores de tarjeta ────────────────────────────────────────────────
-        if fid == edit_activo or fid == st.session_state.get("detail_id"):
-            card_border = "#5fe9d0"
-            card_bg     = "#061a1a"
-            card_glow   = "0 0 14px #5fe9d033"
-        elif fid == del_activo:
-            card_border = "#ef4444"
-            card_bg     = "#1a0606"
-            card_glow   = "0 0 14px #ef444433"
-        else:
-            card_border = _BORDER_CRITICIDAD.get(criticidad, "#293056")
-            card_bg     = "#1a1f2e"
-            card_glow   = "none"
-
-        # ── Capacidades ───────────────────────────────────────────────────────
-        caps_html = (
-            _capacidad_badge("🔷 Crypto",    bool(_idx(fila, "crypto_friendly")))
-            + _capacidad_badge("🔞 Adult",   bool(_idx(fila, "adult_friendly")))
-            + _capacidad_badge("💱 Monet.",  bool(_idx(fila, "permite_monetizacion")))
-            + _capacidad_badge("📤 Dispers.", bool(_idx(fila, "permite_dispersion")))
-        )
         # ── HTML de la tarjeta B2B ────────────────────────────────────────────
+        # (colores, badges y campos se calculan dentro de _card_banking_partner)
         card_html = _card_banking_partner(
             fila,
             edit_id=edit_activo,
@@ -1217,7 +1185,7 @@ def _tab_alta_partner(user: dict) -> None:
     from db.repositories.partner_repo import PartnerRepository
     from db.repositories.audit_repo import AuditRepository
     from db.models import AliadoCreate
-    from config.settings import TiposAliado, Roles, Jurisdicciones, TiposRiel
+    from config.settings import TiposAliado, Jurisdicciones, TiposRiel
 
     st.markdown(
         '<p style="color:#9ca3af;margin-bottom:18px">'
@@ -1385,12 +1353,7 @@ def _tab_monitor_operativo(user: dict) -> None:
     # ── KPIs Globales del Portafolio ─────────────────────────────────────────
     _total_p    = len(_filas)
     _activos_p  = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Activo")
-    _alto_r_p   = sum(
-        1 for r in _filas
-        if _idx(r, "nivel_riesgo") in ("Alto", "Muy Alto")
-    )
-    _onboard_p  = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Onboarding")
-    _pct_act_p  = f"{round(_activos_p / _total_p * 100)}% del portafolio" if _total_p else ""
+    _pct_act_p  =f"{round(_activos_p / _total_p * 100)}% del portafolio" if _total_p else ""
 
     import plotly.graph_objects as _go
 
@@ -1551,14 +1514,6 @@ def _tab_monitor_operativo(user: dict) -> None:
         },
     ]
 
-    # Badges micro-píldora por estado de relación (opacidad 10%)
-    _BADGE_REL = {
-        "Activo":       "background:rgba(16,185,129,.12);color:#34d399;",
-        "Inactivo":     "background:rgba(245,158,11,.12);color:#fbbf24;",
-        "Sin relación": "background:rgba(156,163,175,.12);color:#9ca3af;",
-    }
-    _BADGE_BASE = "padding:3px 10px;border-radius:6px;font-size:.72rem;font-weight:700;text-transform:uppercase;white-space:nowrap;"
-
     # Color de acento superior por entidad (glow sutil)
     _GLOW_COLOR = ["#3b82f6", "#10b981", "#f59e0b"]
 
@@ -1582,13 +1537,6 @@ def _tab_monitor_operativo(user: dict) -> None:
         _n_sin  = len(_sin_rel)
         _total  = _n_act + _n_inac + _n_sin
         _pct    = round(_n_act / _total * 100) if _total else 0
-
-        if _pct >= 70:
-            _salud_color, _salud_label = "#22c55e", "Saludable"
-        elif _pct >= 40:
-            _salud_color, _salud_label = "#f59e0b", "En Alerta"
-        else:
-            _salud_color, _salud_label = "#ef4444", "Cr\u00edtico"
 
         _circ  = 163.4
         _f_a   = round((_n_act  / _total * _circ), 1) if _total else 0
@@ -1615,8 +1563,8 @@ def _tab_monitor_operativo(user: dict) -> None:
         def _build_rows(partners: list, e_color: str, icon: str) -> str:
             if not partners:
                 return (
-                    f"<div style='color:#4b5563;font-size:0.72rem;"
-                    f"font-style:italic;padding:4px 0;'>Sin partners</div>"
+                    "<div style='color:#4b5563;font-size:0.72rem;"
+                    "font-style:italic;padding:4px 0;'>Sin partners</div>"
                 )
             html = ""
             for _p in partners:

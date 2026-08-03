@@ -7,7 +7,6 @@ Actualizado con métricas de gestión corporativa y operativa.
 from __future__ import annotations
 
 import streamlit as st
-from datetime import datetime
 import sys
 from pathlib import Path
 import os
@@ -26,10 +25,7 @@ for path_dir in [root_dir, current_dir]:
 # Registramos la variable de entorno para heredar las rutas en subprocesos de producción
 os.environ["PYTHONPATH"] = f"{root_dir}{os.pathsep}{current_dir}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"
 
-from config.settings import (
-    APP_NAME, APP_ENV, Roles, SECRET_KEY_IS_DEFAULT
-)
-from db.database import get_session
+from config.settings import Roles
 
 # ── Rutas de assets ──────────────────────────────────────────
 _STATIC_DIR   = Path(__file__).resolve().parent / "static"

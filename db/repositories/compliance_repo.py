@@ -119,14 +119,6 @@ class ComplianceRepository:
         """), {"id": doc_id}).mappings().fetchone()
         return dict(row) if row else None
 
-    def ensure_seed(self) -> int:
-        """
-        Seed de documentos base DESACTIVADO intencionalmente.
-        La carga de documentos reales se realiza de forma manual desde la UI.
-        Retorna 0 siempre sin modificar la tabla.
-        """
-        logger.info("[Compliance] ensure_seed: seed desactivado — carga manual requerida.")
-        return 0
 
     # ------------------------------------------------------------------
     # Escritura
@@ -361,12 +353,3 @@ class ComplianceRepository:
             "vigencia_pct":        vigencia_pct,
         }
 
-    def archivar(self, doc_id: int, actualizado_por: str) -> None:
-        """Soft delete: cambia estado a Archivado."""
-        self.session.execute(text("""
-            UPDATE compliance_documentos
-            SET estado = 'Archivado', actualizado_por = :actualizado_por
-            WHERE id = :id
-        """), {"id": doc_id, "actualizado_por": actualizado_por})
-        self.session.commit()
-        logger.info("[Compliance] Doc id=%s archivado por %s", doc_id, actualizado_por)

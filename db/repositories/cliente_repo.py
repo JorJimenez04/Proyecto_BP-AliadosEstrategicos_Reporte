@@ -490,31 +490,6 @@ class ClienteRepository:
         """), {"id": cliente_id}).mappings().fetchall()
         return [dict(r) for r in rows]
 
-    def actualizar_persona(self, persona_id: int, data: dict, usuario: str) -> dict:
-        anterior = self.session.execute(text("""
-            SELECT * FROM cliente_personas WHERE id = :id
-        """), {"id": persona_id}).mappings().fetchone()
-        if not anterior:
-            raise ValueError(f"Persona {persona_id} no encontrada")
-
-        campos = {k: v for k, v in data.items() if v is not None}
-        if not campos:
-            return dict(anterior)
-
-        set_parts = ", ".join(f"{k} = :{k}" for k in campos)
-        params = dict(campos)
-        params["id"] = persona_id
-
-        row = self.session.execute(text(f"""
-            UPDATE cliente_personas SET {set_parts}
-            WHERE id = :id
-            RETURNING *
-        """), params).mappings().fetchone()
-        self.session.commit()
-
-        self._auditar("UPDATE", anterior["cliente_id"],
-                      dict(anterior), campos, usuario)
-        return dict(row)
 
     def desactivar_persona(self, persona_id: int, usuario: str) -> bool:
         ant = self.session.execute(text("""
@@ -599,31 +574,6 @@ class ClienteRepository:
                       data.creado_por)
         return contrato
 
-    def actualizar_contrato(self, contrato_id: int, data: dict, usuario: str) -> dict:
-        anterior = self.session.execute(text("""
-            SELECT * FROM cliente_contratos WHERE id = :id
-        """), {"id": contrato_id}).mappings().fetchone()
-        if not anterior:
-            raise ValueError(f"Contrato {contrato_id} no encontrado")
-
-        campos = {k: v for k, v in data.items() if v is not None}
-        if not campos:
-            return dict(anterior)
-
-        set_parts = ", ".join(f"{k} = :{k}" for k in campos)
-        params = dict(campos)
-        params["id"] = contrato_id
-
-        row = self.session.execute(text(f"""
-            UPDATE cliente_contratos SET {set_parts}
-            WHERE id = :id
-            RETURNING *
-        """), params).mappings().fetchone()
-        self.session.commit()
-
-        self._auditar("UPDATE", anterior["cliente_id"],
-                      dict(anterior), campos, usuario)
-        return dict(row)
 
     def get_contratos(self, cliente_id: int) -> list:
         contratos = self.session.execute(text("""
@@ -737,13 +687,6 @@ class ClienteRepository:
                       usuario)
         return True
 
-    def get_servicios(self, contrato_id: int) -> list:
-        rows = self.session.execute(text("""
-            SELECT * FROM contrato_servicios
-            WHERE contrato_id = :id
-            ORDER BY servicio
-        """), {"id": contrato_id}).mappings().fetchall()
-        return [dict(r) for r in rows]
 
     # ──────────────────────────────────────────────────────────
     # Documentos
@@ -786,52 +729,6 @@ class ClienteRepository:
                       data.creado_por)
         return row
 
-    def actualizar_documento(self, doc_id: int, data: dict, usuario: str) -> None:
-        anterior = self.session.execute(text("""
-            SELECT * FROM cliente_documentos WHERE id = :id
-        """), {"id": doc_id}).mappings().fetchone()
-        if not anterior:
-            raise ValueError(f"Documento {doc_id} no encontrado")
-        ant = dict(anterior)
-
-        # Snapshot antes de actualizar
-        self.session.execute(text("""
-            INSERT INTO cliente_documentos_historial (
-                documento_raiz_id, cliente_id, contrato_id,
-                titulo, carpeta, estado, formato, url,
-                version, fecha_emision, descripcion_cambio, snapshot_por
-            ) VALUES (
-                :doc_id, :cliente_id, :contrato_id,
-                :titulo, :carpeta, :estado, :formato, :url,
-                :version, :fecha_emision, :descripcion_cambio, :snapshot_por
-            )
-        """), {
-            "doc_id": doc_id,
-            "cliente_id": ant["cliente_id"],
-            "contrato_id": ant["contrato_id"],
-            "titulo": ant["titulo"],
-            "carpeta": ant["carpeta"],
-            "estado": ant["estado"],
-            "formato": ant["formato"],
-            "url": ant["url"],
-            "version": ant["version"],
-            "fecha_emision": ant["fecha_emision"],
-            "descripcion_cambio": data.get("descripcion_cambio"),
-            "snapshot_por": usuario,
-        })
-
-        campos = {k: v for k, v in data.items() if v is not None}
-        campos["actualizado_por"] = usuario
-        set_parts = ", ".join(f"{k} = :{k}" for k in campos)
-        params = dict(campos)
-        params["id"] = doc_id
-
-        self.session.execute(text(f"""
-            UPDATE cliente_documentos SET {set_parts} WHERE id = :id
-        """), params)
-        self.session.commit()
-
-        self._auditar("UPDATE", ant["cliente_id"], ant, campos, usuario)
 
     def get_documentos(
         self,

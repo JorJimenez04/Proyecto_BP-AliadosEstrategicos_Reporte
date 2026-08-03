@@ -194,17 +194,6 @@ def _seed_admin_user() -> None:
         conn.commit()
 
 
-def health_check() -> bool:
-    """Verifica que la conexión a la BD esté disponible."""
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
-        return True
-    except Exception as e:
-        logger.error(f"Error de conexión a la BD: {e}")
-        return False
-
-
 # ── Punto de entrada: inicialización directa ─────────────────
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

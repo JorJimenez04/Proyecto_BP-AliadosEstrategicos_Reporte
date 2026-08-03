@@ -68,7 +68,7 @@ if APP_ENV == "production":
     if _sec_errors:
         raise RuntimeError(
             "[AdamoServices] INICIO BLOQUEADO — Configuración de seguridad inválida "
-            f"(APP_ENV=production):\n"
+            "(APP_ENV=production):\n"
             + "\n".join(f"  ✗ {e}" for e in _sec_errors)
         )
     SECRET_KEY: str       = _raw_secret

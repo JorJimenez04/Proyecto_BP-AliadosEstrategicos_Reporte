@@ -4,7 +4,6 @@ Repositorio de Aliados — Capa de acceso a datos desacoplada de la UI.
 Maneja la persistencia incluyendo métricas de gestión corporativa y operativa.
 """
 
-from datetime import datetime, date, timedelta
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -376,30 +375,6 @@ class PartnerRepository:
         ).mappings().all()
         return [dict(r) for r in rows]
 
-    # ── Recalcular Score de Riesgo en DB ─────────────────
-    def recalcular_puntaje(self, aliado_id: int, actualizado_por: int) -> tuple[float, str]:
-        """
-        Recalcula el puntaje y nivel de riesgo de un aliado existente
-        usando los datos actuales en DB y persiste el resultado.
-        """
-        row = self.get_by_id(aliado_id)
-        if not row:
-            return 0.0, "Medio"
-        score, nivel = calcular_puntaje_riesgo(row)
-        criticidad = calcular_nivel_criticidad(nivel, bool(row.get("es_entidad_regulada", False)))
-        id_final = actualizado_por if actualizado_por > 0 else 1
-        self.session.execute(
-            text("""
-                UPDATE aliados
-                SET puntaje_riesgo = :score, nivel_riesgo = :nivel,
-                    nivel_criticidad = :criticidad, actualizado_por = :uid
-                WHERE id = :id
-            """),
-            {"score": score, "nivel": nivel, "criticidad": criticidad,
-             "uid": id_final, "id": aliado_id},
-        )
-        self.session.commit()
-        return score, nivel
 
     # ── Comparativa de Salud Corporativa ─────────────────
     def get_salud_grupo(self) -> dict:

@@ -192,7 +192,7 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
         f'<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">'
         f'{badge_formato}&nbsp;{badge_estado}'
         + (f'&nbsp;{badge_empresa}' if badge_empresa else '')
-        + f'</div>'
+        + '</div>'
         + (
             f'<div style="color:#94a3b8;font-size:0.68rem;background:#0f172a;'
             f'padding:2px 8px;border-radius:4px;font-family:monospace;'
@@ -360,7 +360,6 @@ def _doc_card(doc: dict, puede_editar: bool, key_prefix: str = "") -> None:
 def _form_editar(doc: dict, key_prefix: str = "") -> None:
     """Editor integral de metadatos: título, carpeta, empresa, estado, url, versión."""
     form_key    = f"{key_prefix}form_edit_{doc['id']}"
-    nv_open_key = f"_nv_open_{key_prefix}{doc['id']}"
 
     _emp_opts    = ["", "Holdings BPO", "PayCOP", "Adamo Services"]
     _estado_opts = ["Vigente", "Pendiente", "Vencido"]
@@ -986,8 +985,8 @@ def page_compliance(user: dict) -> None:
                                     f'"{desc_esc}"</span>'
                                     if desc_esc else ''
                                 )
-                                + f'</div>'
-                                f'</div>',
+                                + '</div>'
+                                '</div>',
                                 unsafe_allow_html=True,
                             )
 

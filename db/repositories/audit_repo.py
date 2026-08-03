@@ -147,18 +147,6 @@ class AuditRepository:
         rows = self.session.execute(text(query), params).mappings().all()
         return [dict(r) for r in rows]
 
-    def get_actividad_usuario(self, usuario_id: int, limit: int = 50) -> list[dict]:
-        """Retorna las últimas N acciones de un usuario específico."""
-        rows = self.session.execute(
-            text("""
-                SELECT * FROM log_auditoria
-                WHERE usuario_id = :id
-                ORDER BY created_at DESC
-                LIMIT :limit
-            """),
-            {"id": usuario_id, "limit": limit},
-        ).mappings().all()
-        return [dict(r) for r in rows]
 
     def get_actividad_agente(self, agente_id: int, limit: int = 5) -> list[dict]:
         """Retorna las últimas N entradas del log relacionadas con un agente del catálogo."""

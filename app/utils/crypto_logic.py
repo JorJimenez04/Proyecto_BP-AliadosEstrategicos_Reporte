@@ -712,21 +712,3 @@ def score_gl_to_nivel(score: int) -> str:
     return "Bajo"
 
 
-def calcular_score_sof_uof(
-    cont_directa: float,
-    cont_indirecta: float,
-    indicador: str,
-) -> tuple[float, float, int, str]:
-    """
-    Calcula métricas SoF o UoF siguiendo la metodología Excel AdamoServices.
-
-    Returns:
-        (cont_total, cont_total, score_ponderado, nivel_riesgo)
-        donde cont_total = cont_directa + cont_indirecta (en %)
-              score_ponderado = (cont_total / 100) × gl_score_indicador
-    """
-    ind_score = GL_SCORES.get(indicador, 50)
-    cont_total = cont_directa + cont_indirecta
-    score_pond = round((cont_total / 100.0) * ind_score)
-    nivel = score_gl_to_nivel(score_pond)
-    return cont_total, cont_total, score_pond, nivel

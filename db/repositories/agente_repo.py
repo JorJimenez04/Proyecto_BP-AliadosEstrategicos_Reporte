@@ -53,17 +53,6 @@ class AgenteRepository:
 
     # ── Consultas ─────────────────────────────────────────
 
-    def get_all_active(self) -> list[dict]:
-        """Todos los agentes activos ordenados por equipo y nombre."""
-        rows = self.session.execute(text("""
-            SELECT id, username, nombre_completo, equipo, cargo,
-                   email, telefono, foto_url, meta_mensual_gestiones,
-                   notas, activo, created_at, updated_at
-            FROM agentes
-            WHERE activo = TRUE
-            ORDER BY equipo, nombre_completo
-        """)).mappings().all()
-        return [dict(r) for r in rows]
 
     def get_all(self) -> list[dict]:
         """Todos los agentes (activos + inactivos)."""
@@ -219,80 +208,6 @@ class AgenteRepository:
 
     # ── KPIs de Compliance por equipo ────────────────────────
 
-    def get_compliance_kpis(self, agente_id: int) -> dict:
-        """
-        KPIs especializados para agentes del equipo Cumplimiento.
-
-        Extrae conteos derivados de los campos de documentación, listas y
-        due-diligence de los aliados asignados, segmentando entre tipo_aliado
-        personal ('Banking Partner', 'Aliado Estratégico') y comercial
-        ('Corresponsal Bancario', 'Proveedor de Servicios').
-
-        Retorna:
-            docs_personales:           Aliados tipo personal con contrato firmado.
-            docs_comerciales:          Aliados tipo comercial con contrato firmado.
-            cuentas_personales:        Aliados tipo personal en estado 'Activo'.
-            cuentas_comerciales:       Aliados tipo comercial en estado 'Activo'.
-            sanciones_revisadas:       Aliados con listas_verificadas = TRUE.
-            sanciones_pendientes:      Aliados con listas_verificadas = FALSE.
-            hardstop_resueltos:        Aliados con estado_sarlaft = 'Al Día'.
-            hardstop_pendientes:       Aliados con estado_sarlaft IN ('Vencido', 'En Revisión').
-            tx_ongoing_personal:       Aliados personales con estado_due_diligence = 'Completado'.
-            tx_ongoing_comercial:      Aliados comerciales con estado_due_diligence = 'Completado'.
-        """
-        _TIPOS_PERSONAL  = ("'Banking Partner'", "'Aliado Estratégico'")
-        _TIPOS_COMERCIAL = ("'Corresponsal Bancario'", "'Proveedor de Servicios'")
-        tp  = ", ".join(_TIPOS_PERSONAL)
-        tc  = ", ".join(_TIPOS_COMERCIAL)
-
-        row = self.session.execute(text(f"""
-            SELECT
-                -- Documentación
-                COUNT(*) FILTER (WHERE tipo_aliado IN ({tp}) AND contrato_firmado = TRUE)
-                    AS docs_personales,
-                COUNT(*) FILTER (WHERE tipo_aliado IN ({tc}) AND contrato_firmado = TRUE)
-                    AS docs_comerciales,
-                -- Cuentas activas
-                COUNT(*) FILTER (WHERE tipo_aliado IN ({tp}) AND estado_pipeline = 'Activo')
-                    AS cuentas_personales,
-                COUNT(*) FILTER (WHERE tipo_aliado IN ({tc}) AND estado_pipeline = 'Activo')
-                    AS cuentas_comerciales,
-                -- Sanciones
-                COUNT(*) FILTER (WHERE listas_verificadas = TRUE)
-                    AS sanciones_revisadas,
-                COUNT(*) FILTER (WHERE listas_verificadas = FALSE)
-                    AS sanciones_pendientes,
-                -- SARLAFT / Hardstop
-                COUNT(*) FILTER (WHERE estado_sarlaft = 'Al Día')
-                    AS hardstop_resueltos,
-                COUNT(*) FILTER (WHERE estado_sarlaft IN ('Vencido', 'En Revisión'))
-                    AS hardstop_pendientes,
-                -- TX Ongoing (due-diligence completado)
-                COUNT(*) FILTER (
-                    WHERE tipo_aliado IN ({tp}) AND estado_due_diligence = 'Completado'
-                ) AS tx_ongoing_personal,
-                COUNT(*) FILTER (
-                    WHERE tipo_aliado IN ({tc}) AND estado_due_diligence = 'Completado'
-                ) AS tx_ongoing_comercial
-            FROM aliados
-            WHERE agente_id = :id
-        """), {"id": agente_id}).mappings().first()
-
-        def _int(v: object) -> int:
-            return int(v or 0)
-
-        return {
-            "docs_personales":      _int(row["docs_personales"]),
-            "docs_comerciales":     _int(row["docs_comerciales"]),
-            "cuentas_personales":   _int(row["cuentas_personales"]),
-            "cuentas_comerciales":  _int(row["cuentas_comerciales"]),
-            "sanciones_revisadas":  _int(row["sanciones_revisadas"]),
-            "sanciones_pendientes": _int(row["sanciones_pendientes"]),
-            "hardstop_resueltos":   _int(row["hardstop_resueltos"]),
-            "hardstop_pendientes":  _int(row["hardstop_pendientes"]),
-            "tx_ongoing_personal":  _int(row["tx_ongoing_personal"]),
-            "tx_ongoing_comercial": _int(row["tx_ongoing_comercial"]),
-        }
 
     # ── Editor de KPIs Inline ─────────────────────────────
 

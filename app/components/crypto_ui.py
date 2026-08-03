@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, date 
+from datetime import datetime
 from typing import Optional
 
 import streamlit as st
@@ -18,7 +18,7 @@ from db.database import get_session
 from db.repositories.crypto_repo import CryptoRepository, score_a_nivel_riesgo
 from db.models import WalletMonitorCreate, RiskLabel, CryptoClienteCreate
 from app.utils.crypto_logic import (
-    calificar_labels, lookup_label, nivel_dominante,
+    calificar_labels, nivel_dominante,
     GL_ALL_LABELS_SORTED, GL_SCORES, score_gl_to_nivel,
 )
 from app.utils.crypto_parser import parse_gl_pdf, generate_weekly_delta
@@ -147,10 +147,10 @@ def _render_flujo_block(wallet: dict, prefix: str, title: str) -> None:
 
     if not indicador:
         st.markdown(
-            f"<div style='border:1px dashed #374151;border-radius:8px;padding:16px;"
-            f"background:#0a0f1a;text-align:center;'>"
-            f"<span style='color:#6b7280;font-size:0.83rem;'>Sin indicador registrado</span>"
-            f"</div>",
+            "<div style='border:1px dashed #374151;border-radius:8px;padding:16px;"
+            "background:#0a0f1a;text-align:center;'>"
+            "<span style='color:#6b7280;font-size:0.83rem;'>Sin indicador registrado</span>"
+            "</div>",
             unsafe_allow_html=True,
         )
         return
@@ -803,7 +803,6 @@ def _render_comparativo(prev: dict, new_gl_score: Optional[int] = None,
     prev_cont    = float(prev.get("sof_cont_total") or 0) + float(prev.get("uof_cont_total") or 0)
     prev_frs     = prev.get("final_risk_score")
     prev_nivel   = prev.get("final_risk_level") or prev.get("riesgo_nivel") or "Sin Datos"
-    prev_color   = _COLOR_NIVEL.get(prev_nivel, "#6b7280")
     prev_analyst = prev.get("monitoring_analyst") or prev.get("registrado_por") or "—"
 
     # Fecha de la última actualización
@@ -867,7 +866,6 @@ def _render_comparativo(prev: dict, new_gl_score: Optional[int] = None,
         )
     _NIVEL_PESO = {"Sin Datos": 0, "Bajo": 1, "Medio": 2, "Alto": 3, "Crítico": 4}
     if new_gl_score is not None and prev_score is not None:
-        prev_lv = _COLOR_NIVEL.get(prev_nivel)  # just to reference
         new_nivel_est = score_gl_to_nivel(new_gl_score) if new_gl_score is not None else "Sin Datos"
         if _NIVEL_PESO.get(new_nivel_est, 0) > _NIVEL_PESO.get(prev_nivel, 0):
             alerts.append(
@@ -886,12 +884,7 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
     """
     fk = str(cliente_id)
 
-    chain_opts       = ["ETH", "BTC", "BNB", "TRX", "SOL", "MATIC", "Otro"]
-    niveles          = ["Sin Datos", "Bajo", "Medio", "Alto", "Crítico"]
     status_opts      = ["Active", "Inactive", "Suspended", "Under Review"]
-    tipo_riesgo_opts = ["Low", "Medium", "High", "Critical"]
-    naturaleza_opts  = ["Directa", "Indirecta"]
-    currency_opts    = ["USD", "EUR", "USDT", "USDC"]
     analyst_opts     = list(dict.fromkeys([
         user.get("nombre_completo") or user.get("username") or "Analista",
         "Adrian Cardona", "Jorge Jiménez",
@@ -1010,8 +1003,6 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
     _pdf_gl_level    = _gl.get("gl_level")               if _from_pdf else None
     _pdf_sof_amt_g   = _gl.get("sof_total_amount", 0.0)  if _from_pdf else 0.0
     _pdf_uof_amt_g   = _gl.get("uof_total_amount", 0.0)  if _from_pdf else 0.0
-    _pdf_sof_pct_g   = _gl.get("sof_total_pct", 0.0)     if _from_pdf else 0.0
-    _pdf_uof_pct_g   = _gl.get("uof_total_pct", 0.0)     if _from_pdf else 0.0
     _exp_pdf         = max(_pdf_sof_amt_g or 0.0, _pdf_uof_amt_g or 0.0)
 
     # ── Fecha: parser → fallback desde nombre del archivo ────────────────────
@@ -1056,8 +1047,6 @@ def _form_nueva_wallet(user: dict, cliente_id: int, cliente_nombre: str) -> None
         else _pdf_gl_level or _gl.get("riesgo_nivel") or "Sin Datos"
     )
 
-    chain_idx = chain_opts.index(init_chain) if init_chain in chain_opts else 0
-    nivel_idx = niveles.index(init_nivel) if init_nivel in niveles else 0
 
     # Bloquear si PDF inválido (cargado pero sin wallet detectada)
     if _from_pdf is False and pdf_nw and _gl.get("ok"):
