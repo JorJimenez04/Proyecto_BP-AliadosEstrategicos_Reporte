@@ -94,6 +94,7 @@ class Roles:
     MANAGER_COMERCIAL = "manager_comercial"
     MANAGER_LEGAL     = "manager_legal"
     AGENTE            = "agente"           # Senior y Junior (mismo rol)
+    CIC               = "cic"              # Comercial Inteligencia Comercial — mismos permisos que 'comercial'
 
     # ── Aliases legacy — mantener para no romper código existente ──
     ADMIN             = "admin"
@@ -105,7 +106,7 @@ class Roles:
     # ── Lista completa para selectores de UI ─────────────
     ALL = [
         SUPER_ADMIN, COMPLIANCE, MANAGER_OPS,
-        MANAGER_COMERCIAL, MANAGER_LEGAL, AGENTE,
+        MANAGER_COMERCIAL, MANAGER_LEGAL, AGENTE, CIC,
         # legacy
         ADMIN, COMERCIAL, AGENTE_KYC, AGENTE_OPERATIVO, CONSULTA,
     ]
@@ -136,18 +137,21 @@ class Roles:
     CAN_VIEW_ALIANZAS = frozenset({
         "super_admin", "admin", "compliance",
         "manager_ops", "manager_comercial", "manager_legal",
+        "cic",
         "comercial",  # legacy
     })
 
     # Gestión de Alianzas — editar (sin eliminar)
     CAN_EDIT_PARTNERS = frozenset({
         "super_admin", "admin", "compliance", "manager_ops",
+        "cic",
         "comercial", "agente_kyc", "agente_operativo",  # legacy
     })
 
     # Gestión de Alianzas — alta de partner
     CAN_CREATE_PARTNERS = frozenset({
         "super_admin", "admin", "compliance", "manager_ops",
+        "cic",
         "comercial",  # legacy
     })
 
@@ -173,6 +177,7 @@ class Roles:
     # KPIs de gestión
     CAN_REGISTER_KPIS = frozenset({
         "super_admin", "admin", "compliance", "manager_ops",
+        "cic",
         "comercial",  # legacy
     })
 
@@ -190,6 +195,7 @@ class Roles:
     CAN_VIEW_DOCS = frozenset({
         "super_admin", "admin", "compliance",
         "manager_ops", "manager_comercial", "manager_legal",
+        "cic",
         "comercial", "consulta",  # legacy
     })
 

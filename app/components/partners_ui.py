@@ -570,14 +570,14 @@ def _panel_editar(aliado_id: int, user: dict) -> None:
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    es_comercial     = user.get("rol") == Roles.COMERCIAL
+    es_comercial     = user.get("rol") in (Roles.COMERCIAL, Roles.CIC)
     rol_activo       = user.get("rol", "")
     # Solo ADMIN_PRO y AGENTE_KYC pueden editar campos SARLAFT / riesgo / PEP
     puede_sarlaft    = rol_activo in Roles.CAN_EDIT_SARLAFT
     # Solo ADMIN y COMPLIANCE pueden editar campos de Criticidad y Cumplimiento ISO
     puede_compliance = rol_activo in Roles.CAN_EDIT_COMPLIANCE
     # Comercial y agentes operativos no editan información básica
-    solo_operativo   = rol_activo in (Roles.COMERCIAL, Roles.AGENTE_OPERATIVO)
+    solo_operativo   = rol_activo in (Roles.COMERCIAL, Roles.CIC, Roles.AGENTE_OPERATIVO)
 
     st.markdown(
         f'<h4 style="color:#5fe9d0;margin:0 0 16px 0">✏️ Editar: {aliado["nombre_razon_social"]}</h4>',

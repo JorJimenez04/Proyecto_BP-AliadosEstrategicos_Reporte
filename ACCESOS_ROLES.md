@@ -17,6 +17,7 @@
 | **Manager Comercial** | `manager_comercial` | Acceso a Gestión de Alianzas y Centro Documental (carpetas comerciales). |
 | **Manager Legal** | `manager_legal` | Acceso a Gestión de Alianzas y Centro Documental (carpetas legales y empresariales). |
 | **Agente** | `agente` | Senior y Junior. Solo puede ver su propio perfil. Sin acceso a módulos de gestión. |
+| **CIC** | `cic` | Comercial Inteligencia Comercial. Replica exactamente los permisos del rol legacy `comercial`. |
 
 ### Roles Legacy (aliases — compatibilidad hacia atrás)
 
@@ -123,6 +124,37 @@
 | 📚 Centro Documental (editar) | ✅ | ❌ | ❌ | ❌ | ❌ |
 | 🛡️ Cripto Compliance | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Registrar KPIs | ✅ | ✅ | ❌ | ❌ | ❌ |
+
+---
+
+## 4.1 Rol CIC — Paridad con `comercial`
+
+El rol `cic` (Comercial Inteligencia Comercial) se creó como **clon exacto** del rol legacy
+`comercial`. Pertenece a los mismos conjuntos de permiso en `config/settings.py`:
+
+| Conjunto de permiso | `comercial` | `cic` |
+|---------------------|:---:|:---:|
+| `CAN_VIEW_ALIANZAS` | ✅ | ✅ |
+| `CAN_EDIT_PARTNERS` | ✅ | ✅ |
+| `CAN_CREATE_PARTNERS` | ✅ | ✅ |
+| `CAN_REGISTER_KPIS` | ✅ | ✅ |
+| `CAN_VIEW_DOCS` | ✅ | ✅ |
+| `CAN_DELETE_PARTNERS` | ❌ | ❌ |
+| `CAN_EDIT_SARLAFT` | ❌ | ❌ |
+| `CAN_EDIT_COMPLIANCE` | ❌ | ❌ |
+| `CAN_EDIT_JURISDICTIONS` | ❌ | ❌ |
+| `CAN_VIEW_AUDIT` | ❌ | ❌ |
+| `CAN_VIEW_AGENTES` | ❌ | ❌ |
+| `CAN_EDIT_DOCS` | ❌ | ❌ |
+| `CAN_VIEW_CRYPTO` | ❌ | ❌ |
+| `CAN_MANAGE_USERS` | ❌ | ❌ |
+| Gestión de Clientes (sidebar + router) | ✅ | ✅ |
+
+> ⚠️ Al modificar los permisos de `comercial`, replicar el cambio en `cic` (o viceversa)
+> mientras ambos roles deban mantener paridad. La verificación automática está en
+> `scripts/verify_cic_parity.py`.
+
+**Migración:** `db/migrations/034_rol_cic.sql` · **Seed:** `scripts/create_cic_sergio.py`
 
 ---
 

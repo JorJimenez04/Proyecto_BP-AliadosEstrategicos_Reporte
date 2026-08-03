@@ -8,6 +8,8 @@ from datetime import date, datetime
 from typing import List, Literal, Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
+from config.settings import Roles
+
 
 # ─────────────────────────────────────────────────────────────
 # USUARIO
@@ -24,10 +26,9 @@ class UsuarioBase(BaseModel):
     @field_validator("rol")
     @classmethod
     def validar_rol(cls, v: str) -> str:
-        roles_validos = {
-            "admin", "compliance", "comercial",
-            "agente_kyc", "agente_operativo", "consulta",
-        }
+        # Fuente única de verdad: config.settings.Roles.ALL
+        # (incluye canónicos + legacy; antes esta lista se desincronizaba)
+        roles_validos = set(Roles.ALL)
         if v not in roles_validos:
             raise ValueError(f"Rol inválido. Opciones: {sorted(roles_validos)}")
         return v

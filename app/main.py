@@ -666,7 +666,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
             _nav_opts.append("📧 Bandeja de Cumplimiento")
 
         # Gestión de Clientes
-        if _rol in {"admin", "compliance", "super_admin", "comercial", "manager_comercial", "consulta"}:
+        if _rol in {"admin", "compliance", "super_admin", "comercial", "cic", "manager_comercial", "consulta"}:
             _nav_opts.append("👥 Gestión de Clientes")
 
         # Agente: solo ve su propio perfil
@@ -788,7 +788,7 @@ def main():
         page_bandeja_cumplimiento(user)
     elif page == "👥 Gestión de Clientes":
         _rol_actual = user.get("rol", "")
-        if _rol_actual not in {"admin", "compliance", "super_admin", "comercial", "manager_comercial", "consulta"}:
+        if _rol_actual not in {"admin", "compliance", "super_admin", "comercial", "cic", "manager_comercial", "consulta"}:
             st.error("🚫 Acceso Denegado al módulo de Gestión de Clientes.")
             st.stop()
         from app.components.clientes_ui import page_clientes

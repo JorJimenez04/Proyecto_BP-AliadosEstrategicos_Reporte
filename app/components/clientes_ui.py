@@ -639,7 +639,7 @@ def _tab_contratos(ficha: dict, user: dict) -> None:
 """, unsafe_allow_html=True)
 
                 # Editar volumen
-                if rol in {"admin", "compliance", "super_admin", "comercial", "manager_comercial"}:
+                if rol in {"admin", "compliance", "super_admin", "comercial", "cic", "manager_comercial"}:
                     with st.form(f"form_vol_{contrato['id']}"):
                         v_col1, v_col2 = st.columns(2)
                         with v_col1:
