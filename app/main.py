@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 import os
 
-# 🛡️ REGISTRO DINÁMICO DE RUTAS (Evita ModuleNotFoundError en Local y Producción)
+# REGISTRO DINÁMICO DE RUTAS (Evita ModuleNotFoundError en Local y Producción)
 # Obtenemos la ruta absoluta de 'app/main.py' y su directorio padre ('app/')
 current_dir = Path(__file__).resolve().parent          # Ruta a /app/app
 root_dir = current_dir.parent                          # Ruta a /app (raíz del proyecto)
@@ -26,6 +26,28 @@ for path_dir in [root_dir, current_dir]:
 os.environ["PYTHONPATH"] = f"{root_dir}{os.pathsep}{current_dir}{os.pathsep}{os.environ.get('PYTHONPATH', '')}"
 
 from config.settings import Roles
+
+
+# ── Páginas ───────────────────────────────────────────────────
+class Paginas:
+    """
+    Etiquetas del menú lateral, que a la vez son las claves del router.
+
+    Definirlas aquí evita que el texto del menú y el del router se
+    desincronicen: antes eran literales repetidos con emoji en dos sitios,
+    y cambiar uno sin el otro dejaba la página inalcanzable.
+    """
+    ALIANZAS    = "Infraestructura Financiera"
+    AUDITORIA   = "Log de Auditoría"
+    SCREENING   = "Screening de Cumplimiento"
+    AGENTES     = "Gestión de Agentes"
+    DOCUMENTAL  = "Centro Documental"
+    CRIPTO      = "Cripto Compliance"
+    BANDEJA     = "Bandeja de Cumplimiento"
+    CLIENTES    = "Gestión de Clientes"
+    MI_PERFIL   = "Mi Perfil"
+    PERFIL_AGENTE = "Perfil de Agente"
+    SIN_ACCESO  = "Sin acceso"
 
 # ── Rutas de assets ──────────────────────────────────────────
 _STATIC_DIR   = Path(__file__).resolve().parent / "static"
@@ -582,6 +604,9 @@ code, .stApp code, pre {
 </style>
 """, unsafe_allow_html=True)
 
+from app.components import ui_kit as _ui
+
+
 # ── Callback del radio: al cambiar de sección borra el agente activo ─────────
 def _on_nav_radio_change() -> None:
     st.session_state.pop("nav_agente", None)
@@ -593,9 +618,8 @@ def sidebar(user: dict) -> tuple[str, str | None]:
     Retorna (page, agente_username | None).
 
     page puede ser:
-      "🏛️ Gestión de Infraestructura Financiera" | "📋 Log de Auditoría" | "🔍 Screening de Cumplimiento" |
-      "👥 Gestión de Agentes"  | "📚 Centro Documental" | "👤 Perfil Agente"
-    agente_username solo está definido cuando page == "👤 Perfil Agente".
+    page es siempre una constante de la clase Paginas.
+    agente_username solo está definido cuando page == Paginas.PERFIL_AGENTE.
     """
     from app.components.agentes_ui import get_agentes_sidebar
 
@@ -621,7 +645,9 @@ def sidebar(user: dict) -> tuple[str, str | None]:
                 pass
 
         st.markdown(
-            f"<span style='color:#9ca3af; font-size:0.82rem;'>👤 {user['nombre_completo']}</span>",
+            f"<span style='display:inline-flex;align-items:center;gap:7px;"
+            f"color:var(--fg-subtle,#9ca3af);font-size:0.82rem;'>"
+            f"{_ui.icon('users', 15)}{user['nombre_completo']}</span>",
             unsafe_allow_html=True,
         )
         st.markdown(
@@ -635,43 +661,43 @@ def sidebar(user: dict) -> tuple[str, str | None]:
 
         # Gestión de Infraestructura Financiera — visible para roles con acceso
         if _rol in Roles.CAN_VIEW_ALIANZAS:
-            _nav_opts.append("🏛️ Gestión de Infraestructura Financiera")
+            _nav_opts.append(Paginas.ALIANZAS)
 
         # Auditoría
         if _rol in Roles.CAN_VIEW_AUDIT:
-            _nav_opts.append("📋 Log de Auditoría")
-        
-        # 🔍 Screening de Cumplimiento
+            _nav_opts.append(Paginas.AUDITORIA)
+
+        # Screening de Cumplimiento
         if _rol in {"admin", "compliance", "super_admin"}:
-            _nav_opts.append("🔍 Screening de Cumplimiento")
+            _nav_opts.append(Paginas.SCREENING)
 
         # Gestión de Agentes — equipos completos
         if _rol in Roles.CAN_VIEW_AGENTES:
-            _nav_opts.append("👥 Gestión de Agentes")
+            _nav_opts.append(Paginas.AGENTES)
 
         # Centro Documental
         if _rol in Roles.CAN_VIEW_DOCS:
-            _nav_opts.append("📚 Centro Documental")
+            _nav_opts.append(Paginas.DOCUMENTAL)
 
         # Cripto Compliance
         if _rol in Roles.CAN_VIEW_CRYPTO:
-            _nav_opts.append("🛡️ Cripto Compliance")
+            _nav_opts.append(Paginas.CRIPTO)
 
         # Bandeja de Cumplimiento
         if _rol in {"admin", "compliance", "super_admin"}:
-            _nav_opts.append("📧 Bandeja de Cumplimiento")
+            _nav_opts.append(Paginas.BANDEJA)
 
         # Gestión de Clientes
         if _rol in {"admin", "compliance", "super_admin", "comercial", "cic", "manager_comercial", "consulta"}:
-            _nav_opts.append("👥 Gestión de Clientes")
+            _nav_opts.append(Paginas.CLIENTES)
 
         # Agente: solo ve su propio perfil
         if _rol == Roles.AGENTE:
-            _nav_opts.append("👤 Mi Perfil")
+            _nav_opts.append(Paginas.MI_PERFIL)
 
         # Fallback: si no hay ninguna opción (rol sin permisos)
         if not _nav_opts:
-            _nav_opts = ["🚫 Sin acceso"]
+            _nav_opts = [Paginas.SIN_ACCESO]
 
         nav_choice = st.radio(
             "Navegación",
@@ -688,7 +714,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
             unsafe_allow_html=True,
         )
         if _rol in Roles.CAN_VIEW_AGENTES:
-            with st.expander("🏢 Equipos Operativos", expanded=False):
+            with st.expander("Equipos operativos", expanded=False):
                 for equipo_nombre, equipo_data in _equipos_data.items():
                     equipo_color = equipo_data["color"]
                     st.markdown(
@@ -708,7 +734,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         # Derivar página activa: agente tiene precedencia sobre el radio
         if st.session_state.get("nav_agente"):
             agente_seleccionado = st.session_state["nav_agente"]
-            page = "👤 Perfil Agente"
+            page = Paginas.PERFIL_AGENTE
         else:
             page = nav_choice
 
@@ -716,7 +742,7 @@ def sidebar(user: dict) -> tuple[str, str | None]:
             "<div style='border-top:1px solid #293056;margin:14px 0 10px;'></div>",
             unsafe_allow_html=True,
         )
-        if st.button("🚪 Cerrar Sesión", use_container_width=True):
+        if st.button("Cerrar sesión", use_container_width=True):
             from app.auth.login import logout as _auth_logout
             _auth_logout()
 
@@ -730,62 +756,62 @@ def main():
 
     page, agente_username = sidebar(user)
 
-    if page == "🏛️ Gestión de Infraestructura Financiera":
+    if page == Paginas.ALIANZAS:
         if user.get("rol") not in Roles.CAN_VIEW_ALIANZAS:
-            st.error("🚫 Acceso Denegado.")
+            st.error("Acceso denegado.")
             st.stop()
         from app.components.partners_ui import page_alianzas
         page_alianzas(user)
     ##########
-    elif page == "📋 Log de Auditoría":
+    elif page == Paginas.AUDITORIA:
         if user.get("rol") not in Roles.CAN_VIEW_AUDIT:
-            st.error("🚫 Acceso Denegado. No tienes permisos para ver el Log de Auditoría.")
+            st.error("Acceso denegado. No tienes permisos para ver el log de auditoría.")
             st.stop()
         from app.components.audit_ui import page_auditoria
         page_auditoria(user)
     ##########
-    elif page == "🔍 Screening de Cumplimiento":
+    elif page == Paginas.SCREENING:
         if user.get("rol") not in {"admin", "compliance", "super_admin"}:
-            st.error("🚫 Acceso Denegado. Su rol no cuenta con permisos para ejecutar consultas de screening.")
+            st.error("Acceso denegado. Tu rol no puede ejecutar consultas de screening.")
             st.stop()
         from app.components.screening_ui import render_screening_workspace
         render_screening_workspace(user)
     #############
-    elif page == "👥 Gestión de Agentes":
+    elif page == Paginas.AGENTES:
         if user.get("rol") not in Roles.CAN_VIEW_AGENTES:
-            st.error("🚫 Acceso Denegado. No tienes permisos para acceder a Gestión de Agentes.")
+            st.error("Acceso denegado. No tienes permisos para gestión de agentes.")
             st.stop()
         from app.components.agentes_ui import render_gestion_agentes
         render_gestion_agentes(user)
-    elif page == "📚 Centro Documental":
+    elif page == Paginas.DOCUMENTAL:
         if user.get("rol") not in Roles.CAN_VIEW_DOCS:
-            st.error("🚫 Acceso Denegado al Centro Documental.")
+            st.error("Acceso denegado al centro documental.")
             st.stop()
         from app.components.compliance_ui import page_compliance
         page_compliance(user)
-    elif page == "🛡️ Cripto Compliance":
+    elif page == Paginas.CRIPTO:
         if user.get("rol") not in Roles.CAN_VIEW_CRYPTO:
-            st.error("🚫 Acceso Denegado. Este módulo requiere rol admin o compliance.")
+            st.error("Acceso denegado. Este módulo requiere rol admin o compliance.")
             st.stop()
         from app.components.crypto_ui import page_crypto_compliance
         page_crypto_compliance(user)
-    elif page == "👤 Perfil Agente" and agente_username:
+    elif page == Paginas.PERFIL_AGENTE and agente_username:
         from app.components.agentes_ui import render_perfil_agente
         render_perfil_agente(agente_username, user=user)
-    elif page == "👤 Mi Perfil":
+    elif page == Paginas.MI_PERFIL:
         _username = user.get("username", "")
         from app.components.agentes_ui import render_perfil_agente
         render_perfil_agente(_username, user=user)
-    elif page == "📧 Bandeja de Cumplimiento":
+    elif page == Paginas.BANDEJA:
         if user.get("rol") not in {"admin", "compliance", "super_admin"}:
-            st.error("🚫 Acceso restringido. Este módulo requiere rol admin o compliance.")
+            st.error("Acceso restringido. Este módulo requiere rol admin o compliance.")
             st.stop()
         from app.components.email_ui import page_bandeja_cumplimiento
         page_bandeja_cumplimiento(user)
-    elif page == "👥 Gestión de Clientes":
+    elif page == Paginas.CLIENTES:
         _rol_actual = user.get("rol", "")
         if _rol_actual not in {"admin", "compliance", "super_admin", "comercial", "cic", "manager_comercial", "consulta"}:
-            st.error("🚫 Acceso Denegado al módulo de Gestión de Clientes.")
+            st.error("Acceso denegado al módulo de gestión de clientes.")
             st.stop()
         from app.components.clientes_ui import page_clientes
         page_clientes(user)

@@ -1337,343 +1337,125 @@ def _tab_monitor_operativo(user: dict) -> None:
     import altair as _alt
     from db.database import get_session
     from db.repositories.partner_repo import PartnerRepository
+    from app.components import ui_kit as ui
 
-    st.markdown(
-        '<h3 style="color:#5fe9d0;margin-bottom:4px">📊 Monitor Operativo de Rieles</h3>'
-        '<p style="color:#9ca3af;margin-top:0;margin-bottom:18px">'
-        'Capacidad comercial · Volumen financiero · Unidades de negocio</p>',
-        unsafe_allow_html=True,
-    )
+    ui.render(ui.section_header(
+        "Monitor operativo de rieles",
+        "Capacidad comercial \u00b7 Volumen financiero \u00b7 Unidades de negocio",
+        icon_name="chart",
+    ))
 
-    # ── Carga única de datos (fuente compartida para todos los componentes) ───
+    # \u2500\u2500 Carga \u00fanica de datos (fuente compartida para todos los componentes) \u2500\u2500\u2500
     with next(get_session()) as _s:
         _repo = PartnerRepository(_s)
         _filas = _repo.get_lista_enriquecida()
 
-    # ── KPIs Globales del Portafolio ─────────────────────────────────────────
-    _total_p    = len(_filas)
-    _activos_p  = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Activo")
-    _pct_act_p  =f"{round(_activos_p / _total_p * 100)}% del portafolio" if _total_p else ""
-
-    import plotly.graph_objects as _go
-
-    _KPI_S = (
-        "background:#0d1117;border:1px solid #1e2130;border-radius:12px;"
-        "padding:16px 20px;text-align:center;"
-    )
-
-    # Activos por empresa del grupo corporativo
-    _campos_empresas = [
-        ("estado_hbpocorp", "Holdings BPO",        "#3b82f6"),
-        ("estado_adamo",    "Adamo Services",       "#10b981"),
-        ("estado_paycop",   "PayCop International", "#f59e0b"),
-    ]
-    _labels_donut = []
-    _values_donut = []
-    _colors_donut = []
-    for _campo_e, _nombre_e, _color_e in _campos_empresas:
-        _n = sum(
-            1 for r in _filas
-            if (_idx(r, _campo_e) or "").strip() == "Activo"
-        )
-        _labels_donut.append(_nombre_e)
-        _values_donut.append(_n)
-        _colors_donut.append(_color_e)
-
-    # 2 cols: izquierda = ambas KPI cards apiladas; derecha = donut
-    _kp_left, _kp_chart = st.columns([1, 2])
-
-    with _kp_left:
-        st.markdown(
-            f'<div style="display:flex;flex-direction:column;gap:8px;">'
-            f'<div style="{_KPI_S}">'
-            f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
-            f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">'
-            f'Total Partners</div>'
-            f'<div style="color:#5fe9d0;font-size:2rem;font-weight:800;line-height:1;">'
-            f'{_total_p}</div>'
-            f'</div>'
-            f'<div style="{_KPI_S}">'
-            f'<div style="color:#6b7280;font-size:0.62rem;font-weight:700;'
-            f'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;">'
-            f'Partners Activos</div>'
-            f'<div style="color:#22c55e;font-size:2rem;font-weight:800;line-height:1;">'
-            f'{_activos_p}</div>'
-            f'<div style="color:#6b7280;font-size:0.72rem;margin-top:4px;">'
-            f'{_pct_act_p}</div>'
-            f'</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-    with _kp_chart:
-        _total_donut = sum(_values_donut)
-        if _total_donut > 0:
-            _fig_corp = _go.Figure(_go.Pie(
-                labels=_labels_donut,
-                values=_values_donut,
-                hole=0.62,
-                domain=dict(x=[0.0, 0.55], y=[0.0, 1.0]),
-                marker=dict(
-                    colors=_colors_donut,
-                    line=dict(color="#0d1117", width=3),
-                ),
-                textinfo="none",
-                hovertemplate=(
-                    "<b>%{label}</b><br>"
-                    "%{value} partners activos<br>"
-                    "%{percent}<extra></extra>"
-                ),
-                direction="clockwise",
-                sort=False,
-            ))
-            _fig_corp.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                showlegend=True,
-                legend=dict(
-                    font=dict(color="#9ca3af", size=11),
-                    bgcolor="rgba(0,0,0,0)",
-                    orientation="v",
-                    x=0.60, y=0.5,
-                    xanchor="left",
-                    yanchor="middle",
-                    itemclick=False,
-                    itemdoubleclick=False,
-                ),
-                margin=dict(t=12, b=12, l=12, r=12),
-                height=175,
-                annotations=[
-                    dict(
-                        text=f"<b>{_total_donut}</b>",
-                        font=dict(color="#f9fafb", size=26, family="Inter, sans-serif"),
-                        x=0.275, y=0.56,
-                        showarrow=False,
-                    ),
-                    dict(
-                        text="activos",
-                        font=dict(color="#6b7280", size=11, family="Inter, sans-serif"),
-                        x=0.275, y=0.38,
-                        showarrow=False,
-                    ),
-                ],
-            )
-            st.plotly_chart(
-                _fig_corp,
-                use_container_width=True,
-                config={"displayModeBar": False},
-            )
-        else:
-            st.markdown(
-                f'<div style="{_KPI_S};display:flex;align-items:center;'
-                f'justify-content:center;min-height:175px;">'
-                f'<div>'
-                f'<div style="color:#6b7280;font-size:0.72rem;text-align:center;">'
-                f'Participaci\u00f3n por Empresa</div>'
-                f'<div style="color:#4b5563;font-size:0.82rem;text-align:center;'
-                f'margin-top:6px;">Sin partners activos</div>'
-                f'</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-    st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
-
-    # ── Bloque: Relación con el Grupo Corporativo ─────────────────────────────
-    st.markdown(
-        '<p style="font-weight:600;color:#e2e8f0;margin-bottom:10px">'
-        '🏢 Relación con el Grupo Corporativo</p>',
-        unsafe_allow_html=True,
-    )
-
-    # Definición de entidades reales del Holding y su campo de estado en DB
-    _HOLDING_ENTITIES = [
+    # \u2500\u2500 Entidades del holding \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    _ENTIDADES = [
         {
-            "nombre":    "Holdings BPO",
-            "icono":     "💼",
-            "campo_db":  "estado_hbpocorp",
-            "badge":     "COMPLIANCE CORPORATIVO",
-            "badge_bg":  "#1d4ed8",
-            "badge_fg":  "#93c5fd",
+            "nombre":   "Holdings BPO",
+            "campo_db": "estado_hbpocorp",
+            "etiqueta": "Compliance corporativo",
+            "icono":    "bank",
+            "tono":     "info",
         },
         {
-            "nombre":    "Adamo Services",
-            "icono":     "🏦",
-            "campo_db":  "estado_adamo",
-            "badge":     "SERVICIOS TECNOLOGICOS",
-            "badge_bg":  "#065f46",
-            "badge_fg":  "#6ee7b7",
+            "nombre":   "Adamo Services",
+            "campo_db": "estado_adamo",
+            "etiqueta": "Servicios tecnol\u00f3gicos",
+            "icono":    "server",
+            "tono":     "teal",
         },
         {
-            "nombre":    "PayCop International",
-            "icono":     "💳",
-            "campo_db":  "estado_paycop",
-            "badge":     "PAGOS Y SOLUCIONES FINANCIERAS",
-            "badge_bg":  "#78350f",
-            "badge_fg":  "#fcd34d",
+            "nombre":   "PayCop International",
+            "campo_db": "estado_paycop",
+            "etiqueta": "Pagos y soluciones",
+            "icono":    "card",
+            "tono":     "warn",
         },
     ]
 
-    # Color de acento superior por entidad (glow sutil)
-    _GLOW_COLOR = ["#3b82f6", "#10b981", "#f59e0b"]
+    _INACTIVO = ("Inactivo", "Suspendido", "Terminado")
 
-    _corp_cols = st.columns(len(_HOLDING_ENTITIES))
+    def _reparto(campo: str) -> tuple[int, int, int]:
+        """Devuelve (activos, inactivos, sin_relacion) de una entidad."""
+        _a = _i = _s_ = 0
+        for _r in _filas:
+            _estado = (_idx(_r, campo) or "").strip()
+            if _estado == "Activo":
+                _a += 1
+            elif _estado in _INACTIVO:
+                _i += 1
+            else:
+                _s_ += 1
+        return _a, _i, _s_
 
-    for _col, _ent, _color in zip(_corp_cols, _HOLDING_ENTITIES, _GLOW_COLOR):
-        _campo = _ent["campo_db"]
+    _reparto_por_entidad = {e["campo_db"]: _reparto(e["campo_db"]) for e in _ENTIDADES}
 
-        _bbg       = _ent["badge_bg"]
-        _bfg       = _ent["badge_fg"]
-        _badge_txt = _ent["badge"]
-        _icono     = _ent["icono"]
-        _nombre    = _ent["nombre"]
+    # \u2500\u2500 Indicadores del portafolio \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    _total_p     = len(_filas)
+    _activos_p   = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Activo")
+    _inactivos_p = sum(1 for r in _filas if _idx(r, "estado_pipeline") in _INACTIVO)
+    _vinculos    = sum(v[2] for v in _reparto_por_entidad.values())
 
-        _activos   = [r for r in _filas if (_idx(r, _campo) or "").strip() == "Activo"]
-        _inactivos = [r for r in _filas if (_idx(r, _campo) or "").strip() in ("Inactivo", "Suspendido", "Terminado")]
-        _sin_rel   = [r for r in _filas if (_idx(r, _campo) or "").strip() not in ("Activo", "Inactivo", "Suspendido", "Terminado")]
+    def _pct_txt(n: int) -> str:
+        return f"{round(n / _total_p * 100)}% del total" if _total_p else "\u2014"
 
-        _n_act  = len(_activos)
-        _n_inac = len(_inactivos)
-        _n_sin  = len(_sin_rel)
-        _total  = _n_act + _n_inac + _n_sin
-        _pct    = round(_n_act / _total * 100) if _total else 0
+    ui.render(ui.kpi_grid([
+        ui.kpi("Total partners", _total_p, "en el portafolio"),
+        ui.kpi("Activos", _activos_p, _pct_txt(_activos_p), tone="ok"),
+        ui.kpi("Inactivos", _inactivos_p, _pct_txt(_inactivos_p), tone="warn"),
+        ui.kpi("Sin relaci\u00f3n", _vinculos, "v\u00ednculos por abrir", tone="muted"),
+    ]))
 
-        _circ  = 163.4
-        _f_a   = round((_n_act  / _total * _circ), 1) if _total else 0
-        _f_i   = round((_n_inac / _total * _circ), 1) if _total else 0
-        _off_a = round(_circ * 0.25, 1)
-        _off_i = round(_circ * 0.25 - _f_a, 1)
+    ui.render(ui.spacer(10))
 
-        _svg = (
-            f"<svg width='72' height='72' viewBox='0 0 72 72' xmlns='http://www.w3.org/2000/svg'>"
-            f"<circle cx='36' cy='36' r='26' fill='none' stroke='#1e2130' stroke-width='8'/>"
-            f"<circle cx='36' cy='36' r='26' fill='none' stroke='#22c55e' stroke-width='8'"
-            f" stroke-dasharray='{_f_a} {_circ - _f_a}' stroke-dashoffset='{_off_a}'"
-            f" transform='rotate(-90 36 36)' stroke-linecap='round'/>"
-            f"<circle cx='36' cy='36' r='26' fill='none' stroke='#ef4444' stroke-width='8' opacity='0.7'"
-            f" stroke-dasharray='{_f_i} {_circ - _f_i}' stroke-dashoffset='{_off_i}'"
-            f" transform='rotate(-90 36 36)' stroke-linecap='round'/>"
-            f"<text x='36' y='32' text-anchor='middle' fill='#f9fafb' font-size='12' font-weight='800'"
-            f" font-family='Inter,sans-serif'>{_pct}%</text>"
-            f"<text x='36' y='44' text-anchor='middle' fill='#6b7280' font-size='6' font-weight='600'"
-            f" font-family='Inter,sans-serif' letter-spacing='0.5'>ACTIVOS</text>"
-            f"</svg>"
+    # \u2500\u2500 Participaci\u00f3n por entidad: donut + leyenda \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    _activos_ent = [(e, _reparto_por_entidad[e["campo_db"]][0]) for e in _ENTIDADES]
+    _total_act   = sum(n for _, n in _activos_ent)
+
+    if _total_act > 0:
+        _donut = ui.donut(
+            [(n, e["tono"]) for e, n in _activos_ent],
+            _total_act,
+            "activos",
         )
-
-        def _build_rows(partners: list, e_color: str, icon: str) -> str:
-            if not partners:
-                return (
-                    "<div style='color:#4b5563;font-size:0.72rem;"
-                    "font-style:italic;padding:4px 0;'>Sin partners</div>"
-                )
-            html = ""
-            for _p in partners:
-                _nom = _idx(_p, "nombre_razon_social") or "\u2014"
-                _nom_short = (_nom[:18] + "\u2026") if len(_nom) > 18 else _nom
-                html += (
-                    f"<div style='display:flex;align-items:center;gap:5px;"
-                    f"padding:5px 6px;border-radius:6px;margin-bottom:2px;background:#0a0d14;'>"
-                    f"<span style='color:{e_color};font-size:0.6rem;'>{icon}</span>"
-                    f"<span style='color:#d1d5db;font-size:0.76rem;'>{_nom_short}</span>"
-                    f"</div>"
-                )
-            return html
-
-        _rows_act  = _build_rows(_activos,   "#22c55e", "\u25cf")
-        _rows_inac = _build_rows(_inactivos, "#ef4444", "\u25a0")
-        _rows_sin  = _build_rows(_sin_rel,   "#4b5563", "\u25cb")
-
-        _pa = round(_n_act  / _total * 100) if _total else 0
-        _pi = round(_n_inac / _total * 100) if _total else 0
-        _ps = 100 - _pa - _pi
-        _mini_bar = (
-            f"<div style='display:flex;height:3px;border-radius:99px;"
-            f"overflow:hidden;gap:1px;margin-bottom:12px;'>"
-            f"<div style='flex:{_pa};background:#22c55e;border-radius:99px;'></div>"
-            f"<div style='flex:{_pi};background:#ef4444;opacity:0.7;border-radius:99px;'></div>"
-            f"<div style='flex:{_ps};background:#1e2130;border-radius:99px;'></div>"
-            f"</div>"
-        ) if _total else ""
-
-        _label_badge = (
-            f"<span style='background:{_bbg}22;color:{_bfg};border:1px solid {_bfg}33;"
-            f"font-size:0.62rem;font-weight:700;letter-spacing:0.7px;border-radius:20px;"
-            f"padding:3px 10px;text-transform:uppercase;'>{_badge_txt}</span>"
+        _leyenda = "".join(
+            ui.legend_row(
+                e["nombre"],
+                f"{n} \u00b7 {round(n / _total_act * 100)}%",
+                n / _total_act * 100,
+                e["tono"],
+            )
+            for e, n in _activos_ent
         )
+        ui.render(ui.card(ui.split(_donut, _leyenda), titulo="Participaci\u00f3n por entidad"))
+    else:
+        ui.render(ui.card(
+            ui.empty_state(
+                "Ning\u00fan partner activo en las entidades del grupo",
+                "Activa la relaci\u00f3n desde la ficha de cada aliado.",
+            ),
+            titulo="Participaci\u00f3n por entidad",
+        ))
 
-        _col.markdown(
-            f"<div style='background:#0d1117;border:1px solid #1e2130;"
-            f"border-top:2px solid {_color};border-radius:12px;padding:16px 14px;"
-            f"box-shadow:0 4px 12px rgba(0,0,0,0.3);'>"
-            f"<div style='display:flex;justify-content:space-between;"
-            f"align-items:flex-start;margin-bottom:10px;'>"
-            f"<div style='font-size:0.88rem;font-weight:700;color:#f1f5f9;"
-            f"margin-bottom:5px;'>{_icono} {_nombre}</div>"
-            f"<div>{_svg}</div></div>"
-            f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;"
-            f"gap:6px;margin-bottom:10px;'>"
-            f"<div style='background:#0a0d14;border-radius:8px;padding:8px;"
-            f"border:1px solid #1e2130;text-align:center;'>"
-            f"<div style='color:#22c55e;font-size:1.3rem;font-weight:800;"
-            f"line-height:1;'>{_n_act}</div>"
-            f"<div style='color:#6b7280;font-size:0.55rem;margin-top:2px;"
-            f"letter-spacing:0.8px;font-weight:600;'>ACTIVOS</div></div>"
-            f"<div style='background:#0a0d14;border-radius:8px;padding:8px;"
-            f"border:1px solid #1e2130;text-align:center;'>"
-            f"<div style='color:#ef4444;font-size:1.3rem;font-weight:800;"
-            f"line-height:1;'>{_n_inac}</div>"
-            f"<div style='color:#6b7280;font-size:0.55rem;margin-top:2px;"
-            f"letter-spacing:0.8px;font-weight:600;'>INACTIVOS</div></div>"
-            f"<div style='background:#0a0d14;border-radius:8px;padding:8px;"
-            f"border:1px solid #1e2130;text-align:center;'>"
-            f"<div style='color:#4b5563;font-size:1.3rem;font-weight:800;"
-            f"line-height:1;'>{_n_sin}</div>"
-            f"<div style='color:#6b7280;font-size:0.55rem;margin-top:2px;"
-            f"letter-spacing:0.8px;font-weight:600;'>SIN REL.</div></div>"
-            f"</div>"
-            f"{_mini_bar}"
-            f"<div style='display:flex;gap:10px;margin-bottom:12px;'>"
-            f"<span style='display:flex;align-items:center;gap:4px;"
-            f"color:#6b7280;font-size:0.62rem;'>"
-            f"<span style='width:6px;height:6px;border-radius:50%;"
-            f"background:#22c55e;display:inline-block;'></span>Activos</span>"
-            f"<span style='display:flex;align-items:center;gap:4px;"
-            f"color:#6b7280;font-size:0.62rem;'>"
-            f"<span style='width:6px;height:6px;border-radius:50%;"
-            f"background:#ef4444;display:inline-block;opacity:0.7;'></span>Inactivos</span>"
-            f"<span style='display:flex;align-items:center;gap:4px;"
-            f"color:#6b7280;font-size:0.62rem;'>"
-            f"<span style='width:6px;height:6px;border-radius:50%;"
-            f"background:#1e2130;display:inline-block;'></span>Sin rel.</span>"
-            f"</div>"
-            f"<div style='border-top:1px solid #1e2130;padding-top:10px;'>"
-            f"<div style='margin-bottom:8px;'>"
-            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:5px;'>"
-            f"<span style='width:5px;height:5px;border-radius:50%;"
-            f"background:#22c55e;display:inline-block;'></span>"
-            f"<span style='color:#22c55e;font-size:0.60rem;font-weight:700;"
-            f"letter-spacing:0.8px;text-transform:uppercase;'>"
-            f"Activos ({_n_act})</span></div>{_rows_act}</div>"
-            f"<div style='margin-bottom:8px;'>"
-            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:5px;'>"
-            f"<span style='width:5px;height:5px;border-radius:50%;"
-            f"background:#ef4444;display:inline-block;opacity:0.7;'></span>"
-            f"<span style='color:#ef4444;font-size:0.60rem;font-weight:700;"
-            f"letter-spacing:0.8px;text-transform:uppercase;'>"
-            f"Inactivos ({_n_inac})</span></div>{_rows_inac}</div>"
-            f"<div>"
-            f"<div style='display:flex;align-items:center;gap:5px;margin-bottom:5px;'>"
-            f"<span style='width:5px;height:5px;border-radius:50%;"
-            f"background:#4b5563;display:inline-block;'></span>"
-            f"<span style='color:#4b5563;font-size:0.60rem;font-weight:700;"
-            f"letter-spacing:0.8px;text-transform:uppercase;'>"
-            f"Sin Relaci\u00f3n ({_n_sin})</span></div>{_rows_sin}</div>"
-            f"</div>"
-            f"<div style='margin-top:12px;border-top:1px solid #1e2130;"
-            f"padding-top:10px;'>{_label_badge}</div>"
-            f"</div>",
-            unsafe_allow_html=True,
+    # \u2500\u2500 Relaci\u00f3n con el grupo corporativo \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    ui.render(ui.subsection("Relaci\u00f3n con el grupo corporativo", icon_name="building"))
+
+    ui.render(ui.grid([
+        ui.entity_card(
+            nombre=_e["nombre"],
+            etiqueta=_e["etiqueta"],
+            icon_name=_e["icono"],
+            activos=_reparto_por_entidad[_e["campo_db"]][0],
+            inactivos=_reparto_por_entidad[_e["campo_db"]][1],
+            sin_relacion=_reparto_por_entidad[_e["campo_db"]][2],
+            total_portafolio=_total_p,
+            acento=_e["tono"],
+            badge_tone=_e["tono"],
         )
+        for _e in _ENTIDADES
+    ]))
 
     st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
 
