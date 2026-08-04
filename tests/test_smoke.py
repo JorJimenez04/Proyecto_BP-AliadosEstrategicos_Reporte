@@ -91,19 +91,68 @@ def test_paginas_del_router_existen() -> None:
 
 
 # ── 3. Matriz de permisos ────────────────────────────────────
-def test_rol_cic_replica_a_comercial() -> None:
-    """'cic' debe pertenecer exactamente a los mismos conjuntos que 'comercial'."""
+# Divergencias deliberadas entre 'cic' y su línea base 'comercial'.
+# Mantener sincronizado con DIVERGENCIAS en scripts/verify_cic_parity.py
+_DIVERGENCIAS_CIC = {"CAN_VIEW_AGENTES"}
+
+
+def test_rol_cic_sigue_la_linea_base_de_comercial() -> None:
+    """
+    'cic' nació como clon de 'comercial'. Solo puede separarse donde esté declarado.
+
+    El test falla en los dos sentidos: divergencia no declarada, y divergencia
+    declarada que ya no existe (para que la lista no acumule entradas muertas).
+    """
     from config.settings import Roles
 
-    excluir = {"CARPETAS_COMERCIAL", "CARPETAS_LEGAL", "CARPETAS_OPS"}
+    excluir = {"CARPETAS_COMERCIAL", "CARPETAS_LEGAL", "CARPETAS_OPS", "CARPETAS_CIC"}
     conjuntos = {
         n: v for n, v in vars(Roles).items()
         if isinstance(v, frozenset) and n not in excluir
     }
     assert conjuntos, "No se encontraron conjuntos de permiso en Roles"
 
-    divergencias = [n for n, c in conjuntos.items() if ("cic" in c) != ("comercial" in c)]
-    assert not divergencias, f"cic y comercial divergen en: {divergencias}"
+    difieren = {n for n, c in conjuntos.items() if ("cic" in c) != ("comercial" in c)}
+
+    sin_declarar = difieren - _DIVERGENCIAS_CIC
+    assert not sin_declarar, f"Divergencias sin declarar: {sorted(sin_declarar)}"
+
+    obsoletas = _DIVERGENCIAS_CIC - difieren
+    assert not obsoletas, f"Divergencias declaradas que ya no existen: {sorted(obsoletas)}"
+
+
+def test_cic_ve_agentes_pero_no_los_edita() -> None:
+    from config.settings import Roles
+
+    assert "cic" in Roles.CAN_VIEW_AGENTES
+    assert "cic" not in Roles.CAN_EDIT_AGENTES
+
+
+def test_cic_tiene_carpetas_acotadas() -> None:
+    """
+    'cic' debe tener su propio conjunto de carpetas.
+
+    Sin él caía en el 'else' de compliance_ui y veía TODAS las carpetas,
+    más incluso que manager_comercial.
+    """
+    from config.settings import Roles
+
+    assert Roles.CARPETAS_CIC, "Falta Roles.CARPETAS_CIC"
+    for prohibida in ("Politicas", "Governanza", "Matrices"):
+        assert prohibida not in Roles.CARPETAS_CIC, (
+            f"'{prohibida}' es documentación de compliance; no debe verla cic"
+        )
+
+
+def test_compliance_ui_ramifica_por_cic() -> None:
+    """El filtro de carpetas debe contemplar cic explícitamente, no por defecto."""
+    import inspect
+    from app.components import compliance_ui
+
+    fuente = inspect.getsource(compliance_ui)
+    assert "Roles.CARPETAS_CIC" in fuente, (
+        "compliance_ui no usa CARPETAS_CIC: cic volvería a ver todas las carpetas"
+    )
 
 
 def test_roles_canonicos_declarados() -> None:

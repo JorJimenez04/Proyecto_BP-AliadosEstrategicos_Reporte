@@ -182,8 +182,12 @@ class Roles:
     })
 
     # Gestión de Agentes — ver equipos completos
+    # 'cic' entra en solo lectura: necesita conocer la operación, pero no
+    # edita colaboradores (no está en CAN_EDIT_AGENTES).
+    # Es una divergencia deliberada respecto al rol legacy 'comercial'.
     CAN_VIEW_AGENTES = frozenset({
         "super_admin", "admin", "compliance", "manager_ops",
+        "cic",
     })
 
     # Gestión de Agentes — editar/crear colaboradores
@@ -214,6 +218,14 @@ class Roles:
     CARPETAS_OPS = frozenset({
         "Empresariales", "Contratos", "Actas y Formatos",
         "Capacitacion", "Onboarding",
+    })
+    # Carpetas operativas para 'cic'. Excluye deliberadamente:
+    #   Politicas, Governanza, Matrices  → documentación de compliance y junta
+    # Para ampliar o recortar el acceso, editar solo este conjunto.
+    CARPETAS_CIC = frozenset({
+        "Empresariales", "Contratos", "Actas y Formatos",
+        "Onboarding", "Capacitacion",
+        "Procesos y Procedimientos", "Manuales", "Tecnologia",
     })
 
     # Gestión de usuarios del sistema

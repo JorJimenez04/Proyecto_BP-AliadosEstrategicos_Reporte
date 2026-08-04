@@ -45,6 +45,20 @@
 | 👤 Mi Perfil | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 | 🏢 Equipos Operativos (sidebar) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 
+### Módulos visibles para `cic`
+
+| Módulo | `cic` | Nota |
+|--------|:---:|------|
+| Infraestructura Financiera | ✅ | Ver, crear y editar partners · registrar KPIs |
+| Centro Documental | ✅ | Solo lectura, carpetas acotadas (ver sección 4.1) |
+| Gestión de Clientes | ✅ | |
+| Gestión de Agentes | ✅ | **Solo lectura** — no crea ni edita colaboradores |
+| Equipos Operativos (sidebar) | ✅ | Deriva de `CAN_VIEW_AGENTES` |
+| Log de Auditoría | ❌ | Expone la actividad de todos los usuarios |
+| Screening de Cumplimiento | ❌ | Compliance |
+| Cripto Compliance | ❌ | Compliance |
+| Bandeja de Cumplimiento | ❌ | Compliance |
+
 ---
 
 ## 3. Permisos Detallados por Acción
@@ -139,20 +153,44 @@ El rol `cic` (Comercial Inteligencia Comercial) se creó como **clon exacto** de
 | `CAN_CREATE_PARTNERS` | ✅ | ✅ |
 | `CAN_REGISTER_KPIS` | ✅ | ✅ |
 | `CAN_VIEW_DOCS` | ✅ | ✅ |
+| `CAN_VIEW_AGENTES` | ❌ | ✅ **(divergencia)** |
 | `CAN_DELETE_PARTNERS` | ❌ | ❌ |
 | `CAN_EDIT_SARLAFT` | ❌ | ❌ |
 | `CAN_EDIT_COMPLIANCE` | ❌ | ❌ |
 | `CAN_EDIT_JURISDICTIONS` | ❌ | ❌ |
 | `CAN_VIEW_AUDIT` | ❌ | ❌ |
-| `CAN_VIEW_AGENTES` | ❌ | ❌ |
+| `CAN_EDIT_AGENTES` | ❌ | ❌ |
 | `CAN_EDIT_DOCS` | ❌ | ❌ |
 | `CAN_VIEW_CRYPTO` | ❌ | ❌ |
 | `CAN_MANAGE_USERS` | ❌ | ❌ |
 | Gestión de Clientes (sidebar + router) | ✅ | ✅ |
 
-> ⚠️ Al modificar los permisos de `comercial`, replicar el cambio en `cic` (o viceversa)
-> mientras ambos roles deban mantener paridad. La verificación automática está en
-> `scripts/verify_cic_parity.py`.
+### Divergencias deliberadas
+
+| Conjunto | Motivo |
+|----------|--------|
+| `CAN_VIEW_AGENTES` | CIC necesita conocer la operación y los equipos. Acceso de **solo lectura**: no está en `CAN_EDIT_AGENTES`. |
+
+Al separar `cic` de `comercial`, registrar la diferencia en tres sitios:
+`DIVERGENCIAS` de `scripts/verify_cic_parity.py`, `_DIVERGENCIAS_CIC` de
+`tests/test_smoke.py` y esta tabla. El script y el test fallan si una divergencia
+no está declarada, y también si una declarada dejó de existir.
+
+### Carpetas del Centro Documental
+
+`cic` tiene conjunto propio (`Roles.CARPETAS_CIC`). Antes caía en el `else` de
+`compliance_ui.py` y veía **todas** las carpetas, más que `manager_comercial`.
+
+| Rol | Carpetas visibles |
+|-----|-------------------|
+| `cic` | Empresariales · Contratos · Actas y Formatos · Onboarding · Capacitacion · Procesos y Procedimientos · Manuales · Tecnologia |
+| `manager_comercial` | Empresariales |
+| `manager_legal` | Empresariales · Contratos · Actas y Formatos · Governanza |
+| `manager_ops` | Empresariales · Contratos · Actas y Formatos · Capacitacion · Onboarding |
+
+Excluidas para `cic`: **Politicas**, **Governanza** y **Matrices** — documentación
+de compliance y junta directiva. Para ampliar o recortar, editar únicamente
+`Roles.CARPETAS_CIC` en `config/settings.py`.
 
 **Migración:** `db/migrations/034_rol_cic.sql` · **Seed:** `scripts/create_cic_sergio.py`
 
