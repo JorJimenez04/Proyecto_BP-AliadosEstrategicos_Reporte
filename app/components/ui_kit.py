@@ -190,18 +190,28 @@ def kpi_grid(tarjetas: Sequence[str], min_ancho: int = 120) -> str:
 
 
 # ── Badges y píldoras ────────────────────────────────────────
+# Tinte tenue del propio tono + texto claro del mismo tono.
+# La interfaz es oscura: un fondo claro convierte el badge en lo más brillante
+# del bloque y se come la jerarquía del dato principal.
 _BADGE_TONES: dict[str, tuple[str, str]] = {
-    "info":    ("#e6f1fb", "#0c447c"),
-    "teal":    ("#e1f5ee", "#04342c"),
-    "ok":      ("#eaf3de", "#173404"),
-    "warn":    ("#faeeda", "#412402"),
-    "danger":  ("#fcebeb", "#501313"),
-    "muted":   ("#2a2f42", "#9ca3af"),
-    "primary": ("#eeedfe", "#26215c"),
+    "info":    ("rgba(55,138,221,0.14)",  "#85b7eb"),
+    "teal":    ("rgba(29,158,117,0.14)",  "#5dcaa5"),
+    "ok":      ("rgba(34,197,94,0.14)",   "#86efac"),
+    "warn":    ("rgba(245,158,11,0.14)",  "#fac775"),
+    "danger":  ("rgba(239,68,68,0.14)",   "#f09595"),
+    "primary": ("rgba(120,87,255,0.14)",  "#afa9ec"),
+    "muted":   ("rgba(148,163,184,0.10)", "#9ca3af"),
 }
 
 
 def badge(texto: str, tone: str = "muted") -> str:
+    """
+    Píldora de metadato.
+
+    Para texto puramente descriptivo bajo un título, preferir un subtítulo
+    apagado: el badge llama la atención y solo debe usarse cuando el valor
+    cambia (un estado, un conteo), no cuando es una etiqueta fija.
+    """
     bg, fg = _BADGE_TONES.get(tone, _BADGE_TONES["muted"])
     return (
         f'<span style="display:inline-block;font-size:11px;background:{bg};color:{fg};'
@@ -351,6 +361,14 @@ def empty_state(mensaje: str, detalle: str = "", icon_name: str = "search") -> s
 
 
 # ── Tarjeta de entidad del grupo ─────────────────────────────
+def _conteo_leyenda(valor: int, color: str) -> str:
+    return (
+        f'<span style="display:inline-flex;align-items:center">'
+        f'<span style="display:inline-block;width:6px;height:6px;border-radius:2px;'
+        f'background:{tone_color(color)};margin-right:5px"></span>{valor}</span>'
+    )
+
+
 def entity_card(
     nombre: str,
     etiqueta: str,
@@ -360,32 +378,60 @@ def entity_card(
     sin_relacion: int,
     total_portafolio: int,
     acento: str = "info",
-    badge_tone: str = "info",
+    badge_tone: str = "info",   # conservado por compatibilidad; ya no se usa
 ) -> str:
-    """Tarjeta de una empresa del holding con su reparto de partners."""
+    """
+    Tarjeta de una empresa del holding con su reparto de partners.
+
+    El descriptor va como subtítulo apagado, no como badge: es una etiqueta fija
+    y en píldora se llevaba la atención por delante del número.
+
+    Cuando la entidad no tiene ningún partner activo, la tarjeta se apaga entera
+    — el color de marca prometía una actividad que no existe.
+    """
     total = activos + inactivos + sin_relacion
     apagado = activos == 0
-    color_acento = "muted" if apagado else acento
-    color_num = FG_MUTED if apagado else FG
+
+    color_acento = tone_color("muted") if apagado else tone_color(acento)
+    color_nombre = FG_SUBTLE if apagado else FG
+    color_num    = "#4b5563" if apagado else FG
+    color_pct    = "#4b5563" if apagado else color_acento
+    pct_activos  = round(_pct(activos, total_portafolio)) if total_portafolio else 0
 
     segmentos = [
         (_pct(activos, total), "ok"),
         (_pct(inactivos, total), "warn"),
-        (_pct(sin_relacion, total), "muted"),
     ]
     return (
         f'<div style="background:{CARD};border-radius:{RADIUS};'
-        f'border-top:2px solid {tone_color(color_acento)};padding:16px">'
-        f'<div style="display:flex;align-items:center;gap:8px">'
-        f'<span style="color:{tone_color(color_acento)};display:inline-flex">{icon(icon_name, 16)}</span>'
-        f'<span style="font-size:13px;font-weight:500;color:{FG}">{nombre}</span></div>'
-        f'<div style="margin-top:8px">{badge(etiqueta, "muted" if apagado else badge_tone)}</div>'
-        f'<div style="display:flex;align-items:baseline;gap:6px;margin-top:14px">'
-        f'<span style="font-size:28px;font-weight:500;color:{color_num};line-height:1">{activos}</span>'
-        f'<span style="font-size:12px;color:{FG_MUTED}">de {total_portafolio} activos</span></div>'
-        f'<div style="margin-top:10px">{stacked_bar(segmentos)}</div>'
+        f'border-top:2px solid {color_acento};padding:16px">'
+
+        # Identidad: icono + nombre con descriptor debajo
+        f'<div style="display:flex;align-items:flex-start;gap:9px">'
+        f'<span style="color:{color_acento};display:inline-flex;margin-top:1px">'
+        f'{icon(icon_name, 17)}</span>'
+        f'<div style="min-width:0">'
+        f'<div style="font-size:13px;font-weight:500;color:{color_nombre};line-height:1.3">{nombre}</div>'
+        f'<div style="font-size:11px;color:{FG_MUTED};margin-top:1px">{etiqueta}</div>'
+        f'</div></div>'
+
+        # Cifra protagonista + porcentaje como segundo anclaje
+        f'<div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:16px">'
+        f'<div style="display:flex;align-items:baseline;gap:6px">'
+        f'<span style="font-size:30px;font-weight:500;color:{color_num};line-height:1">{activos}</span>'
+        f'<span style="font-size:12px;color:{FG_MUTED}">de {total_portafolio}</span></div>'
+        f'<div style="text-align:right">'
+        f'<div style="font-size:15px;font-weight:500;color:{color_pct};line-height:1">{pct_activos}%</div>'
+        f'<div style="font-size:11px;color:{FG_MUTED};margin-top:2px">activos</div>'
+        f'</div></div>'
+
+        f'<div style="margin-top:12px">{stacked_bar(segmentos)}</div>'
+
+        # Desglose: el significado de cada color ya lo da la barra
         f'<div style="display:flex;justify-content:space-between;font-size:11px;'
-        f'color:{FG_MUTED};margin-top:7px">'
-        f'<span>{activos} activos</span><span>{inactivos} inactivos</span>'
-        f'<span>{sin_relacion} sin rel.</span></div></div>'
+        f'color:{FG_MUTED};margin-top:8px">'
+        f'{_conteo_leyenda(activos, "muted" if apagado else "ok")}'
+        f'{_conteo_leyenda(inactivos, "muted" if inactivos == 0 else "warn")}'
+        f'{_conteo_leyenda(sin_relacion, "muted")}'
+        f'</div></div>'
     )

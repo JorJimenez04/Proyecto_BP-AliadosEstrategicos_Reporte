@@ -273,6 +273,41 @@ def test_ui_kit_no_escribe_colores_a_mano_en_componentes() -> None:
     assert ui.tone_color("#abcdef") == "#abcdef"
 
 
+def test_ui_kit_badges_son_de_tema_oscuro() -> None:
+    """
+    Ningún badge puede llevar fondo claro.
+
+    La interfaz es oscura: un fondo pálido convierte la píldora en lo más
+    brillante del bloque y tapa el dato principal. Los tintes van en rgba
+    de baja opacidad sobre el propio color.
+    """
+    from app.components import ui_kit as ui
+
+    for tono, (fondo, texto) in ui._BADGE_TONES.items():
+        assert fondo.startswith("rgba("), f"'{tono}' usa fondo sólido: {fondo}"
+        assert texto.startswith("#"), f"'{tono}' sin color de texto explícito"
+
+
+def test_entity_card_se_apaga_sin_activos() -> None:
+    """Una entidad con 0 activos no debe lucir el color de marca."""
+    from app.components import ui_kit as ui
+
+    viva = ui.entity_card("Holdings BPO", "Compliance corporativo", "bank",
+                          activos=4, inactivos=3, sin_relacion=2,
+                          total_portafolio=9, acento="info")
+    apagada = ui.entity_card("PayCop", "Pagos y soluciones", "card",
+                             activos=0, inactivos=0, sin_relacion=9,
+                             total_portafolio=9, acento="warn")
+
+    assert "44%" in viva
+    assert "0%" in apagada
+    # El descriptor va como subtítulo, nunca como píldora
+    assert "Compliance corporativo" in viva
+    assert "border-radius:4px" not in viva, "el descriptor volvió a ser badge"
+    # La tarjeta apagada no debe pintar el tono de riesgo medio de su acento
+    assert ui.tone_color("warn") not in apagada
+
+
 def test_ui_kit_iconos_conocidos_y_desconocidos() -> None:
     from app.components import ui_kit as ui
 
