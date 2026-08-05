@@ -16,7 +16,9 @@ import os
 
 os.environ.setdefault("DATABASE_URL", "postgresql://smoke:smoke@localhost:5432/smoke")
 
-from app.components.jurisdicciones_ui import _COLOR_CAPA, _MICRO
+from app.components.jurisdicciones_ui import (
+    _COLOR_CAPA, _COLOR_NEUTRO, _COLOR_OPERA, _MICRO,
+)
 from config import listas_riesgo as lr
 from config import paises
 
@@ -69,3 +71,32 @@ def test_cada_capa_tiene_color_asignado() -> None:
 def test_los_colores_de_capa_son_distinguibles() -> None:
     usados = [_COLOR_CAPA[c] for c in lr.capas()]
     assert len(set(usados)) == len(usados), "dos capas comparten color"
+
+
+def test_todas_las_categorias_del_mapa_tienen_color_propio() -> None:
+    """
+    Incluidas las dos que no son capas de riesgo: donde se opera sin
+    señalamiento y el resto del catálogo.
+    """
+    todos = [_COLOR_CAPA[c] for c in lr.capas()] + [_COLOR_OPERA, _COLOR_NEUTRO]
+    assert len(set(todos)) == len(todos), "dos categorías del mapa comparten color"
+
+
+def test_todo_pais_del_catalogo_cae_en_alguna_categoria() -> None:
+    """
+    Ningún país puede quedar sin clasificar.
+
+    Antes solo se pintaban los señalados y aquellos donde se opera; el resto
+    quedaba del color del fondo, indistinguible de 'no hay datos'. Ahora el
+    catálogo entero se reparte entre las categorías.
+    """
+    señalados = lr.paises_senalados()
+    catalogo = set(paises.POR_ISO3)
+
+    # Los señalados deben existir en el catálogo…
+    assert señalados <= catalogo, f"señalados fuera del catálogo: {señalados - catalogo}"
+
+    # …y el resto forma la categoría neutra, sin dejar huecos.
+    resto = catalogo - señalados
+    assert resto, "el catálogo no puede estar compuesto solo por países señalados"
+    assert len(señalados) + len(resto) == len(catalogo)

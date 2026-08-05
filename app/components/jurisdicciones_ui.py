@@ -28,6 +28,10 @@ _COLOR_CAPA: dict[str, str] = {
     "politica_interna": "#a78bfa",
 }
 _COLOR_OPERA = "#1d9e75"
+# Resto del mundo: sin señalamiento y sin operación propia. Se pinta de forma
+# explícita en vez de dejarlo como fondo, para que cada país del catálogo tenga
+# color asignado, entrada en la leyenda y respuesta al pasar el cursor.
+_COLOR_NEUTRO = "#39405a"
 _COLOR_TIERRA = "#232735"
 _COLOR_FONDO = "#0d0e14"
 
@@ -92,6 +96,23 @@ def _mapa(exposicion: dict[str, int]) -> None:
     opera_limpio = sorted(set(exposicion) - señalados)
 
     trazas = []
+
+    # Capa base: todo el catálogo. Las siguientes trazas se pintan encima, así
+    # que un país señalado o con operación propia queda cubierto por su color.
+    # Plotly ignora los códigos que su geometría no reconoce.
+    resto = sorted(set(paises.POR_ISO3) - señalados - set(opera_limpio))
+    trazas.append(go.Choropleth(
+        locations=resto,
+        z=[1] * len(resto),
+        locationmode="ISO-3",
+        colorscale=[[0, _COLOR_NEUTRO], [1, _COLOR_NEUTRO]],
+        showscale=False,
+        name="Sin señalamiento",
+        showlegend=True,
+        marker=dict(line=dict(color=_COLOR_FONDO, width=0.4)),
+        hovertemplate="<b>%{text}</b><br>Sin señalamiento vigente<extra></extra>",
+        text=[paises.nombre(i) for i in resto],
+    ))
 
     # Países donde se opera sin señalamiento: al fondo, para que cualquier
     # capa de riesgo los pise si coinciden.
@@ -167,6 +188,24 @@ def _mapa(exposicion: dict[str, int]) -> None:
             showlegend=False,
             hovertemplate="<b>%{text}</b><br>Sin señalamiento<extra></extra>",
             text=[paises.nombre(i) for i in micro_limpio],
+        ))
+
+    # Micro-jurisdicciones sin señalamiento: punto más pequeño y apagado, para
+    # que el catálogo quede completo sin competir con lo que sí importa.
+    micro_neutro = sorted(set(resto) & set(_MICRO))
+    if micro_neutro:
+        trazas.append(go.Scattergeo(
+            lon=[_MICRO[i][1] for i in micro_neutro],
+            lat=[_MICRO[i][0] for i in micro_neutro],
+            mode="markers",
+            marker=dict(
+                size=5, color=_COLOR_NEUTRO,
+                line=dict(color=_COLOR_FONDO, width=1),
+            ),
+            name="Sin señalamiento",
+            showlegend=False,
+            hovertemplate="<b>%{text}</b><br>Sin señalamiento vigente<extra></extra>",
+            text=[paises.nombre(i) for i in micro_neutro],
         ))
 
     fig = go.Figure(trazas)
@@ -279,8 +318,8 @@ def page_mapa_jurisdicciones(user: dict) -> None:
         ui.render(
             f'<div style="font-size:11px;color:var(--fg-muted,#6b7280);'
             f'text-align:center;margin-top:-6px">'
-            f'Los puntos marcan jurisdicciones demasiado pequeñas para colorear: '
-            f'{", ".join(paises.nombre(i) for i in _invisibles)}.</div>'
+            f'Los puntos marcan jurisdicciones demasiado pequeñas para colorear. '
+            f'Señaladas: {", ".join(paises.nombre(i) for i in _invisibles)}.</div>'
         )
 
     # ── Detalle por país ──────────────────────────────────────
