@@ -31,6 +31,36 @@ _COLOR_OPERA = "#1d9e75"
 _COLOR_TIERRA = "#232735"
 _COLOR_FONDO = "#0d0e14"
 
+# Jurisdicciones demasiado pequeñas para verse en un mapa mundial.
+# Es una ironía del oficio: los centros financieros offshore y los
+# microestados son precisamente los que más importan en compliance, y
+# precisamente los que el relleno por país no llega a dibujar. Se marcan
+# con un punto sobre su posición.
+_MICRO: dict[str, tuple[float, float]] = {
+    # Caribe
+    "CYM": (19.31, -81.25),   "BHS": (25.03, -77.40),
+    "BMU": (32.32, -64.76),   "VGB": (18.42, -64.64),
+    "ABW": (12.52, -69.97),   "BRB": (13.19, -59.54),
+    "JAM": (18.11, -77.30),   "TCA": (21.69, -71.80),
+    "ATG": (17.06, -61.80),   "KNA": (17.36, -62.78),
+    "LCA": (13.91, -60.98),   "VCT": (13.25, -61.20),
+    "GRD": (12.12, -61.68),   "DMA": (15.41, -61.37),
+    "CUW": (12.17, -68.99),   "SXM": (18.04, -63.06),
+    "AIA": (18.22, -63.07),   "MSR": (16.74, -62.19),
+    # Europa
+    "MCO": (43.73, 7.42),     "AND": (42.51, 1.52),
+    "LIE": (47.17, 9.55),     "SMR": (43.94, 12.46),
+    "VAT": (41.90, 12.45),    "MLT": (35.94, 14.38),
+    "GIB": (36.14, -5.35),    "JEY": (49.21, -2.13),
+    "GGY": (49.46, -2.58),    "IMN": (54.24, -4.55),
+    # Otras
+    "SGP": (1.35, 103.82),    "HKG": (22.32, 114.17),
+    "MAC": (22.20, 113.54),   "MUS": (-20.35, 57.55),
+    "SYC": (-4.68, 55.49),    "MDV": (3.20, 73.22),
+    "BHR": (26.07, 50.56),    "LBN": (33.85, 35.86),
+    "KWT": (29.31, 47.48),    "HTI": (18.97, -72.29),
+}
+
 
 def _exposicion_por_iso(filas: list[dict]) -> dict[str, int]:
     """Cuántos registros propios operan en cada país, por código ISO."""
@@ -100,6 +130,43 @@ def _mapa(exposicion: dict[str, int]) -> None:
             marker=dict(line=dict(color=_COLOR_FONDO, width=0.5)),
             customdata=[e.split("|") for e in etiquetas],
             hovertemplate="<b>%{customdata[0]}</b><br>%{customdata[1]}<extra></extra>",
+        ))
+
+    # Marcadores para lo que el relleno no alcanza a dibujar
+    for clave, capa in lr.capas().items():
+        micro = sorted(capa.paises & set(_MICRO))
+        if not micro:
+            continue
+        trazas.append(go.Scattergeo(
+            lon=[_MICRO[i][1] for i in micro],
+            lat=[_MICRO[i][0] for i in micro],
+            mode="markers",
+            marker=dict(
+                size=9,
+                color=_COLOR_CAPA.get(clave, "#6b7280"),
+                line=dict(color=_COLOR_FONDO, width=1.5),
+                symbol="circle",
+            ),
+            name=capa.etiqueta,
+            showlegend=False,          # ya aparece por la traza del relleno
+            hovertemplate="<b>%{text}</b><br>" + capa.etiqueta + "<extra></extra>",
+            text=[paises.nombre(i) for i in micro],
+        ))
+
+    micro_limpio = sorted(set(opera_limpio) & set(_MICRO))
+    if micro_limpio:
+        trazas.append(go.Scattergeo(
+            lon=[_MICRO[i][1] for i in micro_limpio],
+            lat=[_MICRO[i][0] for i in micro_limpio],
+            mode="markers",
+            marker=dict(
+                size=9, color=_COLOR_OPERA,
+                line=dict(color=_COLOR_FONDO, width=1.5),
+            ),
+            name="Opera sin señalamiento",
+            showlegend=False,
+            hovertemplate="<b>%{text}</b><br>Sin señalamiento<extra></extra>",
+            text=[paises.nombre(i) for i in micro_limpio],
         ))
 
     fig = go.Figure(trazas)
@@ -206,6 +273,15 @@ def page_mapa_jurisdicciones(user: dict) -> None:
 
     ui.render(ui.spacer(10))
     _mapa(exposicion)
+
+    _invisibles = sorted(señalados & set(_MICRO))
+    if _invisibles:
+        ui.render(
+            f'<div style="font-size:11px;color:var(--fg-muted,#6b7280);'
+            f'text-align:center;margin-top:-6px">'
+            f'Los puntos marcan jurisdicciones demasiado pequeñas para colorear: '
+            f'{", ".join(paises.nombre(i) for i in _invisibles)}.</div>'
+        )
 
     # ── Detalle por país ──────────────────────────────────────
     ui.render(ui.subsection("Consultar jurisdicción", icon_name="search"))
