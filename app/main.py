@@ -38,16 +38,36 @@ class Paginas:
     y cambiar uno sin el otro dejaba la página inalcanzable.
     """
     ALIANZAS    = "Infraestructura Financiera"
-    AUDITORIA   = "Log de Auditoría"
-    SCREENING   = "Screening de Cumplimiento"
-    AGENTES     = "Gestión de Agentes"
+    COMPLIANCE  = "Compliance"
     DOCUMENTAL  = "Centro Documental"
-    CRIPTO      = "Cripto Compliance"
-    BANDEJA     = "Bandeja de Cumplimiento"
     CLIENTES    = "Gestión de Clientes"
+    AGENTES     = "Gestión de Agentes"
+    AUDITORIA   = "Log de Auditoría"
     MI_PERFIL   = "Mi Perfil"
     PERFIL_AGENTE = "Perfil de Agente"
     SIN_ACCESO  = "Sin acceso"
+
+
+# ── Módulo Compliance ─────────────────────────────────────────
+# Screening, Cripto y Bandeja comparten exactamente el mismo permiso, así que
+# agruparlos no deja a nadie ante pestañas que no puede abrir.
+#
+# Centro Documental queda fuera a propósito: lo consultan también CIC, los
+# managers y consulta. Meterlo aquí obligaría a esos roles a entrar en un
+# módulo llamado 'Compliance' para ver una sola pestaña, dando a entender que
+# les falta acceso al resto. Es un repositorio compartido, no una herramienta
+# de cumplimiento; que su código viva en compliance_ui.py es herencia, no razón.
+ROLES_COMPLIANCE = {"admin", "compliance", "super_admin"}
+
+
+class TabsCompliance:
+    """Pestañas del módulo, en orden de aparición."""
+    MAPA      = "Mapa de jurisdicciones"
+    SCREENING = "Screening"
+    CRIPTO    = "Cripto compliance"
+    BANDEJA   = "Bandeja de cumplimiento"
+
+    ALL = [MAPA, SCREENING, CRIPTO, BANDEJA]
 
 # ── Rutas de assets ──────────────────────────────────────────
 _STATIC_DIR   = Path(__file__).resolve().parent / "static"
@@ -659,37 +679,30 @@ def sidebar(user: dict) -> tuple[str, str | None]:
         _rol = user.get("rol", "")
         _nav_opts = []
 
-        # Gestión de Infraestructura Financiera — visible para roles con acceso
+        # Orden del menú: primero lo operativo del día a día, luego lo
+        # especializado, y al final la trazabilidad.
+
         if _rol in Roles.CAN_VIEW_ALIANZAS:
             _nav_opts.append(Paginas.ALIANZAS)
 
-        # Auditoría
-        if _rol in Roles.CAN_VIEW_AUDIT:
-            _nav_opts.append(Paginas.AUDITORIA)
+        # Compliance — agrupa mapa de jurisdicciones, screening, cripto y
+        # bandeja. Las cuatro comparten permiso, así que quien entra puede
+        # usarlas todas.
+        if _rol in ROLES_COMPLIANCE:
+            _nav_opts.append(Paginas.COMPLIANCE)
 
-        # Screening de Cumplimiento
-        if _rol in {"admin", "compliance", "super_admin"}:
-            _nav_opts.append(Paginas.SCREENING)
-
-        # Gestión de Agentes — equipos completos
-        if _rol in Roles.CAN_VIEW_AGENTES:
-            _nav_opts.append(Paginas.AGENTES)
-
-        # Centro Documental
+        # Centro Documental — repositorio compartido, fuera de Compliance
         if _rol in Roles.CAN_VIEW_DOCS:
             _nav_opts.append(Paginas.DOCUMENTAL)
 
-        # Cripto Compliance
-        if _rol in Roles.CAN_VIEW_CRYPTO:
-            _nav_opts.append(Paginas.CRIPTO)
-
-        # Bandeja de Cumplimiento
-        if _rol in {"admin", "compliance", "super_admin"}:
-            _nav_opts.append(Paginas.BANDEJA)
-
-        # Gestión de Clientes
         if _rol in {"admin", "compliance", "super_admin", "comercial", "cic", "manager_comercial", "consulta"}:
             _nav_opts.append(Paginas.CLIENTES)
+
+        if _rol in Roles.CAN_VIEW_AGENTES:
+            _nav_opts.append(Paginas.AGENTES)
+
+        if _rol in Roles.CAN_VIEW_AUDIT:
+            _nav_opts.append(Paginas.AUDITORIA)
 
         # Agente: solo ve su propio perfil
         if _rol == Roles.AGENTE:
@@ -750,6 +763,50 @@ def sidebar(user: dict) -> tuple[str, str | None]:
 
 
 # ── Router Principal ──────────────────────────────────────────
+def page_modulo_compliance(user: dict) -> None:
+    """
+    Módulo Compliance: mapa de jurisdicciones, screening, cripto y bandeja.
+
+    Las cuatro pestañas comparten permiso (ROLES_COMPLIANCE), así que quien
+    llega hasta aquí puede abrirlas todas. No hay pestañas deshabilitadas.
+    """
+    from config import listas_riesgo as _lr
+
+    _nivel, _mensaje = _lr.estado_verificacion()
+    _ui.render(_ui.section_header(
+        "Compliance",
+        "Jurisdicciones · Screening · Cripto · Bandeja",
+        icon_name="shield",
+        meta=_mensaje,
+    ))
+
+    if _nivel == "warn":
+        _ui.render(_ui.aviso(
+            "Las listas de riesgo llevan demasiado sin contrastarse",
+            "El GAFI celebra plenaria cada cuatro meses. "
+            "Ejecuta scripts/actualizar_listas.py para revisar cambios.",
+        ))
+        _ui.render(_ui.spacer(10))
+
+    _tabs = st.tabs(TabsCompliance.ALL)
+
+    with _tabs[0]:
+        from app.components.jurisdicciones_ui import page_mapa_jurisdicciones
+        page_mapa_jurisdicciones(user)
+
+    with _tabs[1]:
+        from app.components.screening_ui import render_screening_workspace
+        render_screening_workspace(user)
+
+    with _tabs[2]:
+        from app.components.crypto_ui import page_crypto_compliance
+        page_crypto_compliance(user)
+
+    with _tabs[3]:
+        from app.components.email_ui import page_bandeja_cumplimiento
+        page_bandeja_cumplimiento(user)
+
+
 def main():
     from app.auth.login import require_auth
     user = require_auth()
@@ -770,12 +827,11 @@ def main():
         from app.components.audit_ui import page_auditoria
         page_auditoria(user)
     ##########
-    elif page == Paginas.SCREENING:
-        if user.get("rol") not in {"admin", "compliance", "super_admin"}:
-            st.error("Acceso denegado. Tu rol no puede ejecutar consultas de screening.")
+    elif page == Paginas.COMPLIANCE:
+        if user.get("rol") not in ROLES_COMPLIANCE:
+            st.error("Acceso denegado. Este módulo requiere rol admin o compliance.")
             st.stop()
-        from app.components.screening_ui import render_screening_workspace
-        render_screening_workspace(user)
+        page_modulo_compliance(user)
     #############
     elif page == Paginas.AGENTES:
         if user.get("rol") not in Roles.CAN_VIEW_AGENTES:
@@ -789,12 +845,6 @@ def main():
             st.stop()
         from app.components.compliance_ui import page_compliance
         page_compliance(user)
-    elif page == Paginas.CRIPTO:
-        if user.get("rol") not in Roles.CAN_VIEW_CRYPTO:
-            st.error("Acceso denegado. Este módulo requiere rol admin o compliance.")
-            st.stop()
-        from app.components.crypto_ui import page_crypto_compliance
-        page_crypto_compliance(user)
     elif page == Paginas.PERFIL_AGENTE and agente_username:
         from app.components.agentes_ui import render_perfil_agente
         render_perfil_agente(agente_username, user=user)
@@ -802,12 +852,6 @@ def main():
         _username = user.get("username", "")
         from app.components.agentes_ui import render_perfil_agente
         render_perfil_agente(_username, user=user)
-    elif page == Paginas.BANDEJA:
-        if user.get("rol") not in {"admin", "compliance", "super_admin"}:
-            st.error("Acceso restringido. Este módulo requiere rol admin o compliance.")
-            st.stop()
-        from app.components.email_ui import page_bandeja_cumplimiento
-        page_bandeja_cumplimiento(user)
     elif page == Paginas.CLIENTES:
         _rol_actual = user.get("rol", "")
         if _rol_actual not in {"admin", "compliance", "super_admin", "comercial", "cic", "manager_comercial", "consulta"}:

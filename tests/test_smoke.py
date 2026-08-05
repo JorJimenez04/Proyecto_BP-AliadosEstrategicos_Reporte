@@ -80,14 +80,57 @@ def test_paginas_del_router_existen() -> None:
     from app.components.crypto_ui import page_crypto_compliance
     from app.components.email_ui import page_bandeja_cumplimiento
     from app.components.clientes_ui import page_clientes
+    from app.components.jurisdicciones_ui import page_mapa_jurisdicciones
 
     for fn in (
         page_alianzas, page_auditoria, render_screening_workspace,
         get_agentes_sidebar, render_gestion_agentes, render_perfil_agente,
         page_compliance, page_crypto_compliance, page_bandeja_cumplimiento,
-        page_clientes,
+        page_clientes, page_mapa_jurisdicciones,
     ):
         assert callable(fn)
+
+
+# ── Módulo Compliance ────────────────────────────────────────
+def test_las_pestanas_de_compliance_comparten_permiso() -> None:
+    """
+    Agrupar solo tiene sentido si quien entra puede usarlas todas.
+
+    Centro Documental quedó fuera precisamente por esto: lo consultan CIC,
+    managers y consulta, que no acceden al resto del módulo.
+    """
+    from config.settings import Roles
+    from app.main import ROLES_COMPLIANCE
+
+    assert ROLES_COMPLIANCE == set(Roles.CAN_VIEW_CRYPTO), (
+        "las pestañas del módulo deben compartir el permiso de la entrada"
+    )
+    # Los roles que solo necesitan documentos no entran al módulo
+    for rol in ("cic", "manager_comercial", "manager_legal", "consulta"):
+        assert rol not in ROLES_COMPLIANCE
+        assert rol in Roles.CAN_VIEW_DOCS, (
+            f"{rol} debe seguir accediendo al centro documental por su cuenta"
+        )
+
+
+def test_el_modulo_compliance_declara_sus_pestanas() -> None:
+    from app.main import TabsCompliance
+
+    assert len(TabsCompliance.ALL) == 4
+    assert TabsCompliance.MAPA in TabsCompliance.ALL
+    assert len(set(TabsCompliance.ALL)) == 4, "hay pestañas con el mismo nombre"
+
+
+def test_el_menu_no_expone_las_pestanas_como_entradas_sueltas() -> None:
+    """Tras agrupar, no debe quedar una entrada de menú por cada pestaña."""
+    from app.main import Paginas
+
+    etiquetas = _constantes_de_pagina()
+    for suelta in ("Screening de Cumplimiento", "Cripto Compliance",
+                   "Bandeja de Cumplimiento"):
+        assert suelta not in etiquetas, f"'{suelta}' sigue suelta en el menú"
+    assert Paginas.COMPLIANCE in etiquetas
+    assert Paginas.DOCUMENTAL in etiquetas, "el centro documental sigue aparte"
 
 
 # ── 3. Matriz de permisos ────────────────────────────────────
