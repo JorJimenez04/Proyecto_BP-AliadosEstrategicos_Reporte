@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, timedelta
-
-import pytest
+from datetime import date
 
 os.environ.setdefault("DATABASE_URL", "postgresql://smoke:smoke@localhost:5432/smoke")
 
