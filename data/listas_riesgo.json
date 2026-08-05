@@ -35,9 +35,9 @@
       "peso": 20,
       "fuente": "https://ofac.treasury.gov/sanctions-programs-and-country-information",
       "verificado": "2026-08-05",
-      "revision": "continua; pendiente de automatizar la descarga",
-      "_nota": "Solo programas de alcance integral. Los sectoriales o dirigidos (Rusia, Bielorrusia) no se incluyen aquí porque no restringen la jurisdicción completa.",
-      "paises": ["CUB", "IRN", "PRK", "SYR"]
+      "revision": "contrastable con scripts/actualizar_listas.py",
+      "_nota": "Solo programas de alcance integral. Los sectoriales o dirigidos (RUSSIA-EO14024, SDGT, IFSR y otros 70) no se incluyen aquí porque señalan personas y entidades, no la jurisdicción completa.",
+      "paises": ["CUB", "IRN", "PRK"]
     },
 
     "politica_interna": {
@@ -55,7 +55,7 @@
   "notas_por_pais": {
     "VEN": "Está en la lista gris del GAFI y además tiene sanciones dirigidas de OFAC. Prevalece el listado GAFI para el cálculo.",
     "VGB": "Islas Vírgenes Británicas entró en la lista gris del GAFI. Antes se restringía por política interna sobre offshore; ahora hay señalamiento oficial.",
-    "SYR": "Coincide en lista gris del GAFI y programa integral de OFAC.",
+    "SYR": "El programa integral de OFAC fue revocado por orden ejecutiva del 30/06/2025, efectiva el 01/07/2025; el reglamento salió del código federal el 26/08/2025. Sigue en la lista gris del GAFI, que es lo que ahora determina su peso. Persisten sanciones dirigidas a personas concretas (programa PAARSS), que no restringen la jurisdicción.",
     "IRN": "Coincide en lista negra del GAFI y programa integral de OFAC.",
     "PRK": "Coincide en lista negra del GAFI y programa integral de OFAC.",
     "CYM": "Retirada de la lista gris del GAFI en octubre de 2023. Se mantiene por política interna.",

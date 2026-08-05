@@ -40,7 +40,7 @@ from config import listas_riesgo as LR
 from config import paises
 
 SEP = "─" * 68
-TIMEOUT = 60
+TIMEOUT = 180  # El SDN de OFAC son decenas de MB; 60s se quedaba corto
 
 FUENTES = {
     "ofac_sdn": "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.XML",
@@ -60,12 +60,41 @@ PROGRAMAS_INTEGRALES: dict[str, str] = {
 
 
 def _descargar(url: str) -> bytes | None:
+    """
+    Descarga con avisos de progreso.
+
+    El SDN de OFAC pesa decenas de megas: sin estos mensajes la consola queda
+    en silencio varios minutos y parece que el script se colgó.
+    """
+    print(f"  Descargando {url.split('/')[-1]} …", flush=True)
     try:
-        r = requests.get(url, timeout=TIMEOUT, headers={"User-Agent": "AdamoServices-Compliance/1.0"})
+        r = requests.get(
+            url,
+            timeout=TIMEOUT,
+            headers={"User-Agent": "AdamoServices-Compliance/1.0"},
+            stream=True,
+        )
         r.raise_for_status()
-        return r.content
+
+        trozos = []
+        recibido = 0
+        siguiente_aviso = 5 * 1024 * 1024
+        for trozo in r.iter_content(chunk_size=256 * 1024):
+            trozos.append(trozo)
+            recibido += len(trozo)
+            if recibido >= siguiente_aviso:
+                print(f"    {recibido / 1024 / 1024:.0f} MB…", flush=True)
+                siguiente_aviso += 5 * 1024 * 1024
+
+        contenido = b"".join(trozos)
+        print(f"  Descargado: {len(contenido) / 1024 / 1024:.1f} MB", flush=True)
+        return contenido
+
+    except requests.exceptions.Timeout:
+        print(f"  ❌ Tiempo agotado tras {TIMEOUT}s. Reintenta o sube TIMEOUT.")
+        return None
     except Exception as exc:
-        print(f"  ❌ No se pudo descargar: {str(exc)[:120]}")
+        print(f"  ❌ No se pudo descargar: {str(exc)[:140]}")
         return None
 
 

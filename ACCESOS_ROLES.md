@@ -206,7 +206,7 @@ auditoría SARLAFT. Ahora cada capa va declarada por separado.
 | Capa | Clave | Peso | En el catálogo actual |
 |------|-------|:---:|-----------------------|
 | Lista negra GAFI | `gafi_negra` | 30 | Irán · Corea del Norte · Myanmar |
-| Sanciones OFAC integrales | `ofac_integral` | 20 | Cuba (+ Irán, Corea del Norte, Siria) |
+| Sanciones OFAC integrales | `ofac_integral` | 20 | Cuba (+ Irán, Corea del Norte) |
 | Lista gris GAFI | `gafi_gris` | 15 | Haití · Bolivia · Venezuela · Islas Vírgenes (UK) |
 | Política interna | `politica_interna` | 8 | Islas Caimán · Bahamas · Bermuda |
 
@@ -226,6 +226,34 @@ Un país puede figurar en varias capas a la vez: Irán está en la lista negra d
 GAFI y además tiene programa integral de OFAC. `capas_de()` las devuelve todas
 para explicarlo en la interfaz; `capa_de()` devuelve la más severa, que es la
 que manda en el cálculo.
+
+### Contraste con las fuentes
+
+```
+python scripts/actualizar_listas.py            # informe, no escribe nada
+python scripts/actualizar_listas.py --aplicar  # escribe los cambios de OFAC
+```
+
+Descarga los XML públicos de OFAC y la ONU y compara con el dataset. Nunca
+aplica cambios por defecto: mover estas listas mueve el puntaje de partners
+reales.
+
+Alcance de cada fuente:
+
+- **OFAC** no publica una lista de países procesable. Lo que sí lo es son los
+  programas asociados a cada entrada del SDN, de donde se deduce qué programas
+  integrales siguen activos. De los 73 programas del SDN, 70 son sectoriales o
+  dirigidos y no restringen la jurisdicción completa.
+- **ONU** señala personas y entidades, no jurisdicciones. Se muestra como
+  contexto y no altera la clasificación por país.
+- **GAFI** no tiene API. Solo se controla la antigüedad de la verificación
+  manual: `verificacion_caducada()` avisa a los cuatro meses, que es la
+  cadencia de sus plenarias. Hay un test que falla al superarse.
+
+> El 5 de agosto de 2026 este contraste detectó que Siria ya no tenía entradas
+> bajo el programa `SYRIA`. No era un fallo: la orden ejecutiva del 30/06/2025
+> revocó el programa. Siria bajó de 20 a 15 puntos y sigue penalizada por la
+> lista gris del GAFI.
 
 Reglas del cálculo:
 
