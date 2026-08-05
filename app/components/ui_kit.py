@@ -346,6 +346,28 @@ def grid(bloques: Sequence[str], min_ancho: int = 190, gap: int = 10) -> str:
     )
 
 
+def aviso(mensaje: str, detalle: str = "", tone: str = "warn", icon_name: str = "alert") -> str:
+    """
+    Banda de advertencia dentro del contenido.
+
+    Pensada para lo que el usuario debe saber sin que sea un error: datos
+    incompletos, verificaciones caducadas, cálculos que no se pueden hacer.
+    """
+    color = tone_color(tone)
+    det = (
+        f'<div style="font-size:12px;color:{FG_MUTED};margin-top:3px">{detalle}</div>'
+        if detalle else ""
+    )
+    return (
+        f'<div style="background:{CARD};border-left:2px solid {color};'
+        f'border-radius:0 {RADIUS} {RADIUS} 0;padding:12px 14px;display:flex;'
+        f'align-items:flex-start;gap:9px">'
+        f'<span style="color:{color};display:inline-flex;margin-top:1px">{icon(icon_name, 16)}</span>'
+        f'<div style="min-width:0"><div style="font-size:13px;color:{FG}">{mensaje}</div>'
+        f'{det}</div></div>'
+    )
+
+
 def empty_state(mensaje: str, detalle: str = "", icon_name: str = "search") -> str:
     """Estado vacío — invitación, no disculpa."""
     det = (

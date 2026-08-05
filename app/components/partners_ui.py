@@ -1396,17 +1396,39 @@ def _tab_monitor_operativo(user: dict) -> None:
     _total_p     = len(_filas)
     _activos_p   = sum(1 for r in _filas if _idx(r, "estado_pipeline") == "Activo")
     _inactivos_p = sum(1 for r in _filas if _idx(r, "estado_pipeline") in _INACTIVO)
-    _vinculos    = sum(v[2] for v in _reparto_por_entidad.values())
 
     def _pct_txt(n: int) -> str:
         return f"{round(n / _total_p * 100)}% del total" if _total_p else "\u2014"
+
+    # Partners sin jurisdicciones: su puntaje no refleja riesgo sino
+    # desconocimiento, porque el bloque de jurisdicciones aporta cero.
+    _sin_juris = [r for r in _filas if not (_idx(r, "jurisdicciones") or [])]
 
     ui.render(ui.kpi_grid([
         ui.kpi("Total partners", _total_p, "en el portafolio"),
         ui.kpi("Activos", _activos_p, _pct_txt(_activos_p), tone="ok"),
         ui.kpi("Inactivos", _inactivos_p, _pct_txt(_inactivos_p), tone="warn"),
-        ui.kpi("Sin relaci\u00f3n", _vinculos, "v\u00ednculos por abrir", tone="muted"),
+        ui.kpi(
+            "Calificaci\u00f3n incompleta",
+            len(_sin_juris),
+            "sin jurisdicciones",
+            tone="warn" if _sin_juris else "ok",
+        ),
     ]))
+
+    if _sin_juris:
+        _nombres = ", ".join(
+            str(_idx(r, "nombre_razon_social") or "\u2014") for r in _sin_juris[:6]
+        )
+        if len(_sin_juris) > 6:
+            _nombres += f" y {len(_sin_juris) - 6} m\u00e1s"
+        ui.render(ui.spacer(10))
+        ui.render(ui.aviso(
+            f"{len(_sin_juris)} de {_total_p} partners no tienen jurisdicciones registradas",
+            f"Su puntaje de riesgo est\u00e1 subestimado: el bloque de jurisdicciones "
+            f"aporta cero cuando el campo est\u00e1 vac\u00edo, igual que si operaran solo "
+            f"en Colombia. Pendientes: {_nombres}.",
+        ))
 
     ui.render(ui.spacer(10))
 

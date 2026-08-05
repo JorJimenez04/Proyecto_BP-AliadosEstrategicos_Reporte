@@ -196,6 +196,47 @@ de compliance y junta directiva. Para ampliar o recortar, editar únicamente
 
 ---
 
+## 4.2 Jurisdicciones — Capas de Riesgo
+
+Hasta agosto de 2026 existía un único conjunto `ALTO_RIESGO` que fundía tres
+criterios distintos bajo la etiqueta "GAFI". Afirmar que el GAFI señala a
+Islas Caimán es falso desde octubre de 2023 y constituye un hallazgo de
+auditoría SARLAFT. Ahora cada capa va declarada por separado.
+
+| Capa | Constante | Peso | Contenido |
+|------|-----------|:---:|-----------|
+| Lista negra GAFI | `LISTA_NEGRA_GAFI` | 30 | Irán · Corea del Norte · Myanmar |
+| Sanciones OFAC / UE | `SANCIONES_INTERNACIONALES` | 20 | Cuba · Venezuela |
+| Lista gris GAFI | `LISTA_GRIS_GAFI` | 15 | Haití · Bolivia |
+| Política interna | `OFFSHORE_POLITICA_INTERNA` | 8 | Islas Caimán · Bahamas · Bermuda · Islas Vírgenes (UK) |
+
+Reglas del cálculo:
+
+- Solo pesa **la capa más severa** presente, no la suma. Un partner en Irán y
+  en Islas Caimán tiene el riesgo de Irán.
+- Dos o más jurisdicciones señaladas añaden 10 puntos por exposición acumulada.
+- Cinco o más jurisdicciones en total añaden 5, aunque ninguna esté señalada.
+
+`ALTO_RIESGO` se conserva como unión de las cuatro capas para no romper código
+existente. Para lógica nueva, usar `Jurisdicciones.capa_de()`.
+
+**Verificación:** `FUENTE_GAFI_VERIFICADA` guarda la fecha de la última
+plenaria contrastada contra fatf-gafi.org. El GAFI revisa sus listas tres
+veces al año y no publica API.
+
+### Calificación incompleta
+
+Un partner sin jurisdicciones registradas suma **cero** en este bloque, igual
+que uno que solo opera en Colombia. El puntaje no puede distinguirlos porque
+no hay información para hacerlo — y por eso existe
+`partner_repo.calificacion_incompleta()`, que devuelve los campos críticos
+ausentes.
+
+Sin esa marca, "no sabemos" se presenta al usuario como "riesgo bajo". La
+pestaña Monitor muestra el conteo de partners afectados y sus nombres.
+
+---
+
 ## 5. Pipeline de Estados de Aliados
 
 ```

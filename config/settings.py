@@ -333,21 +333,82 @@ class Jurisdicciones:
         "🇲🇲 Myanmar",
     ]
 
-    # Países de alto riesgo según GAFI / SAGRILAFT.
-    # Cualquier partner con jurisdicción en esta lista incrementa
-    # su puntaje_riesgo automáticamente.
-    ALTO_RIESGO: frozenset[str] = frozenset({
+    # ── Capas de riesgo por jurisdicción ─────────────────────
+    #
+    # Antes existía un único conjunto ALTO_RIESGO que fundía tres cosas
+    # distintas bajo la etiqueta "GAFI": listados del GAFI, sanciones OFAC y
+    # una política interna sobre centros offshore. Afirmar que el GAFI señala
+    # a Islas Caimán es falso desde octubre de 2023, y ante una auditoría
+    # SARLAFT eso es un hallazgo. Cada capa va ahora por separado, con su
+    # fuente, y pesa distinto en el scoring.
+    #
+    # Última verificación contra fatf-gafi.org: plenaria del 19/06/2026.
+
+    FUENTE_GAFI_VERIFICADA: str = "2026-06-19"
+
+    # Llamado a la acción — contramedidas obligatorias.
+    LISTA_NEGRA_GAFI: frozenset[str] = frozenset({
         "🇮🇷 Irán",
         "🇰🇵 Corea del Norte",
         "🇲🇲 Myanmar",
+    })
+
+    # Monitoreo intensificado. De las 22 jurisdicciones de la lista gris,
+    # estas son las que figuran en el catálogo. Bolivia faltaba: se penalizaba
+    # a Haití pero no a Bolivia, estando ambas en la misma lista.
+    LISTA_GRIS_GAFI: frozenset[str] = frozenset({
         "🇭🇹 Haití",
+        "🇧🇴 Bolivia",
+    })
+
+    # Sanciones de OFAC y la UE. Motivo geopolítico, no deficiencia antilavado:
+    # ninguno de los dos está en los listados del GAFI.
+    SANCIONES_INTERNACIONALES: frozenset[str] = frozenset({
         "🇨🇺 Cuba",
         "🇻🇪 Venezuela",
+    })
+
+    # Decisión propia de AdamoServices sobre centros offshore por opacidad
+    # societaria. Ninguno está hoy en listas del GAFI — Islas Caimán salió en
+    # octubre de 2023 y Bahamas en 2020. Se mantiene la cautela, pero
+    # declarada como lo que es y con menos peso que un listado oficial.
+    OFFSHORE_POLITICA_INTERNA: frozenset[str] = frozenset({
         "🇰🇾 Islas Caimán",
         "🇧🇸 Bahamas",
         "🇧🇲 Bermuda",
         "🇻🇬 Islas Vírgenes (UK)",
     })
+
+    # Unión de todo lo que penaliza. Se mantiene por compatibilidad con el
+    # código existente; para lógica nueva usar la capa concreta.
+    ALTO_RIESGO: frozenset[str] = (
+        LISTA_NEGRA_GAFI
+        | LISTA_GRIS_GAFI
+        | SANCIONES_INTERNACIONALES
+        | OFFSHORE_POLITICA_INTERNA
+    )
+
+    # Etiqueta legible de cada capa, para explicar en la interfaz por qué
+    # una jurisdicción penaliza.
+    ETIQUETA_CAPA: dict[str, str] = {
+        "negra":    "Lista negra GAFI · llamado a la acción",
+        "gris":     "Lista gris GAFI · monitoreo intensificado",
+        "sancion":  "Sanciones OFAC o UE",
+        "offshore": "Restringida por política interna",
+    }
+
+    @classmethod
+    def capa_de(cls, jurisdiccion: str) -> str | None:
+        """Capa a la que pertenece una jurisdicción, o None si no penaliza."""
+        if jurisdiccion in cls.LISTA_NEGRA_GAFI:
+            return "negra"
+        if jurisdiccion in cls.LISTA_GRIS_GAFI:
+            return "gris"
+        if jurisdiccion in cls.SANCIONES_INTERNACIONALES:
+            return "sancion"
+        if jurisdiccion in cls.OFFSHORE_POLITICA_INTERNA:
+            return "offshore"
+        return None
 
 
 # ── Tipos de Riel de Pago ─────────────────────────────────────

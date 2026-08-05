@@ -30,11 +30,49 @@ _RISK_WEIGHTS: dict[str, int] = {
     "sin_rut":                       5,   # RUT no recibido
     "sin_camara_comercio":           5,   # Cámara de comercio ausente
     "sin_due_diligence":            10,   # DD nunca iniciado
-    # ─ Jurisdicciones GAFI ──────────────────────────────────────
-    "jurisdiccion_alto_riesgo":     15,   # Al menos una jurisdicción GAFI de alto riesgo
-    "jurisdiccion_multiple_riesgo": 10,   # 2+ jurisdicciones GAFI (exposición acumulada)
-    "jurisdiccion_exposicion":       5,   # 5+ jurisdicciones en total (diversificación = exposición)
+    # ─ Jurisdicciones ───────────────────────────────────────────
+    # Un peso por capa. Antes todo sumaba 15 puntos por igual: operar en Irán
+    # —relación prohibida con contramedidas obligatorias— pesaba lo mismo que
+    # operar en Islas Caimán. Ahora la severidad se refleja en el puntaje.
+    "jurisdiccion_lista_negra":     30,   # GAFI · llamado a la acción
+    "jurisdiccion_sancion":         20,   # OFAC / UE
+    "jurisdiccion_lista_gris":      15,   # GAFI · monitoreo intensificado
+    "jurisdiccion_offshore":         8,   # Política interna sobre offshore
+    "jurisdiccion_multiple_riesgo": 10,   # 2+ jurisdicciones señaladas
+    "jurisdiccion_exposicion":       5,   # 5+ jurisdicciones en total
 }
+
+# Peso de cada capa, para no repetir el mapeo en cada cálculo
+_PESO_POR_CAPA: dict[str, str] = {
+    "negra":    "jurisdiccion_lista_negra",
+    "sancion":  "jurisdiccion_sancion",
+    "gris":     "jurisdiccion_lista_gris",
+    "offshore": "jurisdiccion_offshore",
+}
+
+# Campos sin los cuales el puntaje no es una calificación de riesgo sino una
+# calificación de lo poco que se sabe. Ver calificacion_incompleta().
+_CAMPOS_CRITICOS: dict[str, str] = {
+    "jurisdicciones": "Jurisdicciones de operación",
+}
+
+
+def calificacion_incompleta(data: dict) -> list[str]:
+    """
+    Campos críticos ausentes que invalidan la lectura del puntaje.
+
+    Un partner sin jurisdicciones registradas suma cero en ese bloque, igual
+    que uno que solo opera en Colombia. El resultado es que la falta de
+    información se lee como ausencia de riesgo, que es justo al revés.
+
+    Devuelve la lista de etiquetas legibles de lo que falta. Vacía = completa.
+    """
+    faltantes = []
+    for campo, etiqueta in _CAMPOS_CRITICOS.items():
+        valor = data.get(campo)
+        if not valor:
+            faltantes.append(etiqueta)
+    return faltantes
 
 _NIVEL_POR_SCORE: list[tuple[int, str]] = [
     (25,  "Bajo"),
@@ -111,17 +149,28 @@ def calcular_puntaje_riesgo(data: dict) -> tuple[float, str]:
     if not data.get("camara_comercio_recibida", False):
         score += _RISK_WEIGHTS["sin_camara_comercio"]
 
-    # ─ Scoring por jurisdicciones GAFI ───────────────────────────────────
+    # ─ Scoring por jurisdicciones, en capas ──────────────────────────────
     jurisdicciones = data.get("jurisdicciones") or []
     if isinstance(jurisdicciones, str):
         # Defensivo: si viene como string serializado desde PG, tratar como lista vacía
         jurisdicciones = []
-    riesgo_count = sum(1 for j in jurisdicciones if j in _Jur.ALTO_RIESGO)
-    if riesgo_count >= 2:
-        score += _RISK_WEIGHTS["jurisdiccion_alto_riesgo"]
+
+    # Solo penaliza la capa más severa presente: si un partner opera en Irán
+    # y en Islas Caimán, lo que define su riesgo es Irán, no la suma de ambos.
+    capas_presentes = {
+        capa for j in jurisdicciones
+        if (capa := _Jur.capa_de(j)) is not None
+    }
+    if capas_presentes:
+        peor = next(
+            c for c in ("negra", "sancion", "gris", "offshore")
+            if c in capas_presentes
+        )
+        score += _RISK_WEIGHTS[_PESO_POR_CAPA[peor]]
+
+    señaladas = sum(1 for j in jurisdicciones if _Jur.capa_de(j) is not None)
+    if señaladas >= 2:
         score += _RISK_WEIGHTS["jurisdiccion_multiple_riesgo"]
-    elif riesgo_count == 1:
-        score += _RISK_WEIGHTS["jurisdiccion_alto_riesgo"]
     if len(jurisdicciones) >= 5:
         score += _RISK_WEIGHTS["jurisdiccion_exposicion"]
 
