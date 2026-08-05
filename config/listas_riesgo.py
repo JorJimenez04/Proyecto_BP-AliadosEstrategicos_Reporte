@@ -2,7 +2,7 @@
 config/listas_riesgo.py
 Carga y consulta del dataset de listas de riesgo por jurisdicción.
 
-Fuente única de verdad: data/listas_riesgo.json, indexado por código ISO-3.
+Fuente única de verdad: config/listas_riesgo.json, indexado por código ISO-3.
 Antes las listas vivían como conjuntos de strings con emoji escritos a mano en
 settings.py, lo que hacía imposible cruzarlas con las publicaciones del GAFI o
 de OFAC — que usan nombres en inglés — y obligaba a mantener la misma
@@ -21,8 +21,11 @@ from functools import lru_cache
 from pathlib import Path
 from typing import NamedTuple
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-RUTA_DATASET = BASE_DIR / "data" / "listas_riesgo.json"
+# El dataset vive junto a este módulo, dentro del paquete config, y no en
+# data/ — ese directorio está excluido en .dockerignore por contener bases
+# SQLite locales, de modo que el JSON nunca llegaba al contenedor y la app
+# moría al arrancar sin poder derivar las capas de riesgo.
+RUTA_DATASET = Path(__file__).resolve().parent / "listas_riesgo.json"
 
 # De más severa a menos. El orden define qué capa manda en el cálculo.
 ORDEN_SEVERIDAD: tuple[str, ...] = (
@@ -45,6 +48,19 @@ class Capa(NamedTuple):
 
 @lru_cache(maxsize=1)
 def _dataset() -> dict:
+    """
+    Carga el dataset. Falla ruidosamente si no está.
+
+    Arrancar sin las listas de riesgo dejaría la aplicación calculando
+    puntajes sin penalizar ninguna jurisdicción, en silencio. Es preferible
+    que no arranque y que el motivo sea evidente en los logs.
+    """
+    if not RUTA_DATASET.exists():
+        raise FileNotFoundError(
+            f"No se encuentra el dataset de listas de riesgo en {RUTA_DATASET}. "
+            "Sin él la aplicación no puede calificar jurisdicciones. "
+            "Comprueba que el fichero llegó a la imagen (revisa .dockerignore)."
+        )
     with RUTA_DATASET.open(encoding="utf-8") as f:
         return json.load(f)
 

@@ -1,6 +1,6 @@
 """
 scripts/actualizar_listas.py
-Contrasta data/listas_riesgo.json con las fuentes oficiales y reporta diferencias.
+Contrasta config/listas_riesgo.json con las fuentes oficiales y reporta diferencias.
 
 POR DEFECTO NO ESCRIBE NADA. Un cambio en estas listas mueve el puntaje de
 riesgo de partners reales, así que se revisa antes de aplicarse. Para escribir
@@ -175,7 +175,7 @@ def revisar_gafi() -> None:
             if capa:
                 print(f"    {capa.fuente}")
         print("\n  Tras contrastar, actualizar 'paises' y 'verificado' en")
-        print("  data/listas_riesgo.json y ejecutar los tests.")
+        print("  config/listas_riesgo.json y ejecutar los tests.")
 
 
 def comparar(integrales_ofac: set[str]) -> list[tuple[str, str, str]]:

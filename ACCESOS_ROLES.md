@@ -210,7 +210,7 @@ auditoría SARLAFT. Ahora cada capa va declarada por separado.
 | Lista gris GAFI | `gafi_gris` | 15 | Haití · Bolivia · Venezuela · Islas Vírgenes (UK) |
 | Política interna | `politica_interna` | 8 | Islas Caimán · Bahamas · Bermuda |
 
-**Fuente única de verdad:** `data/listas_riesgo.json`, indexado por ISO-3 y con
+**Fuente única de verdad:** `config/listas_riesgo.json`, indexado por ISO-3 y con
 la fuente y fecha de verificación de cada capa. `config/settings.py` deriva sus
 conjuntos de ahí; no hay listas escritas a mano en dos sitios.
 

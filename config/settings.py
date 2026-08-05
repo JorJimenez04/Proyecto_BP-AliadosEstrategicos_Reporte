@@ -344,7 +344,7 @@ class Jurisdicciones:
     #
     # Última verificación contra fatf-gafi.org: plenaria del 19/06/2026.
 
-    # Los conjuntos ya no se escriben aquí: se derivan de data/listas_riesgo.json
+    # Los conjuntos ya no se escriben aquí: se derivan de config/listas_riesgo.json
     # cruzando los códigos ISO con la tabla de equivalencias. Mantenerlos a mano
     # en formato con emoji impedía casarlos con las publicaciones del GAFI y de
     # OFAC, que usan nombres en inglés, y obligaba a actualizar dos sitios.
@@ -416,7 +416,7 @@ class Jurisdicciones:
 
 
 # ── Conjuntos derivados del dataset ───────────────────────────
-# Se calculan una vez al importar, cruzando data/listas_riesgo.json con la
+# Se calculan una vez al importar, cruzando config/listas_riesgo.json con la
 # tabla de equivalencias. Quedan como atributos normales para no romper el
 # código que ya los consultaba.
 Jurisdicciones.LISTA_NEGRA_GAFI = Jurisdicciones._derivar("gafi_negra")

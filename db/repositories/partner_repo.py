@@ -31,7 +31,7 @@ _RISK_WEIGHTS: dict[str, int] = {
     "sin_camara_comercio":           5,   # Cámara de comercio ausente
     "sin_due_diligence":            10,   # DD nunca iniciado
     # ─ Jurisdicciones ───────────────────────────────────────────
-    # El peso de cada capa vive en data/listas_riesgo.json, junto a la lista
+    # El peso de cada capa vive en config/listas_riesgo.json, junto a la lista
     # de países y su fuente, para que actualizarlo sea un solo cambio.
     # Aquí quedan solo los recargos que no dependen de una capa concreta.
     "jurisdiccion_multiple_riesgo": 10,   # 2+ jurisdicciones señaladas

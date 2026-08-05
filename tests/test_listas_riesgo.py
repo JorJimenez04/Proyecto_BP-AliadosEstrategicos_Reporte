@@ -25,6 +25,51 @@ def test_el_dataset_es_json_valido() -> None:
     assert "verificado" in datos
 
 
+def test_el_dataset_llega_a_la_imagen_de_docker() -> None:
+    """
+    El fichero no puede vivir en un directorio excluido por .dockerignore.
+
+    Estuvo en data/, que .dockerignore excluye por contener bases SQLite
+    locales. El contenedor arrancaba sin dataset, settings.py no podía derivar
+    las capas y la aplicación moría antes de responder al healthcheck. El
+    build pasaba en verde: el fallo solo aparecía al arrancar.
+    """
+    raiz = LR.RUTA_DATASET.parent.parent
+    dockerignore = raiz / ".dockerignore"
+    if not dockerignore.exists():
+        return
+
+    relativa = LR.RUTA_DATASET.relative_to(raiz)
+    patrones = [
+        linea.strip().rstrip("/")
+        for linea in dockerignore.read_text(encoding="utf-8", errors="replace").splitlines()
+        if linea.strip() and not linea.strip().startswith(("#", "!"))
+    ]
+
+    for parte in relativa.parts[:-1]:
+        assert parte not in patrones, (
+            f"'{parte}/' está excluido en .dockerignore, así que "
+            f"{relativa} no llegaría al contenedor"
+        )
+
+
+def test_el_error_por_dataset_ausente_es_explicito() -> None:
+    """Si falta el fichero, el mensaje debe decir qué pasa y dónde mirar."""
+    import pytest as _pytest
+    from pathlib import Path as _Path
+
+    original = LR.RUTA_DATASET
+    LR._dataset.cache_clear()
+    try:
+        LR.RUTA_DATASET = _Path("/ruta/que/no/existe/listas.json")
+        with _pytest.raises(FileNotFoundError) as exc:
+            LR._dataset()
+        assert "dockerignore" in str(exc.value).lower()
+    finally:
+        LR.RUTA_DATASET = original
+        LR._dataset.cache_clear()
+
+
 def test_todo_codigo_del_dataset_existe_en_iso_3166() -> None:
     """
     Un código inventado deja al país fuera del mapa y sin penalizar, sin dar

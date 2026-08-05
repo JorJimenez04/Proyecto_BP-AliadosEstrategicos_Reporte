@@ -7,7 +7,7 @@ perdía cuando todo iba fundido en un único conjunto de "alto riesgo": Cuba
 aparece señalada por sanciones de OFAC, no por deficiencias antilavado, y esa
 diferencia importa a la hora de justificar una decisión ante un auditor.
 
-Fuente de los datos: data/listas_riesgo.json (ver config/listas_riesgo.py).
+Fuente de los datos: config/listas_riesgo.json (ver config/listas_riesgo.py).
 """
 
 from __future__ import annotations
