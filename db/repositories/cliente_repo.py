@@ -62,17 +62,12 @@ class ClienteRepository:
             puntaje += 15
         if crypto_friendly:
             puntaje += 10
-        # Jurisdicciones, por capas — mismo criterio que en partner_repo:
-        # solo pesa la capa más severa, no la suma de todas.
-        _PESO_CAPA = {"negra": 30, "sancion": 20, "gris": 15, "offshore": 8}
-        capas = {
-            capa for j in jurisdicciones
-            if (capa := Jurisdicciones.capa_de(j)) is not None
-        }
-        if capas:
-            peor = next(c for c in ("negra", "sancion", "gris", "offshore") if c in capas)
-            puntaje += _PESO_CAPA[peor]
-        if len([j for j in jurisdicciones if Jurisdicciones.capa_de(j)]) >= 2:
+        # Jurisdicciones por capas — mismo criterio que en partner_repo:
+        # solo pesa la más severa, y el peso sale del dataset.
+        pesos = [Jurisdicciones.peso_de(j) for j in jurisdicciones]
+        if pesos:
+            puntaje += max(pesos)
+        if sum(1 for p in pesos if p > 0) >= 2:
             puntaje += 10
         if len(jurisdicciones) >= 5:
             puntaje += 5

@@ -203,12 +203,29 @@ criterios distintos bajo la etiqueta "GAFI". Afirmar que el GAFI señala a
 Islas Caimán es falso desde octubre de 2023 y constituye un hallazgo de
 auditoría SARLAFT. Ahora cada capa va declarada por separado.
 
-| Capa | Constante | Peso | Contenido |
-|------|-----------|:---:|-----------|
-| Lista negra GAFI | `LISTA_NEGRA_GAFI` | 30 | Irán · Corea del Norte · Myanmar |
-| Sanciones OFAC / UE | `SANCIONES_INTERNACIONALES` | 20 | Cuba · Venezuela |
-| Lista gris GAFI | `LISTA_GRIS_GAFI` | 15 | Haití · Bolivia |
-| Política interna | `OFFSHORE_POLITICA_INTERNA` | 8 | Islas Caimán · Bahamas · Bermuda · Islas Vírgenes (UK) |
+| Capa | Clave | Peso | En el catálogo actual |
+|------|-------|:---:|-----------------------|
+| Lista negra GAFI | `gafi_negra` | 30 | Irán · Corea del Norte · Myanmar |
+| Sanciones OFAC integrales | `ofac_integral` | 20 | Cuba (+ Irán, Corea del Norte, Siria) |
+| Lista gris GAFI | `gafi_gris` | 15 | Haití · Bolivia · Venezuela · Islas Vírgenes (UK) |
+| Política interna | `politica_interna` | 8 | Islas Caimán · Bahamas · Bermuda |
+
+**Fuente única de verdad:** `data/listas_riesgo.json`, indexado por ISO-3 y con
+la fuente y fecha de verificación de cada capa. `config/settings.py` deriva sus
+conjuntos de ahí; no hay listas escritas a mano en dos sitios.
+
+La lista gris completa tiene **22 jurisdicciones**; arriba solo aparecen las que
+figuran en el catálogo de la aplicación.
+
+> ⚠️ Las webs agregadoras de compliance publican listas contradictorias y
+> desactualizadas. Al construir este dataset, varias incluían Panamá —retirado
+> de la lista gris— y omitían Venezuela e Islas Vírgenes (UK), que sí están.
+> Verificar siempre contra fatf-gafi.org.
+
+Un país puede figurar en varias capas a la vez: Irán está en la lista negra del
+GAFI y además tiene programa integral de OFAC. `capas_de()` las devuelve todas
+para explicarlo en la interfaz; `capa_de()` devuelve la más severa, que es la
+que manda en el cálculo.
 
 Reglas del cálculo:
 

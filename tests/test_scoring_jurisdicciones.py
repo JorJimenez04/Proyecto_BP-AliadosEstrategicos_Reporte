@@ -22,12 +22,15 @@ import pytest
 
 os.environ.setdefault("DATABASE_URL", "postgresql://smoke:smoke@localhost:5432/smoke")
 
+from config import listas_riesgo as LR
 from config.settings import Jurisdicciones as J
 from db.repositories.partner_repo import (
     _RISK_WEIGHTS,
     calcular_puntaje_riesgo,
     calificacion_incompleta,
 )
+
+PESO = {clave: capa.peso for clave, capa in LR.capas().items()}
 
 # Partner sin ningún otro factor de riesgo: aísla el efecto de la jurisdicción
 BASE = dict(
@@ -45,16 +48,41 @@ def _score(jurisdicciones: list[str]) -> float:
     return calcular_puntaje_riesgo({**BASE, "jurisdicciones": jurisdicciones})[0]
 
 
-# ── Capas ────────────────────────────────────────────────────
-def test_las_capas_no_se_solapan() -> None:
-    """Una jurisdicción pertenece como mucho a una capa."""
-    capas = [
-        J.LISTA_NEGRA_GAFI, J.LISTA_GRIS_GAFI,
-        J.SANCIONES_INTERNACIONALES, J.OFFSHORE_POLITICA_INTERNA,
-    ]
-    for i, a in enumerate(capas):
-        for b in capas[i + 1:]:
-            assert not (a & b), f"solapan: {a & b}"
+# ── Dataset ──────────────────────────────────────────────────
+def test_el_dataset_tiene_las_cuatro_capas() -> None:
+    assert set(LR.capas()) == {
+        "gafi_negra", "ofac_integral", "gafi_gris", "politica_interna"
+    }
+
+
+def test_lista_gris_tiene_las_22_jurisdicciones() -> None:
+    """
+    Cifra oficial tras la plenaria del 19/06/2026.
+
+    Los agregadores de terceros publicaban listas contradictorias — uno decía
+    22 y a continuación enumeraba más de treinta, incluyendo países ya
+    retirados como Panamá. El dataset se construye desde fatf-gafi.org.
+    """
+    assert len(LR.capas()["gafi_gris"].paises) == 22
+
+
+def test_paises_que_los_agregadores_omitian() -> None:
+    """Venezuela e Islas Vírgenes (UK) sí están en la lista gris del GAFI."""
+    gris = LR.capas()["gafi_gris"].paises
+    for iso in ("VEN", "VGB", "MCO", "BGR", "NPL"):
+        assert iso in gris, f"{iso} falta en la lista gris"
+
+
+def test_panama_no_esta_en_ninguna_capa() -> None:
+    """Salió de la lista gris. Penalizarlo sería un falso positivo."""
+    assert LR.capa_dominante("PAN") is None
+
+
+def test_cada_capa_declara_su_fuente() -> None:
+    for capa in LR.capas().values():
+        assert capa.fuente, f"{capa.clave} sin fuente declarada"
+        assert capa.verificado, f"{capa.clave} sin fecha de verificación"
+        assert capa.peso > 0
 
 
 def test_alto_riesgo_es_la_union_de_las_capas() -> None:
@@ -71,6 +99,18 @@ def test_lista_negra_es_la_del_gafi_vigente() -> None:
     assert J.LISTA_NEGRA_GAFI == frozenset({
         "🇮🇷 Irán", "🇰🇵 Corea del Norte", "🇲🇲 Myanmar",
     })
+
+
+def test_un_pais_puede_estar_en_varias_capas() -> None:
+    """
+    Irán está en la lista negra del GAFI y además tiene programa integral de
+    OFAC. Son dos hechos distintos y ambos deben poder mostrarse.
+    """
+    capas_iran = J.capas_de("🇮🇷 Irán")
+    assert "gafi_negra" in capas_iran
+    assert "ofac_integral" in capas_iran
+    # Para el cálculo manda la más severa
+    assert J.capa_de("🇮🇷 Irán") == "gafi_negra"
 
 
 def test_bolivia_penalizada_como_haiti() -> None:
@@ -92,14 +132,26 @@ def test_offshore_no_se_atribuye_al_gafi() -> None:
         assert offshore in J.OFFSHORE_POLITICA_INTERNA
         assert offshore not in J.LISTA_NEGRA_GAFI
         assert offshore not in J.LISTA_GRIS_GAFI
-        assert J.capa_de(offshore) == "offshore"
+        assert J.capa_de(offshore) == "politica_interna"
 
 
-def test_sanciones_no_se_confunden_con_listados_gafi() -> None:
-    """Cuba y Venezuela están sancionadas, no señaladas por el GAFI."""
-    for pais in ("🇨🇺 Cuba", "🇻🇪 Venezuela"):
-        assert J.capa_de(pais) == "sancion"
-        assert pais not in J.LISTA_GRIS_GAFI
+def test_venezuela_y_vgb_son_lista_gris_no_politica_interna() -> None:
+    """
+    Corrección de agosto de 2026. Las webs agregadoras las omitían de la lista
+    gris; la página oficial del GAFI las incluye. Islas Vírgenes (UK) estaba
+    clasificada como offshore por decisión propia cuando en realidad hay
+    señalamiento oficial, que pesa casi el doble.
+    """
+    for pais in ("🇻🇪 Venezuela", "🇻🇬 Islas Vírgenes (UK)"):
+        assert J.capa_de(pais) == "gafi_gris"
+        assert pais in J.LISTA_GRIS_GAFI
+        assert pais not in J.OFFSHORE_POLITICA_INTERNA
+
+
+def test_cuba_es_sancion_sin_señalamiento_gafi() -> None:
+    """Motivo geopolítico, no deficiencia antilavado."""
+    assert J.capa_de("🇨🇺 Cuba") == "ofac_integral"
+    assert "🇨🇺 Cuba" not in J.LISTA_GRIS_GAFI
 
 
 def test_capa_de_devuelve_none_si_no_penaliza() -> None:
@@ -122,14 +174,14 @@ def test_la_severidad_se_refleja_en_el_puntaje() -> None:
     assert negra > sancion > gris > offshore > 0
 
 
-@pytest.mark.parametrize("jurisdiccion,peso", [
-    ("🇮🇷 Irán",           "jurisdiccion_lista_negra"),
-    ("🇨🇺 Cuba",           "jurisdiccion_sancion"),
-    ("🇧🇴 Bolivia",        "jurisdiccion_lista_gris"),
-    ("🇰🇾 Islas Caimán",   "jurisdiccion_offshore"),
+@pytest.mark.parametrize("jurisdiccion,capa", [
+    ("🇮🇷 Irán",           "gafi_negra"),
+    ("🇨🇺 Cuba",           "ofac_integral"),
+    ("🇧🇴 Bolivia",        "gafi_gris"),
+    ("🇰🇾 Islas Caimán",   "politica_interna"),
 ])
-def test_cada_capa_aporta_su_peso(jurisdiccion: str, peso: str) -> None:
-    assert _score([jurisdiccion]) == _RISK_WEIGHTS[peso]
+def test_cada_capa_aporta_su_peso(jurisdiccion: str, capa: str) -> None:
+    assert _score([jurisdiccion]) == PESO[capa]
 
 
 def test_solo_pesa_la_capa_mas_severa() -> None:
@@ -137,10 +189,7 @@ def test_solo_pesa_la_capa_mas_severa() -> None:
     Un partner en Irán y en Islas Caimán tiene el riesgo de Irán, no la suma.
     Sumar capas inflaría el puntaje sin reflejar una realidad distinta.
     """
-    esperado = (
-        _RISK_WEIGHTS["jurisdiccion_lista_negra"]
-        + _RISK_WEIGHTS["jurisdiccion_multiple_riesgo"]
-    )
+    esperado = PESO["gafi_negra"] + _RISK_WEIGHTS["jurisdiccion_multiple_riesgo"]
     assert _score(["🇮🇷 Irán", "🇰🇾 Islas Caimán"]) == esperado
 
 

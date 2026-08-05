@@ -1,0 +1,64 @@
+{
+  "_comentario": "Clasificación de jurisdicciones por listas de riesgo. Fuente única de verdad: config/settings.py deriva sus conjuntos de aquí. NO editar los códigos a mano sin verificar contra la fuente indicada en cada capa.",
+
+  "verificado": "2026-08-05",
+
+  "capas": {
+    "gafi_negra": {
+      "etiqueta": "Lista negra GAFI · llamado a la acción",
+      "descripcion": "Jurisdicciones de alto riesgo sujetas a un llamado a la acción. Implica contramedidas obligatorias.",
+      "peso": 30,
+      "fuente": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/call-for-action-june-2026.html",
+      "verificado": "2026-08-05",
+      "revision": "plenaria del GAFI, 3 veces al año",
+      "paises": ["IRN", "PRK", "MMR"]
+    },
+
+    "gafi_gris": {
+      "etiqueta": "Lista gris GAFI · monitoreo intensificado",
+      "descripcion": "Jurisdicciones bajo monitoreo intensificado, con plan de acción acordado. Requiere debida diligencia reforzada.",
+      "peso": 15,
+      "fuente": "https://www.fatf-gafi.org/en/publications/High-risk-and-other-monitored-jurisdictions/increased-monitoring-june-2026.html",
+      "verificado": "2026-08-05",
+      "revision": "plenaria del GAFI, 3 veces al año",
+      "_nota": "22 jurisdicciones tras la plenaria del 19/06/2026. Entraron Bosnia-Herzegovina e Irak; salieron Argelia y Namibia.",
+      "paises": [
+        "AGO", "BOL", "BIH", "BGR", "CMR", "CIV", "COD", "HTI", "IRQ",
+        "KEN", "KWT", "LAO", "LBN", "MCO", "NPL", "PNG", "SSD", "SYR",
+        "VEN", "VNM", "VGB", "YEM"
+      ]
+    },
+
+    "ofac_integral": {
+      "etiqueta": "Sanciones OFAC · programa integral",
+      "descripcion": "Programas de sanciones de alcance amplio del Tesoro de EE. UU. No implica deficiencia antilavado: el motivo es geopolítico.",
+      "peso": 20,
+      "fuente": "https://ofac.treasury.gov/sanctions-programs-and-country-information",
+      "verificado": "2026-08-05",
+      "revision": "continua; pendiente de automatizar la descarga",
+      "_nota": "Solo programas de alcance integral. Los sectoriales o dirigidos (Rusia, Bielorrusia) no se incluyen aquí porque no restringen la jurisdicción completa.",
+      "paises": ["CUB", "IRN", "PRK", "SYR"]
+    },
+
+    "politica_interna": {
+      "etiqueta": "Restringida por política interna",
+      "descripcion": "Decisión propia de AdamoServices sobre centros financieros offshore por opacidad societaria. No figuran en listas oficiales vigentes.",
+      "peso": 8,
+      "fuente": "interna",
+      "verificado": "2026-08-05",
+      "revision": "cuando cambie la política",
+      "_nota": "Islas Caimán salió de la lista gris del GAFI en octubre de 2023 y Bahamas en 2020. Se mantiene la cautela, declarada como decisión propia y no como señalamiento oficial.",
+      "paises": ["CYM", "BHS", "BMU"]
+    }
+  },
+
+  "notas_por_pais": {
+    "VEN": "Está en la lista gris del GAFI y además tiene sanciones dirigidas de OFAC. Prevalece el listado GAFI para el cálculo.",
+    "VGB": "Islas Vírgenes Británicas entró en la lista gris del GAFI. Antes se restringía por política interna sobre offshore; ahora hay señalamiento oficial.",
+    "SYR": "Coincide en lista gris del GAFI y programa integral de OFAC.",
+    "IRN": "Coincide en lista negra del GAFI y programa integral de OFAC.",
+    "PRK": "Coincide en lista negra del GAFI y programa integral de OFAC.",
+    "CYM": "Retirada de la lista gris del GAFI en octubre de 2023. Se mantiene por política interna.",
+    "BHS": "Retirada de la lista gris del GAFI en diciembre de 2020. Se mantiene por política interna."
+  }
+}

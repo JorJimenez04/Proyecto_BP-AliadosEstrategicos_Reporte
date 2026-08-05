@@ -1,0 +1,27 @@
+[33mcommit 19dc76fbdf883ec01cbe57c79c3c271b2f8ff2f7[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: Jorge Jiménez <jljimenezr.19@gmail.com>
+Date:   Wed Aug 5 15:36:59 2026 -0500
+
+    Jurisdicciones por capas y marca de calificacion incompleta
+    
+    Separa el antiguo ALTO_RIESGO en cuatro capas con su fuente:
+      lista negra GAFI (30) > sanciones OFAC/UE (20) > lista gris GAFI (15)
+      > offshore por politica interna (8)
+    Antes todo pesaba 15 y se atribuia al GAFI; Islas Caiman salio de la lista
+    gris en 2023 y Bahamas en 2020, asi que esa atribucion era falsa.
+    
+    Anade Bolivia, que estaba en la lista gris sin penalizar mientras Haiti si
+    lo estaba. Solo pesa la capa mas severa presente, no la suma.
+    
+    Introduce calificacion_incompleta(): un partner sin jurisdicciones sumaba
+    cero igual que uno limpio, de modo que la falta de datos se leia como
+    ausencia de riesgo. El Monitor muestra ahora los afectados.
+
+ ACCESOS_ROLES.md                     |  41 [32m++++++++[m
+ app/components/partners_ui.py        |  26 [32m++++[m[31m-[m
+ app/components/ui_kit.py             |  22 [32m++++[m
+ config/settings.py                   |  69 [32m++++++++++++[m[31m-[m
+ db/repositories/cliente_repo.py      |  16 [32m++[m[31m-[m
+ db/repositories/partner_repo.py      |  69 [32m+++++++++++[m[31m--[m
+ tests/test_scoring_jurisdicciones.py | 191 [32m+++++++++++++++++++++++++++++++++++[m
+ 7 files changed, 413 insertions(+), 21 deletions(-)

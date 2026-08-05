@@ -344,71 +344,94 @@ class Jurisdicciones:
     #
     # Última verificación contra fatf-gafi.org: plenaria del 19/06/2026.
 
-    FUENTE_GAFI_VERIFICADA: str = "2026-06-19"
+    # Los conjuntos ya no se escriben aquí: se derivan de data/listas_riesgo.json
+    # cruzando los códigos ISO con la tabla de equivalencias. Mantenerlos a mano
+    # en formato con emoji impedía casarlos con las publicaciones del GAFI y de
+    # OFAC, que usan nombres en inglés, y obligaba a actualizar dos sitios.
 
-    # Llamado a la acción — contramedidas obligatorias.
-    LISTA_NEGRA_GAFI: frozenset[str] = frozenset({
-        "🇮🇷 Irán",
-        "🇰🇵 Corea del Norte",
-        "🇲🇲 Myanmar",
-    })
+    @classmethod
+    def _derivar(cls, clave_capa: str) -> frozenset[str]:
+        """Valores del catálogo cuyo país figura en una capa del dataset."""
+        from config.jurisdicciones_legacy import a_iso3
+        from config.listas_riesgo import capas
 
-    # Monitoreo intensificado. De las 22 jurisdicciones de la lista gris,
-    # estas son las que figuran en el catálogo. Bolivia faltaba: se penalizaba
-    # a Haití pero no a Bolivia, estando ambas en la misma lista.
-    LISTA_GRIS_GAFI: frozenset[str] = frozenset({
-        "🇭🇹 Haití",
-        "🇧🇴 Bolivia",
-    })
-
-    # Sanciones de OFAC y la UE. Motivo geopolítico, no deficiencia antilavado:
-    # ninguno de los dos está en los listados del GAFI.
-    SANCIONES_INTERNACIONALES: frozenset[str] = frozenset({
-        "🇨🇺 Cuba",
-        "🇻🇪 Venezuela",
-    })
-
-    # Decisión propia de AdamoServices sobre centros offshore por opacidad
-    # societaria. Ninguno está hoy en listas del GAFI — Islas Caimán salió en
-    # octubre de 2023 y Bahamas en 2020. Se mantiene la cautela, pero
-    # declarada como lo que es y con menos peso que un listado oficial.
-    OFFSHORE_POLITICA_INTERNA: frozenset[str] = frozenset({
-        "🇰🇾 Islas Caimán",
-        "🇧🇸 Bahamas",
-        "🇧🇲 Bermuda",
-        "🇻🇬 Islas Vírgenes (UK)",
-    })
-
-    # Unión de todo lo que penaliza. Se mantiene por compatibilidad con el
-    # código existente; para lógica nueva usar la capa concreta.
-    ALTO_RIESGO: frozenset[str] = (
-        LISTA_NEGRA_GAFI
-        | LISTA_GRIS_GAFI
-        | SANCIONES_INTERNACIONALES
-        | OFFSHORE_POLITICA_INTERNA
-    )
-
-    # Etiqueta legible de cada capa, para explicar en la interfaz por qué
-    # una jurisdicción penaliza.
-    ETIQUETA_CAPA: dict[str, str] = {
-        "negra":    "Lista negra GAFI · llamado a la acción",
-        "gris":     "Lista gris GAFI · monitoreo intensificado",
-        "sancion":  "Sanciones OFAC o UE",
-        "offshore": "Restringida por política interna",
-    }
+        capa = capas().get(clave_capa)
+        if not capa:
+            return frozenset()
+        return frozenset(
+            v for v in cls.ALL
+            if (iso := a_iso3(v)) and iso in capa.paises
+        )
 
     @classmethod
     def capa_de(cls, jurisdiccion: str) -> str | None:
-        """Capa a la que pertenece una jurisdicción, o None si no penaliza."""
-        if jurisdiccion in cls.LISTA_NEGRA_GAFI:
-            return "negra"
-        if jurisdiccion in cls.LISTA_GRIS_GAFI:
-            return "gris"
-        if jurisdiccion in cls.SANCIONES_INTERNACIONALES:
-            return "sancion"
-        if jurisdiccion in cls.OFFSHORE_POLITICA_INTERNA:
-            return "offshore"
-        return None
+        """
+        Clave de la capa más severa de una jurisdicción, o None si no penaliza.
+
+        Un país puede figurar en varias: Venezuela está en la lista gris del
+        GAFI y además tiene sanciones de OFAC. Para el cálculo manda la peor.
+        """
+        from config.jurisdicciones_legacy import a_iso3
+        from config.listas_riesgo import capa_dominante
+
+        iso = a_iso3(jurisdiccion)
+        if not iso:
+            return None
+        capa = capa_dominante(iso)
+        return capa.clave if capa else None
+
+    @classmethod
+    def peso_de(cls, jurisdiccion: str) -> int:
+        """Puntos que aporta una jurisdicción al puntaje de riesgo."""
+        from config.jurisdicciones_legacy import a_iso3
+        from config.listas_riesgo import peso_de as _peso
+
+        iso = a_iso3(jurisdiccion)
+        return _peso(iso) if iso else 0
+
+    @classmethod
+    def capas_de(cls, jurisdiccion: str) -> list[str]:
+        """
+        Todas las capas en que figura una jurisdicción, de más a menos severa.
+
+        Para explicar al usuario por qué penaliza: Siria aparece a la vez en
+        la lista gris del GAFI y en el programa integral de OFAC.
+        """
+        from config.jurisdicciones_legacy import a_iso3
+        from config.listas_riesgo import capas_de as _capas
+
+        iso = a_iso3(jurisdiccion)
+        return [c.clave for c in _capas(iso)] if iso else []
+
+    @classmethod
+    def etiqueta_capa(cls, clave: str) -> str:
+        from config.listas_riesgo import capas
+        capa = capas().get(clave)
+        return capa.etiqueta if capa else clave
+
+    @classmethod
+    def fuente_verificada(cls) -> str:
+        from config.listas_riesgo import verificado
+        return verificado()
+
+
+# ── Conjuntos derivados del dataset ───────────────────────────
+# Se calculan una vez al importar, cruzando data/listas_riesgo.json con la
+# tabla de equivalencias. Quedan como atributos normales para no romper el
+# código que ya los consultaba.
+Jurisdicciones.LISTA_NEGRA_GAFI = Jurisdicciones._derivar("gafi_negra")
+Jurisdicciones.LISTA_GRIS_GAFI = Jurisdicciones._derivar("gafi_gris")
+Jurisdicciones.SANCIONES_INTERNACIONALES = Jurisdicciones._derivar("ofac_integral")
+Jurisdicciones.OFFSHORE_POLITICA_INTERNA = Jurisdicciones._derivar("politica_interna")
+
+# Unión de todo lo que penaliza. Se mantiene por compatibilidad; para lógica
+# nueva usar Jurisdicciones.capa_de(), que distingue la severidad.
+Jurisdicciones.ALTO_RIESGO = (
+    Jurisdicciones.LISTA_NEGRA_GAFI
+    | Jurisdicciones.LISTA_GRIS_GAFI
+    | Jurisdicciones.SANCIONES_INTERNACIONALES
+    | Jurisdicciones.OFFSHORE_POLITICA_INTERNA
+)
 
 
 # ── Tipos de Riel de Pago ─────────────────────────────────────

@@ -31,23 +31,11 @@ _RISK_WEIGHTS: dict[str, int] = {
     "sin_camara_comercio":           5,   # Cámara de comercio ausente
     "sin_due_diligence":            10,   # DD nunca iniciado
     # ─ Jurisdicciones ───────────────────────────────────────────
-    # Un peso por capa. Antes todo sumaba 15 puntos por igual: operar en Irán
-    # —relación prohibida con contramedidas obligatorias— pesaba lo mismo que
-    # operar en Islas Caimán. Ahora la severidad se refleja en el puntaje.
-    "jurisdiccion_lista_negra":     30,   # GAFI · llamado a la acción
-    "jurisdiccion_sancion":         20,   # OFAC / UE
-    "jurisdiccion_lista_gris":      15,   # GAFI · monitoreo intensificado
-    "jurisdiccion_offshore":         8,   # Política interna sobre offshore
+    # El peso de cada capa vive en data/listas_riesgo.json, junto a la lista
+    # de países y su fuente, para que actualizarlo sea un solo cambio.
+    # Aquí quedan solo los recargos que no dependen de una capa concreta.
     "jurisdiccion_multiple_riesgo": 10,   # 2+ jurisdicciones señaladas
     "jurisdiccion_exposicion":       5,   # 5+ jurisdicciones en total
-}
-
-# Peso de cada capa, para no repetir el mapeo en cada cálculo
-_PESO_POR_CAPA: dict[str, str] = {
-    "negra":    "jurisdiccion_lista_negra",
-    "sancion":  "jurisdiccion_sancion",
-    "gris":     "jurisdiccion_lista_gris",
-    "offshore": "jurisdiccion_offshore",
 }
 
 # Campos sin los cuales el puntaje no es una calificación de riesgo sino una
@@ -155,20 +143,14 @@ def calcular_puntaje_riesgo(data: dict) -> tuple[float, str]:
         # Defensivo: si viene como string serializado desde PG, tratar como lista vacía
         jurisdicciones = []
 
-    # Solo penaliza la capa más severa presente: si un partner opera en Irán
+    # Solo penaliza la jurisdicción más severa: si un partner opera en Irán
     # y en Islas Caimán, lo que define su riesgo es Irán, no la suma de ambos.
-    capas_presentes = {
-        capa for j in jurisdicciones
-        if (capa := _Jur.capa_de(j)) is not None
-    }
-    if capas_presentes:
-        peor = next(
-            c for c in ("negra", "sancion", "gris", "offshore")
-            if c in capas_presentes
-        )
-        score += _RISK_WEIGHTS[_PESO_POR_CAPA[peor]]
+    # El peso de cada capa sale del dataset, no de una tabla duplicada aquí.
+    pesos = [_Jur.peso_de(j) for j in jurisdicciones]
+    if pesos:
+        score += max(pesos)
 
-    señaladas = sum(1 for j in jurisdicciones if _Jur.capa_de(j) is not None)
+    señaladas = sum(1 for p in pesos if p > 0)
     if señaladas >= 2:
         score += _RISK_WEIGHTS["jurisdiccion_multiple_riesgo"]
     if len(jurisdicciones) >= 5:
