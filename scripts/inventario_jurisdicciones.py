@@ -34,7 +34,14 @@ from config.settings import Jurisdicciones
 from scripts._db_target import crear_engine
 
 # Tablas con columna jurisdicciones TEXT[]
-TABLAS = [("aliados", "nombre_razon_social"), ("clientes", "nombre_razon_social")]
+TABLAS = ["aliados", "clientes"]
+
+# El nombre de la entidad se llama distinto en cada tabla; se descubre en vez
+# de asumirse. Asumirlo fue exactamente el fallo de la primera versión.
+CANDIDATAS_NOMBRE = ("nombre_razon_social", "razon_social", "nombre", "nombre_completo")
+
+# Columnas de país sueltas, fuera del array de jurisdicciones
+CANDIDATAS_PAIS = ("pais_constitucion", "pais", "pais_origen")
 
 SEP = "─" * 66
 
@@ -45,11 +52,26 @@ def _existe_tabla(conn, tabla: str) -> bool:
     ), {"t": tabla}).fetchone())
 
 
-def _tiene_columna(conn, tabla: str, columna: str) -> bool:
-    return bool(conn.execute(text(
-        "SELECT 1 FROM information_schema.columns "
-        "WHERE table_name = :t AND column_name = :c"
-    ), {"t": tabla, "c": columna}).fetchone())
+def _columnas(conn, tabla: str) -> set[str]:
+    filas = conn.execute(text(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = :t"
+    ), {"t": tabla}).fetchall()
+    return {f[0] for f in filas}
+
+
+def _primera(disponibles: set[str], candidatas: tuple[str, ...]) -> str | None:
+    return next((c for c in candidatas if c in disponibles), None)
+
+
+def _clasificar(valor: str) -> tuple[str, str]:
+    """Devuelve (marca, destino) de un valor de jurisdicción."""
+    eq = equivalencia(valor)
+    if eq and eq.iso3:
+        return "OK", eq.iso3 + (f" · {eq.subregion}" if eq.subregion else "")
+    auto = paises.buscar(valor)
+    if auto:
+        return "~ ", f"{auto.iso3} (por nombre)"
+    return "??", "SIN EQUIVALENCIA"
 
 
 def main() -> None:
@@ -61,20 +83,28 @@ def main() -> None:
     filas_por_tabla: dict[str, int] = {}
 
     with engine.connect() as conn:
-        for tabla, col_nombre in TABLAS:
+        for tabla in TABLAS:
             if not _existe_tabla(conn, tabla):
                 print(f"⚠️  Tabla '{tabla}' no existe — se omite")
                 continue
-            if not _tiene_columna(conn, tabla, "jurisdicciones"):
+
+            cols = _columnas(conn, tabla)
+            if "jurisdicciones" not in cols:
                 print(f"⚠️  '{tabla}' no tiene columna jurisdicciones — se omite")
                 continue
 
-            filas = conn.execute(text(
-                f"SELECT id, {col_nombre} AS nombre, jurisdicciones FROM {tabla}"
-            )).fetchall()
+            col_nombre = _primera(cols, CANDIDATAS_NOMBRE) or "id"
+            col_pais = _primera(cols, CANDIDATAS_PAIS)
+
+            seleccion = f"id, {col_nombre} AS nombre, jurisdicciones"
+            if col_pais:
+                seleccion += f", {col_pais} AS pais_suelto"
+
+            filas = conn.execute(text(f"SELECT {seleccion} FROM {tabla}")).fetchall()
             filas_por_tabla[tabla] = len(filas)
 
             local: Counter[str] = Counter()
+            paises_sueltos: Counter[str] = Counter()
             sin_juris = 0
             for f in filas:
                 vals = f.jurisdicciones or []
@@ -83,20 +113,26 @@ def main() -> None:
                 for v in vals:
                     local[v] += 1
                     conteo_global[v] += 1
+                if col_pais and getattr(f, "pais_suelto", None):
+                    paises_sueltos[f.pais_suelto] += 1
 
             print(SEP)
             print(f"TABLA {tabla}  ·  {len(filas)} registros  ·  {sin_juris} sin jurisdicciones")
+            print(f"  columna nombre: {col_nombre}" + (f"  ·  país suelto: {col_pais}" if col_pais else ""))
             print(SEP)
-            for valor, n in local.most_common():
-                eq = equivalencia(valor)
-                if eq and eq.iso3:
-                    destino_txt = eq.iso3 + (f" · {eq.subregion}" if eq.subregion else "")
-                    marca = "OK"
-                else:
-                    auto = paises.buscar(valor)
-                    destino_txt = f"{auto.iso3} (por nombre)" if auto else "SIN EQUIVALENCIA"
-                    marca = "??" if not auto else "~ "
-                print(f"  {marca}  {n:>4}×  {valor:<32} → {destino_txt}")
+
+            if local:
+                for valor, n in local.most_common():
+                    marca, destino_txt = _clasificar(valor)
+                    print(f"  {marca}  {n:>4}×  {valor:<32} → {destino_txt}")
+            else:
+                print("  (ninguna jurisdicción registrada)")
+
+            if paises_sueltos:
+                print(f"\n  Valores de {col_pais}:")
+                for valor, n in paises_sueltos.most_common():
+                    marca, destino_txt = _clasificar(valor)
+                    print(f"  {marca}  {n:>4}×  {valor:<32} → {destino_txt}")
             print()
 
     if not conteo_global:
