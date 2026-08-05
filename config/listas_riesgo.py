@@ -114,3 +114,38 @@ def verificado() -> str:
 def resumen_por_capa() -> dict[str, int]:
     """Cuántos países hay en cada capa. Útil para el mapa y la auditoría."""
     return {c.etiqueta: len(c.paises) for c in capas().values()}
+
+
+# ── Vigencia ─────────────────────────────────────────────────
+# El GAFI revisa sus listas tres veces al año y no publica API, así que la
+# verificación es manual. Cuatro meses es el umbral: si se supera, con toda
+# probabilidad hubo una plenaria sin contrastar.
+MESES_HASTA_CADUCAR = 4
+
+
+def dias_desde_verificacion() -> int:
+    """Días transcurridos desde la última verificación del dataset."""
+    from datetime import date
+
+    y, m, d = (int(x) for x in verificado().split("-"))
+    return (date.today() - date(y, m, d)).days
+
+
+def verificacion_caducada(meses: int = MESES_HASTA_CADUCAR) -> bool:
+    """True si el dataset lleva demasiado sin contrastarse con la fuente."""
+    return dias_desde_verificacion() > meses * 30
+
+
+def estado_verificacion() -> tuple[str, str]:
+    """
+    (nivel, mensaje) para mostrar en la interfaz.
+
+    nivel es 'ok' o 'warn', apto para ui_kit.
+    """
+    dias = dias_desde_verificacion()
+    if verificacion_caducada():
+        return "warn", (
+            f"Listas sin verificar desde hace {dias} días. "
+            f"El GAFI celebra plenaria cada cuatro meses."
+        )
+    return "ok", f"Verificado hace {dias} días"
