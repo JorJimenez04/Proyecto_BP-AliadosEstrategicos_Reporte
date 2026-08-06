@@ -12,6 +12,10 @@ enableCORS              = false
 enableXsrfProtection    = true
 # Desactivar cabecera que revela la versión de Streamlit
 maxUploadSize           = 10
+# Sirve app/static/ en /app/static/. Necesario para alojar la geometría del
+# mapa mundial y no depender del CDN de Plotly, que redes corporativas
+# bloquean con frecuencia.
+enableStaticServing     = true
 
 [browser]
 gatherUsageStats        = false

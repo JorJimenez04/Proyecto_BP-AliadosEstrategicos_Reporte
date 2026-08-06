@@ -17,7 +17,8 @@ import os
 os.environ.setdefault("DATABASE_URL", "postgresql://smoke:smoke@localhost:5432/smoke")
 
 from app.components.jurisdicciones_ui import (
-    _COLOR_CAPA, _COLOR_NEUTRO, _COLOR_OPERA, _MICRO,
+    _COLOR_CAPA, _COLOR_NEUTRO, _COLOR_OPERA, _DIR_TOPOJSON, _MICRO,
+    _config_plotly, geometria_local_disponible,
 )
 from config import listas_riesgo as lr
 from config import paises
@@ -80,6 +81,68 @@ def test_todas_las_categorias_del_mapa_tienen_color_propio() -> None:
     """
     todos = [_COLOR_CAPA[c] for c in lr.capas()] + [_COLOR_OPERA, _COLOR_NEUTRO]
     assert len(set(todos)) == len(todos), "dos categorías del mapa comparten color"
+
+
+# ── Geometría ────────────────────────────────────────────────
+def test_el_mapa_funciona_con_y_sin_geometria_local() -> None:
+    """
+    La copia local es una mejora, no un requisito.
+
+    Si falta, el mapa debe seguir dibujándose contra el CDN de Plotly en vez
+    de romperse. Lo que no puede pasar es que la ausencia del fichero deje la
+    pestaña inservible.
+    """
+    cfg = _config_plotly()
+    assert cfg["displayModeBar"] is False
+
+    if geometria_local_disponible():
+        assert cfg["topojsonURL"].startswith("/app/static/"), (
+            "la ruta debe ser servida por la propia aplicación"
+        )
+    else:
+        assert "topojsonURL" not in cfg, (
+            "sin fichero local no debe apuntarse a una ruta que dará 404"
+        )
+
+
+def test_la_geometria_va_dentro_de_los_estaticos_de_streamlit() -> None:
+    """
+    Streamlit solo sirve lo que cuelga de la carpeta static junto al
+    entrypoint. Fuera de ahí, el navegador recibiría un 404.
+    """
+    assert _DIR_TOPOJSON.parent.name == "static"
+    assert _DIR_TOPOJSON.parent.parent.name == "app"
+
+
+def test_los_estaticos_no_estan_excluidos_de_la_imagen() -> None:
+    """Mismo fallo que tumbó el despliegue con el dataset en data/."""
+    raiz = _DIR_TOPOJSON.parent.parent.parent
+    dockerignore = raiz / ".dockerignore"
+    if not dockerignore.exists():
+        return
+
+    patrones = [
+        linea.strip().rstrip("/")
+        for linea in dockerignore.read_text(encoding="utf-8", errors="replace").splitlines()
+        if linea.strip() and not linea.strip().startswith(("#", "!"))
+    ]
+    for parte in _DIR_TOPOJSON.relative_to(raiz).parts:
+        assert parte not in patrones, (
+            f"'{parte}/' está excluido en .dockerignore; la geometría no "
+            "llegaría al contenedor"
+        )
+
+
+def test_streamlit_sirve_los_estaticos() -> None:
+    """Sin enableStaticServing, la carpeta static no se publica."""
+    raiz = _DIR_TOPOJSON.parent.parent.parent
+    config = raiz / ".streamlit" / "config.toml"
+    if not config.exists():
+        return
+    texto = config.read_text(encoding="utf-8", errors="replace")
+    assert "enableStaticServing" in texto and "true" in texto.lower(), (
+        "hay que activar enableStaticServing para servir la geometría"
+    )
 
 
 def test_todo_pais_del_catalogo_cae_en_alguna_categoria() -> None:

@@ -12,12 +12,36 @@ Fuente de los datos: config/listas_riesgo.json (ver config/listas_riesgo.py).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import streamlit as st
 
 from config import listas_riesgo as lr
 from config import paises
 from config.jurisdicciones_legacy import a_iso3
 from app.components import ui_kit as ui
+
+# ── Geometría del mapa ───────────────────────────────────────
+# Plotly envía desde el servidor solo códigos y colores; las fronteras las pide
+# el navegador aparte, por defecto a cdn.plot.ly. Esa petición a un tercero
+# falla en redes corporativas y deja el mapa vacío con la leyenda debajo — que
+# es exactamente el sitio donde se usa una herramienta de compliance.
+#
+# Si la copia local existe, se sirve desde la propia aplicación. Si no, se cae
+# al CDN para que el mapa siga funcionando. Ver scripts/descargar_geometria_mapa.py
+_DIR_TOPOJSON = Path(__file__).resolve().parent.parent / "static" / "topojson"
+_URL_TOPOJSON_LOCAL = "/app/static/topojson/"
+
+
+def geometria_local_disponible() -> bool:
+    return (_DIR_TOPOJSON / "world_110m.json").exists()
+
+
+def _config_plotly() -> dict:
+    cfg: dict = {"displayModeBar": False}
+    if geometria_local_disponible():
+        cfg["topojsonURL"] = _URL_TOPOJSON_LOCAL
+    return cfg
 
 # Color de cada capa. Coincide con los tonos del kit para que el mapa no
 # introduzca una paleta propia.
@@ -232,7 +256,7 @@ def _mapa(exposicion: dict[str, int]) -> None:
         ),
         font=dict(family="Inter, system-ui, sans-serif"),
     )
-    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig, use_container_width=True, config=_config_plotly())
 
 
 def _panel_pais(iso: str, exposicion: dict[str, int]) -> str:
@@ -312,6 +336,17 @@ def page_mapa_jurisdicciones(user: dict) -> None:
 
     ui.render(ui.spacer(10))
     _mapa(exposicion)
+
+    if not geometria_local_disponible():
+        ui.render(ui.aviso(
+            "El mapa depende del CDN de Plotly para dibujar las fronteras",
+            "Si un usuario está en una red que lo bloquea verá el mapa vacío. "
+            "Ejecuta scripts/descargar_geometria_mapa.py para servirla desde "
+            "la propia aplicación.",
+            tone="muted",
+            icon_name="alert",
+        ))
+        ui.render(ui.spacer(8))
 
     _invisibles = sorted(señalados & set(_MICRO))
     if _invisibles:
