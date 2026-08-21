@@ -15,14 +15,22 @@ COLOR_TEXT_MUTED = (100, 116, 139) # Slate 500
 COLOR_BG_GRID = (248, 250, 252)    # Slate 50
 COLOR_LINE_TENUE = (226, 232, 240) # Slate 200
 
+# ─── TIPOS DE ENTIDAD EVALUADA ───
+# Única fuente de verdad para el valor de "tipo_persona" que circula entre
+# screening_ui.py y este módulo — evita que un typo en un literal de cadena
+# rompa silenciosamente la segmentación Jurídica / Natural.
+TIPO_PERSONA_JURIDICA = "Persona Jurídica"
+TIPO_PERSONA_NATURAL = "Persona Natural"
+
 
 class ComplianceMaestroPDF(FPDF):
     """Estructura de diseño institucional con doble logo simétrico para HBPO-Adamo-Paycop."""
 
-    def __init__(self, logo_adamo=None, logo_holdings=None):
+    def __init__(self, logo_adamo=None, logo_holdings=None, tipo_persona=TIPO_PERSONA_JURIDICA):
         super().__init__(orientation="P", unit="mm", format="A4")
         self.logo_adamo = logo_adamo
         self.logo_holdings = logo_holdings
+        self.tipo_persona = tipo_persona
         self.set_margins(left=15, top=42, right=15)
 
     def header(self):
@@ -31,15 +39,23 @@ class ComplianceMaestroPDF(FPDF):
         # 📐 ALINEACIÓN SIMÉTRICA OPTIMIZADA CON LOGOS MÁS GRANDES (Y_mid = 16.5mm)
         if self.logo_adamo and os.path.exists(self.logo_adamo):
             self.image(self.logo_adamo, x=15, y=10, h=13)
-            
+
         if self.logo_holdings and os.path.exists(self.logo_holdings):
             self.image(self.logo_holdings, x=163, y=10.5, h=12)
 
-        # Canal central de texto protegido
+        # Canal central de texto protegido.
+        # Nota: fpdf2 con fuentes core (Helvetica) solo soporta latin-1 — un
+        # guion largo "—" rompe la generación (FPDFUnicodeEncodingException).
+        # Se usa guion normal "-" a propósito, no es un descuido de estilo.
+        titulo_doc = (
+            "EXPEDIENTE DE DEBIDA DILIGENCIA INDIVIDUAL - PERSONA NATURAL / UBO"
+            if self.tipo_persona == TIPO_PERSONA_NATURAL
+            else "EXPEDIENTE DE DEBIDA DILIGENCIA CORPORATIVA - PERSONA JURÍDICA"
+        )
         self.set_xy(45, 11.5)
         self.set_font("Helvetica", "B", 9.0)
         self.set_text_color(*COLOR_PRIMARY)
-        self.cell(115, 4.5, "INFORME DE EVALUACIÓN DE RIESGO Y COMPLIANCE CORPORATIVO", align="C")
+        self.cell(115, 4.5, titulo_doc, align="C")
 
         self.set_xy(45, 16.5)
         self.set_font("Helvetica", "", 6.5)
@@ -223,10 +239,13 @@ def _s(texto) -> str:
 
 
 def generar_pdf_base(datos_master: dict) -> bytes:
+    tipo_persona = datos_master.get("tipo_persona", TIPO_PERSONA_JURIDICA)
+    es_juridica = tipo_persona == TIPO_PERSONA_JURIDICA
+
     path_adamo = resolver_ruta_logo("Logo Adamo general")
     path_holdings = resolver_ruta_logo("Logo Holdings")
 
-    pdf = ComplianceMaestroPDF(logo_adamo=path_adamo, logo_holdings=path_holdings)
+    pdf = ComplianceMaestroPDF(logo_adamo=path_adamo, logo_holdings=path_holdings, tipo_persona=tipo_persona)
     pdf.alias_nb_pages()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=18)
@@ -373,34 +392,66 @@ def generar_pdf_base(datos_master: dict) -> bytes:
 
 
     # ─── SANITIZACIÓN ESTRUCTURAL DE DATOS ───
-    s_empresa   = _s(datos_master['empresa_principal'])
-    s_nit       = _s(datos_master['nit_principal'])
+    # Campos comunes a ambos tipos de entidad.
     s_radicado  = _s(datos_master['radicado_caso'])
     s_direccion = _s(datos_master['direccion'])
     s_telefono  = _s(datos_master['telefono'])
     s_correo    = _s(datos_master.get('correo_contacto', 'No Registrado'))
-    s_jurisdic  = _s(datos_master['jurisdiccion'])
-    s_web       = _s(datos_master['sitio_web'])
-    s_rep_nom   = _s(datos_master['rep_legal_nom'])
-    s_acc_nom   = _s(datos_master['accionista_nom'])
     s_estado    = _s(datos_master['estado_global'])
     s_dictamen  = _s(datos_master['dictamen_motivo'])
     s_rues      = _s(datos_master['rues_noticias_raw'])
     s_fecha     = _s(datos_master['fecha'])
 
-    # ─── ENCABEZADO DE COMPAÑÍA ESTILO DASHBOARD ───
+    # Campos exclusivos de Persona Jurídica.
+    s_empresa   = _s(datos_master.get('empresa_principal', ''))
+    s_nit       = _s(datos_master.get('nit_principal', 'N/D'))
+    s_jurisdic  = _s(datos_master.get('jurisdiccion', 'N/D'))
+    s_web       = _s(datos_master.get('sitio_web', 'N/D'))
+    s_rep_nom   = _s(datos_master.get('rep_legal_nom', 'N/D'))
+    s_acc_nom   = _s(datos_master.get('accionista_nom', 'N/D'))
+
+    # Campos exclusivos de Persona Natural.
+    s_nombre_completo = _s(datos_master.get('nombre_completo', ''))
+    s_num_doc         = _s(datos_master.get('numero_documento', 'N/D'))
+    s_rol_relacion    = _s(datos_master.get('rol_relacion', 'N/D'))
+    s_pais_residencia = _s(datos_master.get('pais_residencia', 'N/D'))
+
+    # ─── ENCABEZADO ESTILO DASHBOARD ───
+    # El nombre grande y la línea de identificación cambian según el tipo
+    # de entidad: Razón Social + NIT (Jurídica) o Nombre + Documento (Natural).
+    nombre_principal = s_empresa if es_juridica else s_nombre_completo
+    if es_juridica:
+        linea_identificacion = f"Identificación Comercial: {s_nit}   |   ID Expediente: {s_radicado}"
+    else:
+        linea_identificacion = f"Documento: {s_num_doc}   |   Calidad: {s_rol_relacion}   |   ID Expediente: {s_radicado}"
+
     pdf.set_font("Helvetica", "B", 15)
     pdf.set_text_color(*COLOR_PRIMARY)
-    pdf.cell(0, 8, s_empresa.upper(), ln=1)
+    pdf.cell(0, 8, nombre_principal.upper(), ln=1)
 
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(0, 4, f"Identificación Comercial: {s_nit}   |   ID Expediente: {s_radicado}", ln=1)
+    pdf.cell(0, 4, linea_identificacion, ln=1)
     pdf.ln(6)
 
 
     # 🗂️ ─── SECCIÓN 1: IDENTIFICACIÓN CORPORATIVA Y DE CONTACTO ───
     render_subseccion_moderna("1. Identificación de la Entidad Evaluada")
+
+    # El bloque de Representante Legal / Estructura Accionaria SOLO aplica a
+    # Persona Jurídica. Un expediente de Persona Natural es un dossier
+    # individual autónomo: no lleva Razón Social, NIT, Rep. Legal ni UBOs —
+    # esas celdas se reemplazan por Documento y Calidad/Rol Evaluado.
+    if es_juridica:
+        row1_der_label, row1_der_val = "JURISDICCIÓN COMERCIAL", s_jurisdic
+        row2_izq_label, row2_izq_val = "REPRESENTANTE LEGAL", s_rep_nom
+        row2_der_label, row2_der_val = "SOCIO O ACCIONISTA PRINCIPAL", s_acc_nom
+        row4_izq_label, row4_izq_val = "CANAL DIGITAL / SITIO WEB", s_web
+    else:
+        row1_der_label, row1_der_val = "PAÍS DE RESIDENCIA / NACIONALIDAD", s_pais_residencia
+        row2_izq_label, row2_izq_val = "NÚMERO DE DOCUMENTO", s_num_doc
+        row2_der_label, row2_der_val = "CALIDAD / ROL EVALUADO", s_rol_relacion
+        row4_izq_label, row4_izq_val = "TIPO DE EXPEDIENTE", "INDIVIDUAL - PERSONA NATURAL"
 
     # Parámetros de la grilla adaptada a 4 filas
     COL_IZQ_X   = 19
@@ -456,25 +507,25 @@ def generar_pdf_base(datos_master: dict) -> bytes:
 
     pdf.set_xy(COL_DER_X, y_row1)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, "JURISDICCIÓN COMERCIAL", ln=1)
+    pdf.cell(ANCHO_COL, H_LABEL, row1_der_label, ln=1)
     pdf.set_xy(COL_DER_X, y_row1 + H_LABEL)
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_jurisdic, max_caracteres=38))
+    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(row1_der_val, max_caracteres=38))
 
     # Fila 2
     pdf.set_xy(COL_IZQ_X, y_row2)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, "REPRESENTANTE LEGAL", ln=1)
+    pdf.cell(ANCHO_COL, H_LABEL, row2_izq_label, ln=1)
     pdf.set_xy(COL_IZQ_X, y_row2 + H_LABEL)
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_rep_nom, max_caracteres=38))
+    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(row2_izq_val, max_caracteres=38))
 
     pdf.set_xy(COL_DER_X, y_row2)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, "SOCIO O ACCIONISTA PRINCIPAL", ln=1)
+    pdf.cell(ANCHO_COL, H_LABEL, row2_der_label, ln=1)
     pdf.set_xy(COL_DER_X, y_row2 + H_LABEL)
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_acc_nom, max_caracteres=38))
+    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(row2_der_val, max_caracteres=38))
 
     # Fila 3
     pdf.set_xy(COL_IZQ_X, y_row3)
@@ -494,10 +545,10 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     # Fila 4
     pdf.set_xy(COL_IZQ_X, y_row4)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, "CANAL DIGITAL / SITIO WEB", ln=1)
+    pdf.cell(ANCHO_COL, H_LABEL, row4_izq_label, ln=1)
     pdf.set_xy(COL_IZQ_X, y_row4 + H_LABEL)
     pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_web, max_caracteres=38))
+    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(row4_izq_val, max_caracteres=38))
 
     pdf.set_xy(COL_DER_X, y_row4)
     pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
@@ -512,10 +563,15 @@ def generar_pdf_base(datos_master: dict) -> bytes:
 
     # 🗂️ ─── SECCIÓN 2: TRAZABILIDAD Y SCREENING LAFT (VINCULADOS) ───
     render_subseccion_moderna("2. Análisis de Screening y Coincidencia en Listas de Control (LAFT)")
-    
-    render_infolaft_snippet("Empresa Principal")
-    render_infolaft_snippet("Representante Legal")
-    render_infolaft_snippet("Accionista / Beneficiario Final")
+
+    # Persona Jurídica screenea 3 vinculados; Persona Natural, solo a sí misma.
+    roles_screening = (
+        ["Empresa Principal", "Representante Legal", "Accionista / Beneficiario Final"]
+        if es_juridica
+        else [TIPO_PERSONA_NATURAL]
+    )
+    for _rol in roles_screening:
+        render_infolaft_snippet(_rol)
     pdf.ln(6)
 
 
