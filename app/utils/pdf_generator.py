@@ -73,9 +73,13 @@ def parsear_texto_infolaft(texto: str) -> dict:
         "radicado": "No detectado",
         "fecha_consulta": "No detectado",
         "resultados": "0",
-        "intensificada": "NO"
+        "intensificada": "NO",
+        # Trazan si el valor vino realmente del PDF o es el default silencioso.
+        # Sin esto, un patrón que no calza se lee igual que "sin coincidencias".
+        "resultados_detectado": False,
+        "intensificada_detectado": False,
     }
-    
+
     texto_plano = " ".join(texto.split())
 
     # 1. Extracción del Radicado / Número de Consulta (Busca números de 8 a 10 dígitos)
@@ -94,11 +98,13 @@ def parsear_texto_infolaft(texto: str) -> dict:
     res_match = re.search(r"RESUMEN DE RESULTADOS[:\s]*(\d+)", texto_plano, re.IGNORECASE)
     if res_match:
         res["resultados"] = res_match.group(1)
+        res["resultados_detectado"] = True
 
     # 4. Monitoreo Intensificado / GAFI / PEP
     gafi_match = re.search(r"GAFI\??[:\s]*(SI|NO)", texto_plano, re.IGNORECASE)
     if gafi_match:
         res["intensificada"] = gafi_match.group(1).upper()
+        res["intensificada_detectado"] = True
 
     # 5. Identificación / Tax ID / NIT / Cédula (ej: 35-2938958 o formato estándar)
     id_match = re.search(r"\b(\d{2,3}-\d{6,8}|\d{7,10}-\d)\b", texto)
@@ -135,7 +141,41 @@ def parsear_texto_infolaft(texto: str) -> dict:
         res["nombre"] = line.upper()
         break
 
+    # ── Marca de confianza del parseo ─────────────────────────────────
+    # Un partner "limpio" en el certificado final debe significar que SÍ se
+    # verificaron resultados y monitoreo GAFI, no que el regex no encontró nada.
+    # Si cualquiera de los dos campos que definen el veredicto AML no se pudo
+    # leer del PDF, el caso se marca para revisión manual del oficial en vez
+    # de heredar en silencio los valores por defecto ("0" / "NO").
+    res["requiere_revision_manual"] = not (
+        res["resultados_detectado"] and res["intensificada_detectado"]
+    )
+    res["error_lectura"] = False
+
     return res
+
+
+def _resultado_no_confiable(motivo: str) -> dict:
+    """
+    Resultado placeholder para cuando el PDF existe pero no se pudo leer
+    (escaneo sin texto, archivo corrupto, formato no reconocido).
+
+    Antes esto devolvía None y la entidad simplemente desaparecía del
+    expediente sin dejar rastro — el certificado final podía salir
+    "APROBADO S/ANOMALÍAS" sin que ese vinculado hubiera sido evaluado.
+    """
+    return {
+        "nombre": motivo,
+        "identificacion": "No detectado",
+        "radicado": "No detectado",
+        "fecha_consulta": "No detectado",
+        "resultados": "0",
+        "intensificada": "NO",
+        "resultados_detectado": False,
+        "intensificada_detectado": False,
+        "requiere_revision_manual": True,
+        "error_lectura": True,
+    }
 
 
 def procesar_archivo_pdf(uploaded_file) -> dict:
@@ -145,15 +185,21 @@ def procesar_archivo_pdf(uploaded_file) -> dict:
         # 🚀 RESETEAR EL CURSOR DE LECTURA DEL BUFFER (BytesIO)
         if hasattr(uploaded_file, "seek"):
             uploaded_file.seek(0)
-            
+
         reader = pypdf.PdfReader(uploaded_file)
         full_text = ""
         for page in reader.pages:
             t = page.extract_text()
             if t: full_text += t + "\n"
+
+        if not full_text.strip():
+            # PDF sin texto extraíble (típico de un escaneo/imagen). No hay
+            # base para afirmar "sin coincidencias" — se marca sin confianza.
+            return _resultado_no_confiable("PDF SIN TEXTO EXTRAIBLE - REQUIERE LECTURA MANUAL")
+
         return parsear_texto_infolaft(full_text)
     except Exception:
-        return None
+        return _resultado_no_confiable("ERROR AL PROCESAR EL PDF - REQUIERE LECTURA MANUAL")
 
 
 def resolver_ruta_logo(nombre_base: str) -> str:
@@ -218,15 +264,27 @@ def generar_pdf_base(datos_master: dict) -> bytes:
                     "identificacion": datos_master.get('rep_legal_id', 'N/D'),
                     "radicado": datos_master.get('radicado_caso', 'N/D'),
                     "resultados": "0",
-                    "intensificada": "NO"
+                    "intensificada": "NO",
+                    "requiere_revision_manual": False,
                 }
                 break
         if not ent:
             return
 
-        # Determinar estatus y paleta de colores semánticos
+        # Determinar estatus y paleta de colores semánticos.
+        # Orden de prioridad: una lectura fallida del PDF NUNCA debe verse
+        # igual que "sin coincidencias" — aunque resultados/intensificada
+        # hayan quedado en sus valores por defecto ("0"/"NO"), lo que refleja
+        # es que no se pudo leer el dato, no que se verificó y salió limpio.
         es_limpio = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
-        if es_limpio:
+        requiere_manual = ent.get('requiere_revision_manual', False)
+
+        if requiere_manual:
+            badge_bg = (255, 251, 235)
+            badge_border = (253, 230, 138)
+            badge_text = (180, 83, 9)
+            est_texto = "LECTURA NO CONFIABLE - REVISIÓN MANUAL"
+        elif es_limpio:
             badge_bg = (240, 253, 244)
             badge_border = (187, 247, 208)
             badge_text = (21, 128, 61)
@@ -464,18 +522,32 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     # 🗂️ ─── SECCIÓN 3: CONCEPTO TÉCNICO Y DECLARACIÓN DE CUMPLIMIENTO ───
     render_subseccion_moderna("3. Concepto Técnico de Cumplimiento")
 
-    es_aprobado    = "APROBADO" in s_estado
-    estado_str     = "APROBADO  SIN COINCIDENCIAS" if es_aprobado else "REVISIÓN ADICIONAL REQUERIDA"
-    categoria_str  = "RIESGO BAJO" if es_aprobado else "RIESGO INTENSIFICADO"
-    
+    # Tres veredictos posibles — ver estado_global en screening_ui.py:
+    #   "APROBADO S/ANOMALÍAS"          → screening completo, sin coincidencias
+    #   "REQUIERE REVISIÓN MANUAL"      → uno o más PDF no se pudieron leer con confianza
+    #   "REQUIERE REVISIÓN INTENSIFICADA" → coincidencia real en listas / GAFI
+    # Una lectura fallida NUNCA debe imprimirse como si fuera un "aprobado".
+    es_aprobado       = "APROBADO" in s_estado
+    es_revision_manual = "MANUAL" in s_estado
+
     if es_aprobado:
+        estado_str    = "APROBADO  SIN COINCIDENCIAS"
+        categoria_str = "RIESGO BAJO"
         badge_bg = (240, 253, 244)
         badge_border = (187, 247, 208)
         badge_text = (21, 128, 61)
-    else:
-        badge_bg = (254, 243, 199)
+    elif es_revision_manual:
+        estado_str    = "PENDIENTE - LECTURA DE PDF NO CONFIABLE"
+        categoria_str = "REQUIERE VALIDACIÓN MANUAL DEL OFICIAL"
+        badge_bg = (255, 251, 235)
         badge_border = (253, 230, 138)
         badge_text = (180, 83, 9)
+    else:
+        estado_str    = "REVISIÓN ADICIONAL REQUERIDA"
+        categoria_str = "RIESGO INTENSIFICADO"
+        badge_bg = (254, 242, 242)
+        badge_border = (254, 202, 202)
+        badge_text = (185, 28, 28)
 
     S3_IZQ   = 19
     S3_DER   = 109
