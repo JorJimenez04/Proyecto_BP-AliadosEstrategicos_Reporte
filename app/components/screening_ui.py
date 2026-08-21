@@ -15,8 +15,17 @@ def render_resumen_validacion_ui(datos_extracted: dict):
         return
     
     es_limpio = datos_extracted['resultados'] == "0" and datos_extracted['intensificada'] == "NO"
-    badge_html = '<span class="ar-badge ar-badge-low">✓ Certificado Limpio</span>' if es_limpio else '<span class="ar-badge ar-badge-critical">⚠ Alerta Detectada</span>'
-    
+    requiere_manual = datos_extracted.get('requiere_revision_manual', False)
+
+    if requiere_manual:
+        # El PDF no se pudo leer con confianza (escaneo, formato distinto, etc.)
+        # — nunca se muestra como "limpio" solo porque los defaults son "0"/"NO".
+        badge_html = '<span class="ar-badge ar-badge-medium">⚠ Lectura no confiable — revisar manualmente</span>'
+    elif es_limpio:
+        badge_html = '<span class="ar-badge ar-badge-low">✓ Certificado Limpio</span>'
+    else:
+        badge_html = '<span class="ar-badge ar-badge-critical">⚠ Alerta Detectada</span>'
+
     st.markdown(
         f'<div style="background: rgba(255, 255, 255, 0.01); border: 1px dashed var(--border); border-radius: var(--radius-md); padding: 14px; margin-top: 10px;">'
         f'<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">'
@@ -56,12 +65,37 @@ def callback_ejecutar_compilacion(user: dict):
         v_acc_nom = st.session_state.get("v6_acc_nom_en", "").strip()
         v_acc_id = st.session_state.get("v6_acc_id_en", "").strip()
 
+    file_empresa = st.session_state.get("v6_pdf_empresa")
+    file_rep = st.session_state.get("v6_pdf_rep")
+    file_acc = st.session_state.get("v6_pdf_acc")
+
+    # ── Validación de obligatoriedad ──────────────────────────────────
+    # Alineada 1:1 con los campos marcados "*" en el formulario — antes
+    # varios de ellos (jurisdicción, identificación del representante,
+    # datos del accionista) se mostraban como obligatorios en la UI pero
+    # no bloqueaban el envío si quedaban vacíos.
     campos_faltantes = []
     if not v_empresa: campos_faltantes.append("Razón Social de la Empresa")
     if not v_nit: campos_faltantes.append("NIT Comercial")
     if not v_radicado: campos_faltantes.append("Código de Radicado Único Interno")
+    if not v_jurisdiccion: campos_faltantes.append("Jurisdicción de Riesgo / Ciudad")
     if not v_rep_nom: campos_faltantes.append("Nombre del Representante Legal")
+    if not v_rep_id: campos_faltantes.append("Documento de Identidad del Representante Legal")
     if not v_dictamen: campos_faltantes.append("Análisis Argumentativo Legal (Dictamen)")
+    if not es_mismo:
+        if not v_acc_nom: campos_faltantes.append("Nombre del Accionista Mayoritario")
+        if not v_acc_id: campos_faltantes.append("Identificación del Accionista Mayoritario")
+
+    # Sin el reporte Infolaft no hay screening real contra listas restrictivas.
+    # Antes esto no se validaba: si no se subía ningún PDF, la entidad
+    # simplemente no entraba al cálculo de alertas y el expediente podía
+    # salir "APROBADO S/ANOMALÍAS" sin haber verificado a nadie.
+    if file_empresa is None:
+        campos_faltantes.append("Reporte Infolaft de la Empresa (PDF)")
+    if file_rep is None:
+        campos_faltantes.append("Reporte Infolaft del Representante Legal (PDF)")
+    if not es_mismo and file_acc is None:
+        campos_faltantes.append("Reporte Infolaft del Accionista Mayoritario (PDF)")
 
     if campos_faltantes:
         st.session_state["v6_just_validated"] = True
@@ -69,10 +103,6 @@ def callback_ejecutar_compilacion(user: dict):
         st.session_state["v6_f_pdf_bytes"] = None
         st.session_state["v6_f_nit"] = ""
         return
-
-    file_empresa = st.session_state.get("v6_pdf_empresa")
-    file_rep = st.session_state.get("v6_pdf_rep")
-    file_acc = st.session_state.get("v6_pdf_acc")
 
     parsed_empresa = procesar_archivo_pdf(file_empresa)
     parsed_replegal = procesar_archivo_pdf(file_rep)
@@ -94,8 +124,23 @@ def callback_ejecutar_compilacion(user: dict):
         parsed_accionista["rol_interno"] = "Accionista / Beneficiario Final"
         entidades_lista.append(parsed_accionista)
 
-    alertas_vivas = any([ent['resultados'] != "0" or ent['intensificada'] == "SI" for ent in entidades_lista])
-    estado_global = "REQUIERE REVISIÓN INTENSIFICADA" if alertas_vivas else "APROBADO S/ANOMALÍAS"
+    # Tres niveles, en orden de severidad. Una coincidencia real en listas
+    # siempre pesa más que una lectura no confiable, pero ninguna de las dos
+    # puede terminar en "aprobado" — antes, un PDF ilegible con los defaults
+    # ("0" / "NO") se aprobaba exactamente igual que un caso limpio de verdad.
+    hay_coincidencia_real = any(
+        ent['resultados'] != "0" or ent['intensificada'] == "SI" for ent in entidades_lista
+    )
+    hay_lectura_no_confiable = any(
+        ent.get('requiere_revision_manual', False) for ent in entidades_lista
+    )
+
+    if hay_coincidencia_real:
+        estado_global = "REQUIERE REVISIÓN INTENSIFICADA"
+    elif hay_lectura_no_confiable:
+        estado_global = "REQUIERE REVISIÓN MANUAL"
+    else:
+        estado_global = "APROBADO S/ANOMALÍAS"
 
     # Procesamiento de imágenes de evidencias en memoria RAM
     evidencias_cargadas = st.session_state.get("v6_evidencias_imagenes", [])
@@ -195,7 +240,7 @@ def render_screening_workspace(user: dict):
             st.text_input("Canal Digital / Sitio Web", placeholder="Ej: www.companyname.co", key="v6_sitio_web")
         
         with col_m1_right:
-            st.markdown("<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-bottom:5px;'>📄 Reporte Infolaft (Sociedad)</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-bottom:5px;'>📄 Reporte Infolaft (Sociedad) *</p>", unsafe_allow_html=True)
             file_empresa = st.file_uploader("Subir PDF Infolaft de la Empresa", type=["pdf"], key="v6_pdf_empresa", label_visibility="collapsed")
             parsed_empresa = procesar_archivo_pdf(file_empresa)
             if parsed_empresa:
@@ -216,7 +261,7 @@ def render_screening_workspace(user: dict):
             st.text_input("Documento de Identidad (Representante Legal) *", placeholder="Número de cédula o pasaporte", key="v6_rep_legal_id")
         
         with col_m2_right:
-            st.markdown("<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-bottom:5px;'>📄 Reporte Infolaft (Representante)</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-bottom:5px;'>📄 Reporte Infolaft (Representante) *</p>", unsafe_allow_html=True)
             file_replegal = st.file_uploader("Subir PDF Infolaft del Rep. Legal", type=["pdf"], key="v6_pdf_rep", label_visibility="collapsed")
             parsed_replegal = procesar_archivo_pdf(file_replegal)
             if parsed_replegal:
@@ -248,7 +293,7 @@ def render_screening_workspace(user: dict):
             if st.session_state.get("v6_chk_accionista_es_rep", False):
                 st.info("ℹ️ Sistema en modo de duplicidad cero.")
             else:
-                st.markdown("<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-bottom:5px;'>📄 Reporte Infolaft (Accionista)</p>", unsafe_allow_html=True)
+                st.markdown("<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-bottom:5px;'>📄 Reporte Infolaft (Accionista) *</p>", unsafe_allow_html=True)
                 file_accionista = st.file_uploader("Subir PDF Infolaft del Accionista", type=["pdf"], key="v6_pdf_acc", label_visibility="collapsed")
                 parsed_accionista = procesar_archivo_pdf(file_accionista)
                 if parsed_accionista:
@@ -261,7 +306,7 @@ def render_screening_workspace(user: dict):
     with st.container():
         st.markdown('<p class="ar-section-title">4. Dictamen del Oficial y Sustento Técnico</p>', unsafe_allow_html=True)
         st.text_area("Análisis Argumentativo Legal (Enfoque Basado en Riesgo) *", placeholder="Sustente rigurosamente el dictamen técnico de aceptación, rechazo o condicionamiento...", key="v6_dictamen_motivo")
-        st.text_area("Notas de Prensa y Validation de Registro Mercantil (RUES)", placeholder="Pegue aquí el bloque de texto con los hallazgos de background check en fuentes abiertas...", key="v6_rues_noticias_raw")
+        st.text_area("Notas de Prensa y Validación de Registro Mercantil (RUES)", placeholder="Pegue aquí el bloque de texto con los hallazgos de background check en fuentes abiertas...", key="v6_rues_noticias_raw")
         
         # 📸 Cargador de Capturas de Pantalla / Evidencias
         st.markdown("<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-top:15px; margin-bottom:5px;'>📸 Registro de Evidencias de Consultas Abiertas (Capturas de Pantalla)</p>", unsafe_allow_html=True)
@@ -292,8 +337,14 @@ def render_screening_workspace(user: dict):
 
     if st.session_state.get("v6_f_pdf_bytes"):
         est_glob = st.session_state.get("v6_f_estado_global", "")
-        strip_class = "ar-alert-strip-warning" if "REVISIÓN" in est_glob else "ar-alert-strip-success"
-        
+        # Coincidencia real en listas > lectura de PDF no confiable > aprobado limpio.
+        if "INTENSIFICADA" in est_glob:
+            strip_class = "ar-alert-strip-critical"
+        elif "MANUAL" in est_glob:
+            strip_class = "ar-alert-strip-warning"
+        else:
+            strip_class = "ar-alert-strip-success"
+
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(f"""
             <div class="ar-card ar-ai-glow">
