@@ -194,9 +194,58 @@ def _resultado_no_confiable(motivo: str) -> dict:
     }
 
 
+_RE_CERTIFICADO_NOMBRE = re.compile(r"Certificado_(\d+)", re.IGNORECASE)
+
+
+def _aplicar_fallback_nombre_archivo(res: dict, nombre_archivo: str) -> dict:
+    """
+    Punto único donde se fija el veredicto final de confianza de un
+    documento (res['requiere_revision_manual']). Se ejecuta siempre — se
+    haya podido leer el texto o no — para que el nombre del archivo (ej.
+    "Certificado_1053866845.pdf") sirva de señal adicional:
+
+      - Si el radicado no se pudo leer del texto, se recupera del nombre
+        del archivo (evita el falso "No. Registro Consulta: No detectado"
+        cuando el certificado sí existe y sí se procesó).
+      - Un documento cuyo TEXTO reportó "0 coincidencias" de forma
+        confiable (resultados_detectado=True) se confirma como CONFORME
+        aunque el radicado no se haya podido extraer del cuerpo del PDF,
+        siempre que el nombre del archivo corrobore que es un certificado
+        (o que el radicado sí se haya leído).
+      - Un PDF sin texto extraíble (OCR fallido / escaneo) NUNCA se marca
+        como limpio solo por el nombre del archivo — sigue exigiendo
+        revisión manual, porque `resultados_detectado` es False en ese
+        caso y no hay ninguna cifra real que confirmar.
+      - Una coincidencia real (resultados > 0) o GAFI=SI siempre gana y
+        marca alerta, sin importar el nombre del archivo.
+    """
+    match = _RE_CERTIFICADO_NOMBRE.search(nombre_archivo or "")
+    res["certificado_nombre_valido"] = bool(match)
+    if res.get("radicado") in (None, "", "No detectado") and match:
+        res["radicado"] = match.group(1)
+        res["radicado_via_nombre_archivo"] = True
+
+    coincidencias_reales = res.get("resultados", "0") != "0"
+    gafi_alerta = res.get("intensificada", "NO") == "SI"
+    resultados_confirmados = res.get("resultados_detectado", False) and res.get("resultados", "0") == "0"
+    no_registro_detectado = res.get("radicado", "No detectado") not in (None, "", "No detectado")
+
+    if coincidencias_reales or gafi_alerta:
+        res["requiere_revision_manual"] = False
+    elif resultados_confirmados and (no_registro_detectado or res["certificado_nombre_valido"]):
+        res["requiere_revision_manual"] = False
+    else:
+        res["requiere_revision_manual"] = True
+
+    return res
+
+
 def procesar_archivo_pdf(uploaded_file) -> dict:
     if uploaded_file is None:
         return None
+
+    nombre_archivo = getattr(uploaded_file, "name", "") or ""
+
     try:
         # 🚀 RESETEAR EL CURSOR DE LECTURA DEL BUFFER (BytesIO)
         if hasattr(uploaded_file, "seek"):
@@ -211,11 +260,13 @@ def procesar_archivo_pdf(uploaded_file) -> dict:
         if not full_text.strip():
             # PDF sin texto extraíble (típico de un escaneo/imagen). No hay
             # base para afirmar "sin coincidencias" — se marca sin confianza.
-            return _resultado_no_confiable("PDF SIN TEXTO EXTRAIBLE - REQUIERE LECTURA MANUAL")
-
-        return parsear_texto_infolaft(full_text)
+            resultado = _resultado_no_confiable("PDF SIN TEXTO EXTRAIBLE - REQUIERE LECTURA MANUAL")
+        else:
+            resultado = parsear_texto_infolaft(full_text)
     except Exception:
-        return _resultado_no_confiable("ERROR AL PROCESAR EL PDF - REQUIERE LECTURA MANUAL")
+        resultado = _resultado_no_confiable("ERROR AL PROCESAR EL PDF - REQUIERE LECTURA MANUAL")
+
+    return _aplicar_fallback_nombre_archivo(resultado, nombre_archivo)
 
 
 def resolver_ruta_logo(nombre_base: str) -> str:
@@ -241,6 +292,10 @@ def _s(texto) -> str:
 def generar_pdf_base(datos_master: dict) -> bytes:
     tipo_persona = datos_master.get("tipo_persona", TIPO_PERSONA_JURIDICA)
     es_juridica = tipo_persona == TIPO_PERSONA_JURIDICA
+    # Modo Screening Express (Clientes Prospectos / BDM): VoBo comercial
+    # preliminar con datos mínimos, mientras aún no existe la estructura
+    # completa de administración exigida en el Onboarding Formal SARLAFT.
+    es_prospecto = bool(datos_master.get("modo_prospecto", False))
 
     path_adamo = resolver_ruta_logo("Logo Adamo general")
     path_holdings = resolver_ruta_logo("Logo Holdings")
@@ -270,27 +325,15 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.cell(0, 6, _s(titulo).upper(), ln=1)
         pdf.ln(2)
 
-    def render_infolaft_snippet(entidad_rol):
-        lista = datos_master.get('entidades_processed', datos_master.get('entidades_procesadas', []))
-        ent = None
-        for item in lista:
-            if isinstance(item, dict) and item.get('rol_interno') == entidad_rol:
-                ent = item
-                break
-            elif isinstance(item, str) and entidad_rol == "Representante Legal" and item == datos_master.get('rep_legal_nom'):
-                ent = {
-                    "nombre": item,
-                    "identificacion": datos_master.get('rep_legal_id', 'N/D'),
-                    "radicado": datos_master.get('radicado_caso', 'N/D'),
-                    "resultados": "0",
-                    "intensificada": "NO",
-                    "requiere_revision_manual": False,
-                }
-                break
-        if not ent:
-            return
-
-        # Determinar estatus y paleta de colores semánticos.
+    def render_infolaft_snippet(ent):
+        """
+        Pinta una tarjeta de evidencia por cada entidad ya procesada
+        (1 por PDF de Infolaft subido). No busca por nombre de rol — solo
+        recorre entidades_processed en orden, así funciona igual para los 3
+        vinculados fijos de Persona Jurídica o para N evidencias sueltas de
+        Persona Natural (Beneficiario Final, Cripto/VASP, PEP, etc.).
+        """
+        # Determinar estatus y paleta de colores semánticos (semáforo).
         # Orden de prioridad: una lectura fallida del PDF NUNCA debe verse
         # igual que "sin coincidencias" — aunque resultados/intensificada
         # hayan quedado en sus valores por defecto ("0"/"NO"), lo que refleja
@@ -298,21 +341,26 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         es_limpio = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
         requiere_manual = ent.get('requiere_revision_manual', False)
 
+        # Nota: fpdf2 con fuentes core (Helvetica) solo soporta latin-1 — los
+        # emoji de semáforo (🟢/⚠️/🔴) rompen la generación del PDF
+        # (FPDFUnicodeEncodingException, igual que el guion largo "—" antes).
+        # El semáforo se transmite con el color del badge, no con el emoji.
+        # Paleta Bootstrap alert (bg/border/text) — colores exactos pedidos.
         if requiere_manual:
-            badge_bg = (255, 251, 235)
-            badge_border = (253, 230, 138)
-            badge_text = (180, 83, 9)
-            est_texto = "LECTURA NO CONFIABLE - REVISIÓN MANUAL"
+            badge_bg = (255, 243, 205)      # #fff3cd
+            badge_border = (255, 238, 186)  # #ffeeba
+            badge_text = (133, 100, 4)      # #856404
+            est_texto = "LECTURA NO CONFIABLE - REVISAR MANUALMENTE"
         elif es_limpio:
-            badge_bg = (240, 253, 244)
-            badge_border = (187, 247, 208)
-            badge_text = (21, 128, 61)
-            est_texto = "SIN COINCIDENCIAS"
+            badge_bg = (212, 237, 218)      # #d4edda
+            badge_border = (195, 230, 203)  # #c3e6cb
+            badge_text = (21, 87, 36)       # #155724
+            est_texto = "SIN COINCIDENCIAS - CONFORME"
         else:
-            badge_bg = (254, 242, 242)
-            badge_border = (254, 202, 202)
-            badge_text = (185, 28, 28)
-            est_texto = "REQUIERE AUDITORÍA INTERNA LAFT"
+            badge_bg = (248, 215, 218)      # #f8d7da
+            badge_border = (245, 198, 203)  # #f5c6cb
+            badge_text = (114, 28, 36)      # #721c24
+            est_texto = "ALERTA LAFT - COINCIDENCIA DETECTADA"
 
         # ── Parámetros de alineación síncrona ──
         SNIP_IZQ = 23
@@ -323,7 +371,8 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         PAD_TOP  = 3.5
         PAD_BOT  = 3.0
 
-        texto_completo = f"{entidad_rol.upper()}: {ent.get('nombre', 'N/D')}"
+        etiqueta_rol = ent.get('rol_interno', 'VINCULADO')
+        texto_completo = f"{etiqueta_rol.upper()}: {ent.get('nombre', 'N/D')}"
 
         # Cálculo dinámico de líneas requeridas por el nombre
         pdf.set_font("Helvetica", "B", 8.5)
@@ -390,6 +439,26 @@ def generar_pdf_base(datos_master: dict) -> bytes:
 
         pdf.set_y(s_y + H_SNIP)
 
+    def render_banner_prospecto():
+        """
+        Barra de advertencia comercial para el Modo Screening Express. Un
+        VoBo de prospecto (datos mínimos, sin Rep. Legal/Accionista
+        verificados) nunca debe poder confundirse visualmente con el
+        Onboarding Formal SARLAFT completo — se sella en la primera página,
+        antes de cualquier otro contenido del cuerpo.
+        """
+        texto_banner = "CERTIFICADO PRELIMINAR COMERCIAL (MODO PROSPECTO) - NO REEMPLAZA EL ONBOARDING SARLAFT DEFINITIVO"
+        banner_h = 8.0
+        y0 = pdf.get_y()
+        pdf.set_fill_color(255, 243, 205)      # #fff3cd — mismo amber "requiere revisión" ya usado en el resto del documento
+        pdf.set_draw_color(255, 193, 7)        # #ffc107
+        pdf.set_line_width(0.4)
+        pdf.rect(15, y0, 180, banner_h, style="FD")
+        pdf.set_xy(15, y0 + 1.8)
+        pdf.set_font("Helvetica", "B", 8.5)
+        pdf.set_text_color(133, 100, 4)        # #856404
+        pdf.cell(180, 4.5, texto_banner, align="C")
+        pdf.set_y(y0 + banner_h + 4)
 
     # ─── SANITIZACIÓN ESTRUCTURAL DE DATOS ───
     # Campos comunes a ambos tipos de entidad.
@@ -415,6 +484,10 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     s_num_doc         = _s(datos_master.get('numero_documento', 'N/D'))
     s_rol_relacion    = _s(datos_master.get('rol_relacion', 'N/D'))
     s_pais_residencia = _s(datos_master.get('pais_residencia', 'N/D'))
+
+    # ─── BANNER DE MODO PROSPECTO (si aplica) ───
+    if es_prospecto:
+        render_banner_prospecto()
 
     # ─── ENCABEZADO ESTILO DASHBOARD ───
     # El nombre grande y la línea de identificación cambian según el tipo
@@ -443,9 +516,16 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     # individual autónomo: no lleva Razón Social, NIT, Rep. Legal ni UBOs —
     # esas celdas se reemplazan por Documento y Calidad/Rol Evaluado.
     if es_juridica:
+        # En Modo Express (Prospectos/BDM) el Rep. Legal y el Accionista no
+        # se exigen — sin este reemplazo, un valor vacío se vería como una
+        # celda en blanco indistinguible de un dato faltante por error.
+        placeholder_no_exigido = "No Requerido en Prospecto"
+        rep_legal_val = s_rep_nom if (s_rep_nom.strip() and s_rep_nom != "N/D") else (placeholder_no_exigido if es_prospecto else s_rep_nom)
+        accionista_val = s_acc_nom if (s_acc_nom.strip() and s_acc_nom != "N/D") else (placeholder_no_exigido if es_prospecto else s_acc_nom)
+
         row1_der_label, row1_der_val = "JURISDICCIÓN COMERCIAL", s_jurisdic
-        row2_izq_label, row2_izq_val = "REPRESENTANTE LEGAL", s_rep_nom
-        row2_der_label, row2_der_val = "SOCIO O ACCIONISTA PRINCIPAL", s_acc_nom
+        row2_izq_label, row2_izq_val = "REPRESENTANTE LEGAL", rep_legal_val
+        row2_der_label, row2_der_val = "SOCIO O ACCIONISTA PRINCIPAL", accionista_val
         row4_izq_label, row4_izq_val = "CANAL DIGITAL / SITIO WEB", s_web
     else:
         row1_der_label, row1_der_val = "PAÍS DE RESIDENCIA / NACIONALIDAD", s_pais_residencia
@@ -561,17 +641,38 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     pdf.ln(6)
 
 
-    # 🗂️ ─── SECCIÓN 2: TRAZABILIDAD Y SCREENING LAFT (VINCULADOS) ───
-    render_subseccion_moderna("2. Análisis de Screening y Coincidencia en Listas de Control (LAFT)")
+    # 🗂️ ─── SECCIÓN 2: EVIDENCIAS ANALIZADAS Y SCREENING LAFT ───
+    # Persona Jurídica trae 3 vinculados fijos (Empresa/Rep. Legal/Accionista).
+    # Persona Natural trae 1..N evidencias sueltas (uno por PDF subido) — la
+    # tarjeta se pinta por cada entidad ya procesada, sin importar cuántas
+    # sean, en vez de buscar un rol fijo por nombre.
+    render_subseccion_moderna("2. Evidencias Analizadas y Screening LAFT")
 
-    # Persona Jurídica screenea 3 vinculados; Persona Natural, solo a sí misma.
-    roles_screening = (
-        ["Empresa Principal", "Representante Legal", "Accionista / Beneficiario Final"]
-        if es_juridica
-        else [TIPO_PERSONA_NATURAL]
-    )
-    for _rol in roles_screening:
-        render_infolaft_snippet(_rol)
+    entidades_evidencia = datos_master.get('entidades_processed', datos_master.get('entidades_procesadas', []))
+    for ent in entidades_evidencia:
+        if isinstance(ent, dict):
+            render_infolaft_snippet(ent)
+
+    # ── Anexos de Soporte Adjuntos (SIN badge de evaluación LAFT) ──────
+    # Evidencia documental de respaldo (capturas, RUES, prensa, etc.) — se
+    # deja constancia de qué se adjuntó y cuándo, pero nunca se screenea
+    # como si fuera una consulta oficial de InfoLAFT.
+    anexos_soporte = datos_master.get('anexos_soporte', [])
+    if anexos_soporte:
+        if pdf.get_y() > 250:
+            pdf.add_page()
+        pdf.ln(3)
+        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.set_text_color(*COLOR_TEXT_MUTED)
+        pdf.cell(0, 5, "ANEXOS DE SOPORTE ADJUNTOS", ln=1)
+        pdf.set_font("Helvetica", "", 7.5)
+        pdf.set_text_color(*COLOR_TEXT_BODY)
+        for anexo in anexos_soporte:
+            if pdf.get_y() > 265:
+                pdf.add_page()
+            linea = f"- {anexo.get('nombre', 'N/D')} (adjuntado: {anexo.get('fecha', 'N/D')})"
+            pdf.cell(0, 4.2, _s(linea), ln=1)
+
     pdf.ln(6)
 
 
@@ -586,24 +687,28 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     es_aprobado       = "APROBADO" in s_estado
     es_revision_manual = "MANUAL" in s_estado
 
+    # Misma paleta Bootstrap-alert que la Sección 2 (render_infolaft_snippet)
+    # — un mismo caso nunca debe verse verde en una sección y amarillo en
+    # la otra, porque ambas leen del mismo estado_global/entidades ya
+    # corregido en procesar_archivo_pdf() / _aplicar_fallback_nombre_archivo().
     if es_aprobado:
-        estado_str    = "APROBADO  SIN COINCIDENCIAS"
+        estado_str    = "CONFORME - SIN COINCIDENCIAS"
         categoria_str = "RIESGO BAJO"
-        badge_bg = (240, 253, 244)
-        badge_border = (187, 247, 208)
-        badge_text = (21, 128, 61)
+        badge_bg = (212, 237, 218)      # #d4edda
+        badge_border = (195, 230, 203)  # #c3e6cb
+        badge_text = (21, 87, 36)       # #155724
     elif es_revision_manual:
-        estado_str    = "PENDIENTE - LECTURA DE PDF NO CONFIABLE"
-        categoria_str = "REQUIERE VALIDACIÓN MANUAL DEL OFICIAL"
-        badge_bg = (255, 251, 235)
-        badge_border = (253, 230, 138)
-        badge_text = (180, 83, 9)
+        estado_str    = "PENDIENTE - LECTURA NO CONFIABLE"
+        categoria_str = "REQUIERE VALIDACIÓN MANUAL"
+        badge_bg = (255, 243, 205)      # #fff3cd
+        badge_border = (255, 238, 186)  # #ffeeba
+        badge_text = (133, 100, 4)      # #856404
     else:
-        estado_str    = "REVISIÓN ADICIONAL REQUERIDA"
-        categoria_str = "RIESGO INTENSIFICADO"
-        badge_bg = (254, 242, 242)
-        badge_border = (254, 202, 202)
-        badge_text = (185, 28, 28)
+        estado_str    = "NO CONFORME - ALERTA LAFT"
+        categoria_str = "RIESGO ALTO"
+        badge_bg = (248, 215, 218)      # #f8d7da
+        badge_border = (245, 198, 203)  # #f5c6cb
+        badge_text = (114, 28, 36)      # #721c24
 
     S3_IZQ   = 19
     S3_DER   = 109
@@ -748,10 +853,23 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         import tempfile
         
         for idx, img_bytes in enumerate(imagenes_evidencia):
+            # 🛡️ Defensa en profundidad: esta lista debería traer solo
+            # imágenes (los PDF de soporte se clasifican y desvían al
+            # pipeline de screening antes de llegar aquí — ver
+            # callback_ejecutar_compilacion en screening_ui.py). Si de
+            # todos modos llega un PDF, se informa en vez de que PIL
+            # truene con un error críptico de "formato no soportado".
+            if img_bytes[:4] == b"%PDF":
+                pdf.set_font("Helvetica", "I", 8.0)
+                pdf.set_text_color(*COLOR_TEXT_MUTED)
+                pdf.cell(0, 5, _s(f"[Evidencia {idx + 1}: documento PDF adjunto - analizado en la Seccion 2, no se renderiza como imagen]"), ln=1)
+                pdf.ln(4)
+                continue
+
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img:
                 temp_img.write(img_bytes)
                 temp_path = temp_img.name
-            
+
             try:
                 # 🚀 LECTURA DINÁMICA DEL ASPECT RATIO DE LA IMAGEN (¡Para solucionar Image 1!)
                 with PILImage.open(temp_path) as img:
