@@ -1,10 +1,52 @@
 # app/utils/pdf_generator.py
-import os
+#
+# Requiere: fpdf2 >= 2.7.6, pypdf >= 3.9, pillow
+#
+# ─────────────────────────────────────────────────────────────────────────
+# CHANGELOG DE ESTA REVISIÓN
+#   [FIX-01] render_infolaft_snippet tenía el cuerpo sin indentar -> el
+#            módulo no compilaba (IndentationError). Reescrita completa.
+#   [FIX-02] Regex GAFI sin frontera de palabra marcaba "SIN COINCIDENCIAS"
+#            como GAFI=SI -> alerta LAFT falsa. Ahora exige \b(SI|NO)\b.
+#   [FIX-03] La tarjeta de la Sección 2 ignoraba error_lectura /
+#            requiere_revision_manual y pintaba verde un PDF ilegible,
+#            contradiciendo el dictamen de la Sección 3. Clasificación
+#            unificada en _clasificar_entidad() — única fuente de verdad.
+#   [FIX-04] El código de verificación usaba el NIT también en Persona
+#            Natural, produciendo "HBPO-COMPLIANCE-N/D-...".
+#   [FIX-05] La Sección 4 afirmaba "sin hallazgos" cuando simplemente no
+#            había análisis registrado. Ausencia de dato != ausencia de
+#            hallazgo.
+#   [FIX-06] _s(0) devolvía "" y la puntuación tipográfica (— “ ” ’) se
+#            perdía. Ahora translitera antes de descartar.
+#   [FIX-07] Alturas de los contenedores Bento calculadas por ancho de
+#            cadena (ignora el corte por palabra) -> desbordes. Ahora se
+#            usa el medidor real de fpdf2 (dry_run).
+#   [FIX-08] datos_master accedido con [] en 8 claves -> KeyError mataba
+#            toda la generación. Todo pasa por .get() con default.
+#   [FIX-09] Las capturas de evidencia (datos KYC) se escribían a %TEMP%.
+#            Ahora se renderizan en memoria.
+#   [FIX-10] except Exception mudos -> logging.exception con trazabilidad.
+#   [FIX-11] Evidencias PDF que fallaban al fusionar desaparecían del
+#            expediente sin dejar rastro. Ahora se reportan.
+#   [UX-01]  Sección 2 rediseñada: jerarquía rol/nombre, grilla de
+#            metadatos, motivo explícito de la alerta, archivo fuente y
+#            barra resumen del screening.
+# ─────────────────────────────────────────────────────────────────────────
+
 import io
+import os
 import re
+import logging
+import unicodedata
+from pathlib import Path
+
 import pypdf
 from fpdf import FPDF
-from PIL import Image as PILImage  # 🚀 Para calcular el Aspect Ratio de las capturas
+from fpdf.enums import XPos, YPos
+from PIL import Image as PILImage
+
+logger = logging.getLogger(__name__)
 
 # ─── PALETA DE COLORES EDITORIAL PREMIUM (FINTECH) ───
 COLOR_PRIMARY = (15, 32, 67)       # Azul Marino Profundo
@@ -13,7 +55,27 @@ COLOR_TEXT_MAIN = (15, 23, 42)     # Slate 900
 COLOR_TEXT_BODY = (30, 41, 59)     # Slate 800
 COLOR_TEXT_MUTED = (100, 116, 139) # Slate 500
 COLOR_BG_GRID = (248, 250, 252)    # Slate 50
+COLOR_BG_CARD = (253, 253, 254)
 COLOR_LINE_TENUE = (226, 232, 240) # Slate 200
+
+# ─── SEMÁFORO ÚNICO DE CUMPLIMIENTO ───
+# Estas tres paletas se usan TANTO en la tarjeta de la Sección 2 como en
+# los badges de la Sección 3. Un mismo caso no puede verse verde en una
+# sección y ámbar en la otra porque ambas leen de aquí.
+SEMAFORO = {
+    "limpio":     {"bg": (212, 237, 218), "borde": (195, 230, 203), "texto": (21, 87, 36),   "franja": (40, 167, 69)},
+    "revision":   {"bg": (255, 243, 205), "borde": (255, 238, 186), "texto": (133, 100, 4),  "franja": (255, 193, 7)},
+    "alerta":     {"bg": (248, 215, 218), "borde": (245, 198, 203), "texto": (114, 28, 36),  "franja": (220, 53, 69)},
+    "preliminar": {"bg": (224, 242, 254), "borde": (186, 230, 253), "texto": (3, 105, 161),  "franja": (14, 165, 233)},
+}
+
+# ─── GEOMETRÍA DE PÁGINA ───
+PAGE_X0 = 15.0            # margen izquierdo
+PAGE_X1 = 195.0           # margen derecho
+PAGE_W = PAGE_X1 - PAGE_X0
+MARGEN_INFERIOR = 18.0
+LIMITE_Y = 297.0 - MARGEN_INFERIOR - 4.0   # y máximo utilizable = 275 mm
+SIN_DATO = "-"
 
 # ─── TIPOS DE ENTIDAD EVALUADA ───
 # Única fuente de verdad para el valor de "tipo_persona" que circula entre
@@ -22,39 +84,160 @@ COLOR_LINE_TENUE = (226, 232, 240) # Slate 200
 TIPO_PERSONA_JURIDICA = "Persona Jurídica"
 TIPO_PERSONA_NATURAL = "Persona Natural"
 
+# Valores que NUNCA son un nombre real de vinculado: son etiquetas del
+# propio certificado que se colaron en el parseo.
+_NOMBRES_BASURA = {
+    "", "LISTAS", "LISTAS CONSULTADAS", "LISTA DE COINCIDENCIAS",
+    "NO DETECTADO", "REPORTE DE BUSQUEDA", "REPORTE DE BÚSQUEDA",
+    "DATOS CONSULTADOS", "RESUMEN DE RESULTADOS", "NOTA LEGAL",
+    "COINCIDENCIAS", "RESULTADOS", "N/D", "N/A",
+}
+
+
+# ══════════════════════════════════════════════════════════════════════
+# SANITIZACIÓN DE TEXTO
+# ══════════════════════════════════════════════════════════════════════
+
+# fpdf2 con fuentes core (Helvetica) solo soporta latin-1: un guion largo
+# "—" o una comilla tipográfica rompen la generación con
+# FPDFUnicodeEncodingException. En vez de descartar esos caracteres (que
+# dejaba huecos: 'ACME — "Global"' -> 'ACME  Global'), se transliteran.
+_TRANSLITERACION = {
+    "—": "-", "–": "-", "‒": "-", "−": "-",   # — – ‒ −
+    "‘": "'", "’": "'", "‚": ",", "‛": "'",
+    "“": '"', "”": '"', "„": '"',
+    "…": "...", "•": "-", "·": "-", "‑": "-",
+    " ": " ", " ": " ", " ": " ", "​": "",
+    "€": "EUR", "™": "(TM)", "←": "<-", "→": "->",
+    "¿": "",
+}
+
+
+def _s(texto) -> str:
+    """Deja el texto seguro para las fuentes core latin-1 de fpdf2.
+
+    A diferencia de la versión anterior: el 0 y el False numérico ya no se
+    convierten en cadena vacía, y la puntuación tipográfica se translitera
+    en lugar de desaparecer.
+    """
+    if texto is None:
+        return ""
+    txt = str(texto)
+    if not txt:
+        return ""
+    for origen, destino in _TRANSLITERACION.items():
+        if origen in txt:
+            txt = txt.replace(origen, destino)
+    # Último recurso: descompone acentos exóticos no cubiertos por latin-1
+    # (ej. ẞ, ā) en su letra base en lugar de borrarlos.
+    if any(ord(c) > 255 for c in txt):
+        txt = "".join(
+            c if ord(c) < 256 else unicodedata.normalize("NFKD", c).encode("ascii", "ignore").decode("ascii")
+            for c in txt
+        )
+    return txt.encode("latin-1", "ignore").decode("latin-1")
+
+
+def _norm(texto) -> str:
+    """Normaliza para comparar: sin acentos, mayúsculas, sin espacios dobles."""
+    if texto is None:
+        return ""
+    txt = unicodedata.normalize("NFKD", str(texto))
+    txt = "".join(c for c in txt if not unicodedata.combining(c))
+    return " ".join(txt.upper().split())
+
+
+def _fmt(valor, vacio: str = SIN_DATO) -> str:
+    """Convierte 'No detectado' / None / '' en un guion discreto.
+
+    Repetir "No detectado" cuatro veces en una tarjeta no comunica nada;
+    un guion deja claro que el campo está vacío sin gritar.
+    """
+    txt = _s(valor).strip()
+    if not txt or _norm(txt) in {"NO DETECTADO", "N/D", "N/A", "NONE", "NULL"}:
+        return vacio
+    return txt
+
+
+# ══════════════════════════════════════════════════════════════════════
+# DOCUMENTO BASE
+# ══════════════════════════════════════════════════════════════════════
 
 class ComplianceMaestroPDF(FPDF):
     """Estructura de diseño institucional con doble logo simétrico para HBPO-Adamo-Paycop."""
+
+    TOP_MARGIN = 42.0
 
     def __init__(self, logo_adamo=None, logo_holdings=None, tipo_persona=TIPO_PERSONA_JURIDICA):
         super().__init__(orientation="P", unit="mm", format="A4")
         self.logo_adamo = logo_adamo
         self.logo_holdings = logo_holdings
         self.tipo_persona = tipo_persona
-        self.set_margins(left=15, top=42, right=15)
+        self.set_margins(left=PAGE_X0, top=self.TOP_MARGIN, right=PAGE_X0)
+        self.set_auto_page_break(auto=True, margin=MARGEN_INFERIOR)
 
+    # ── utilidades de medición ────────────────────────────────────────
+    def contar_lineas(self, ancho: float, texto: str) -> int:
+        """Número REAL de líneas que ocupará multi_cell.
+
+        El cálculo anterior (ancho_de_cadena / ancho_columna) ignoraba que
+        las palabras no se parten, así que subestimaba y el texto se salía
+        del contenedor Bento. fpdf2 sabe la respuesta exacta.
+        """
+        texto = texto or ""
+        try:
+            lineas = self.multi_cell(ancho, 4.2, texto, dry_run=True, output="LINES")
+            return max(1, len(lineas))
+        except Exception:  # fpdf2 antiguo sin dry_run
+            saltos = texto.count("\n")
+            ancho_txt = self.get_string_width(texto.replace("\n", " "))
+            return max(1, int(ancho_txt / ancho) + 1 + saltos)
+
+    def recortar(self, texto: str, ancho_max: float, sufijo: str = "...") -> str:
+        """Recorta por ANCHO REAL, no por número de caracteres.
+
+        38 caracteres en mayúsculas ocupan mucho más que 38 en minúsculas;
+        el corte por longitud dejaba unos valores cortados de más y otros
+        desbordados.
+        """
+        texto = _s(texto)
+        if not texto or self.get_string_width(texto) <= ancho_max:
+            return texto
+        ancho_sufijo = self.get_string_width(sufijo)
+        recorte = texto
+        while recorte and self.get_string_width(recorte) + ancho_sufijo > ancho_max:
+            recorte = recorte[:-1]
+        return recorte.rstrip() + sufijo
+
+    def espacio_restante(self) -> float:
+        return LIMITE_Y - self.get_y()
+
+    def asegurar_espacio(self, alto: float) -> None:
+        """Abre página nueva si el bloque completo no cabe."""
+        if self.get_y() + alto > LIMITE_Y:
+            self.add_page()
+
+    # ── plantilla ─────────────────────────────────────────────────────
     def header(self):
-        current_x = self.get_x()
-
-        # 📐 ALINEACIÓN SIMÉTRICA OPTIMIZADA CON LOGOS MÁS GRANDES (Y_mid = 16.5mm)
         if self.logo_adamo and os.path.exists(self.logo_adamo):
             self.image(self.logo_adamo, x=15, y=10, h=13)
 
         if self.logo_holdings and os.path.exists(self.logo_holdings):
             self.image(self.logo_holdings, x=163, y=10.5, h=12)
 
-        # Canal central de texto protegido.
-        # Nota: fpdf2 con fuentes core (Helvetica) solo soporta latin-1 — un
-        # guion largo "—" rompe la generación (FPDFUnicodeEncodingException).
-        # Se usa guion normal "-" a propósito, no es un descuido de estilo.
         titulo_doc = (
             "EXPEDIENTE DE DEBIDA DILIGENCIA INDIVIDUAL - PERSONA NATURAL / UBO"
             if self.tipo_persona == TIPO_PERSONA_NATURAL
             else "EXPEDIENTE DE DEBIDA DILIGENCIA CORPORATIVA - PERSONA JURÍDICA"
         )
         self.set_xy(45, 11.5)
-        self.set_font("Helvetica", "B", 9.0)
         self.set_text_color(*COLOR_PRIMARY)
+        # El canal central mide 115 mm entre los dos logos: si el título no
+        # cabe se reduce el cuerpo en lugar de invadir el logo de Holdings.
+        for cuerpo in (9.0, 8.5, 8.0, 7.5):
+            self.set_font("Helvetica", "B", cuerpo)
+            if self.get_string_width(titulo_doc) <= 114:
+                break
         self.cell(115, 4.5, titulo_doc, align="C")
 
         self.set_xy(45, 16.5)
@@ -62,20 +245,46 @@ class ComplianceMaestroPDF(FPDF):
         self.set_text_color(*COLOR_TEXT_MUTED)
         self.cell(115, 4, "VERIFICACIÓN DE ANTECEDENTES, LISTAS DE CONTROL Y VALIDACIÓN DE SEGURIDAD OPERATIVA", align="C")
 
-        # Línea divisoria principal
         self.set_draw_color(*COLOR_PRIMARY)
         self.set_line_width(0.6)
-        self.line(15, 30, 195, 30)
+        self.line(PAGE_X0, 30, PAGE_X1, 30)
 
-        self.set_xy(current_x, 42)
+        self.set_xy(self.l_margin, self.TOP_MARGIN)
 
     def footer(self):
         self.set_y(-18)
         self.set_font("Helvetica", "I", 7.5)
         self.set_text_color(*COLOR_TEXT_MUTED)
         self.set_draw_color(*COLOR_LINE_TENUE)
-        self.line(15, self.get_y() - 2, 195, self.get_y() - 2)
-        self.cell(0, 8, f"Certificación de Cumplimiento - Confidencial Interno/Externo - Página {self.page_no()}/{{nb}}", 0, 0, "C")
+        self.set_line_width(0.2)
+        self.line(PAGE_X0, self.get_y() - 2, PAGE_X1, self.get_y() - 2)
+        self.cell(
+            0, 8,
+            f"Certificación de Cumplimiento - Confidencial Interno/Externo - Página {self.page_no()}/{{nb}}",
+            border=0, align="C",
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# PARSEO DEL CERTIFICADO INFOLAFT
+# ══════════════════════════════════════════════════════════════════════
+
+_KEYWORDS_SISTEMA = (
+    "REPORTE DE BUSQUEDA", "DATOS CONSULTADOS", "SU CONSULTA FUE",
+    "DOCUMENTO DE IDENTIDAD", "RESUMEN DE RESULTADOS", "LISTAS CONSULTADAS",
+    "LISTA DE COINCIDENCIAS", "NOTA LEGAL", "PAGINA", "CONSULTADO POR",
+    "FECHA Y HORA", "NUMERO DE CONSULTA", "NO SE OBTUVIERON RESULTADOS",
+    "PARA LA BUSQUEDA REALIZADA", "REQUIERE DEBIDA DILIGENCIA",
+    "TIPO DE DOCUMENTO", "INFOLAFT", "WWW.", "HTTP",
+)
+
+# Etiquetas que en el certificado preceden al nombre del vinculado. Se
+# intentan PRIMERO: la heurística de "primera línea que no es del sistema"
+# es la que producía nombres fantasma como "LISTAS".
+_RE_NOMBRE_ETIQUETADO = (
+    re.compile(r"(?:NOMBRE|RAZ[OÓ]N SOCIAL|NOMBRE COMPLETO|NOMBRE / RAZ[OÓ]N SOCIAL)\s*[:\-]\s*([^\n\|]{3,90})", re.IGNORECASE),
+    re.compile(r"DATOS CONSULTADOS\s*[:\-]?\s*\n\s*([^\n\|]{3,90})", re.IGNORECASE),
+)
 
 
 def parsear_texto_infolaft(texto: str) -> dict:
@@ -94,19 +303,21 @@ def parsear_texto_infolaft(texto: str) -> dict:
         # Sin esto, un patrón que no calza se lee igual que "sin coincidencias".
         "resultados_detectado": False,
         "intensificada_detectado": False,
+        "motivo_revision": "",
     }
 
+    texto = texto or ""
     texto_plano = " ".join(texto.split())
 
     # 1. Extracción del Radicado / Número de Consulta (Busca números de 8 a 10 dígitos)
-    rad_match = re.search(r"NÚMERO DE CONSULTA.*?\b(\d{8,10})\b", texto_plano, re.IGNORECASE)
+    rad_match = re.search(r"N[UÚ]MERO DE CONSULTA.*?\b(\d{8,10})\b", texto_plano, re.IGNORECASE)
     if not rad_match:
         rad_match = re.search(r"\b(3\d{8}|1\d{8})\b", texto_plano)
     if rad_match:
         res["radicado"] = rad_match.group(1)
 
     # 2. Fecha y Hora de Consulta
-    fecha_match = re.search(r"FECHA Y HORA DE CONSULTA[:\s]*([\d/]+ [\d:]+)", texto_plano, re.IGNORECASE)
+    fecha_match = re.search(r"FECHA Y HORA DE CONSULTA[:\s]*([\d/\-]+ [\d:]+)", texto_plano, re.IGNORECASE)
     if fecha_match:
         res["fecha_consulta"] = fecha_match.group(1).strip()
 
@@ -117,13 +328,27 @@ def parsear_texto_infolaft(texto: str) -> dict:
         res["resultados_detectado"] = True
 
     # 4. Monitoreo Intensificado / GAFI / PEP
-    gafi_match = re.search(r"GAFI\??[:\s]*(SI|NO)", texto_plano, re.IGNORECASE)
+    #    [FIX-02] \b obligatorio: sin él, "GAFI: SIN COINCIDENCIAS" capturaba
+    #    el "SI" de "SIN" y disparaba una alerta LAFT inexistente.
+    gafi_match = re.search(r"GAFI\??\s*[:\-]?\s*\b(SI|S[IÍ]|NO)\b", texto_plano, re.IGNORECASE)
     if gafi_match:
-        res["intensificada"] = gafi_match.group(1).upper()
+        valor = _norm(gafi_match.group(1))
+        res["intensificada"] = "SI" if valor.startswith("S") else "NO"
         res["intensificada_detectado"] = True
+    else:
+        # Algunos certificados no responden SI/NO sino con una frase. Sin
+        # esto, exigir \b dejaría en ámbar a todos los certificados limpios
+        # redactados de esa forma.
+        gafi_frase = re.search(
+            r"GAFI[^.\n]{0,90}?\b(SIN COINCIDENCIAS|NO SE OBTUVIERON|NO REGISTRA|NO APARECE|NO PRESENTA)\b",
+            texto_plano, re.IGNORECASE,
+        )
+        if gafi_frase:
+            res["intensificada"] = "NO"
+            res["intensificada_detectado"] = True
 
     # 5. Identificación / Tax ID / NIT / Cédula (ej: 35-2938958 o formato estándar)
-    id_match = re.search(r"\b(\d{2,3}-\d{6,8}|\d{7,10}-\d)\b", texto)
+    id_match = re.search(r"\b(\d{2,3}-\d{6,8}|\d{7,10}-\d)\b", texto_plano)
     if id_match:
         res["identificacion"] = id_match.group(1).strip()
     else:
@@ -131,41 +356,44 @@ def parsear_texto_infolaft(texto: str) -> dict:
         if id_gen and id_gen.group(1) != res["radicado"]:
             res["identificacion"] = id_gen.group(1).strip()
 
-    # 6. Nombre del Vinculado (Filtrado por Exclusión de Términos del Sistema)
-    lineas = [l.strip() for l in texto.split("\n") if l.strip()]
-    
-    keywords_sistema = [
-        "REPORTE DE BÚSQUEDA", "DATOS CONSULTADOS", "SU CONSULTA FUE",
-        "DOCUMENTO DE IDENTIDAD", "RESUMEN DE RESULTADOS", "LISTAS CONSULTADAS",
-        "LISTA DE COINCIDENCIAS", "NOTA LEGAL", "PÁGINA", "CONSULTADO POR",
-        "FECHA Y HORA", "NÚMERO DE CONSULTA", "NO SE OBTUVIERON RESULTADOS",
-        "PARA LA BÚSQUEDA REALIZADA", "REQUIERE DEBIDA DILIGENCIA", "LISTAS CONSULTADAS"
-    ]
+    # 6. Nombre del Vinculado
+    #    6.a Primero por etiqueta explícita (fiable).
+    for patron in _RE_NOMBRE_ETIQUETADO:
+        m = patron.search(texto)
+        if m:
+            candidato = _norm(m.group(1))
+            if candidato and candidato not in _NOMBRES_BASURA and len(candidato) >= 3:
+                res["nombre"] = candidato
+                break
 
-    for line in lineas:
-        line_up = line.upper()
-        # Ignorar si es una etiqueta del sistema
-        if any(kw in line_up for kw in keywords_sistema):
-            continue
-        # Ignorar si es únicamente un número o ID
-        if re.match(r"^[\d\.\s-]+$", line):
-            continue
-        if len(line) < 3:
-            continue
-        
-        # La primera línea con texto real que no pertenece al sistema es la Razón Social / Nombre
-        res["nombre"] = line.upper()
-        break
+    #    6.b Si no hay etiqueta, se recurre a la heurística por exclusión.
+    if res["nombre"] == "No detectado":
+        for line in (l.strip() for l in texto.split("\n") if l.strip()):
+            line_up = _norm(line)
+            if any(kw in line_up for kw in _KEYWORDS_SISTEMA):
+                continue
+            if re.match(r"^[\d\.\s\-/:]+$", line):       # solo números, ID o fechas
+                continue
+            if len(line_up) < 3 or line_up in _NOMBRES_BASURA:
+                continue
+            # Una línea que es una sola palabra genérica del certificado
+            # ("LISTAS", "RESULTADOS") no es una razón social.
+            if len(line_up.split()) == 1 and len(line_up) <= 8:
+                continue
+            res["nombre"] = line_up
+            break
 
     # ── Marca de confianza del parseo ─────────────────────────────────
     # Un partner "limpio" en el certificado final debe significar que SÍ se
     # verificaron resultados y monitoreo GAFI, no que el regex no encontró nada.
-    # Si cualquiera de los dos campos que definen el veredicto AML no se pudo
-    # leer del PDF, el caso se marca para revisión manual del oficial en vez
-    # de heredar en silencio los valores por defecto ("0" / "NO").
     res["requiere_revision_manual"] = not (
         res["resultados_detectado"] and res["intensificada_detectado"]
     )
+    if res["requiere_revision_manual"]:
+        res["motivo_revision"] = (
+            "No fue posible confirmar en el texto del certificado el número de "
+            "coincidencias y/o el monitoreo intensificado GAFI."
+        )
     res["error_lectura"] = False
 
     return res
@@ -181,7 +409,7 @@ def _resultado_no_confiable(motivo: str) -> dict:
     "APROBADO S/ANOMALÍAS" sin que ese vinculado hubiera sido evaluado.
     """
     return {
-        "nombre": motivo,
+        "nombre": motivo,           # se conserva por compatibilidad con screening_ui
         "identificacion": "No detectado",
         "radicado": "No detectado",
         "fecha_consulta": "No detectado",
@@ -191,6 +419,7 @@ def _resultado_no_confiable(motivo: str) -> dict:
         "intensificada_detectado": False,
         "requiere_revision_manual": True,
         "error_lectura": True,
+        "motivo_revision": motivo,
     }
 
 
@@ -209,33 +438,42 @@ def _aplicar_fallback_nombre_archivo(res: dict, nombre_archivo: str) -> dict:
         cuando el certificado sí existe y sí se procesó).
       - Un documento cuyo TEXTO reportó "0 coincidencias" de forma
         confiable (resultados_detectado=True) se confirma como CONFORME
-        aunque el radicado no se haya podido extraer del cuerpo del PDF,
-        siempre que el nombre del archivo corrobore que es un certificado
-        (o que el radicado sí se haya leído).
+        aunque el radicado no se haya podido extraer del cuerpo del PDF.
       - Un PDF sin texto extraíble (OCR fallido / escaneo) NUNCA se marca
-        como limpio solo por el nombre del archivo — sigue exigiendo
-        revisión manual, porque `resultados_detectado` es False en ese
-        caso y no hay ninguna cifra real que confirmar.
+        como limpio solo por el nombre del archivo.
       - Una coincidencia real (resultados > 0) o GAFI=SI siempre gana y
         marca alerta, sin importar el nombre del archivo.
+
+    NOTA: requiere_revision_manual=False en el caso de coincidencia real
+    NO significa "conforme": significa "no hay nada que releer, el dato se
+    leyó bien". El veredicto de riesgo lo produce _clasificar_entidad(),
+    donde una coincidencia real siempre pinta alerta roja.
     """
+    res.setdefault("motivo_revision", "")
     match = _RE_CERTIFICADO_NOMBRE.search(nombre_archivo or "")
     res["certificado_nombre_valido"] = bool(match)
+    res["fuente_archivo"] = nombre_archivo or ""
     if res.get("radicado") in (None, "", "No detectado") and match:
         res["radicado"] = match.group(1)
         res["radicado_via_nombre_archivo"] = True
 
-    coincidencias_reales = res.get("resultados", "0") != "0"
-    gafi_alerta = res.get("intensificada", "NO") == "SI"
-    resultados_confirmados = res.get("resultados_detectado", False) and res.get("resultados", "0") == "0"
+    coincidencias_reales = str(res.get("resultados", "0")).strip() not in ("0", "")
+    gafi_alerta = _norm(res.get("intensificada", "NO")) == "SI"
+    resultados_confirmados = res.get("resultados_detectado", False) and str(res.get("resultados", "0")).strip() == "0"
     no_registro_detectado = res.get("radicado", "No detectado") not in (None, "", "No detectado")
 
     if coincidencias_reales or gafi_alerta:
         res["requiere_revision_manual"] = False
     elif resultados_confirmados and (no_registro_detectado or res["certificado_nombre_valido"]):
         res["requiere_revision_manual"] = False
+        res["motivo_revision"] = ""
     else:
         res["requiere_revision_manual"] = True
+        if not res.get("motivo_revision"):
+            res["motivo_revision"] = (
+                "El certificado no permitió confirmar el resultado del screening. "
+                "Validar manualmente contra el documento original."
+            )
 
     return res
 
@@ -252,44 +490,166 @@ def procesar_archivo_pdf(uploaded_file) -> dict:
             uploaded_file.seek(0)
 
         reader = pypdf.PdfReader(uploaded_file)
+
+        # Muchos certificados llegan con cifrado vacío (solo permisos). Sin
+        # esto pypdf lanza y el documento se perdía como "corrupto".
+        if getattr(reader, "is_encrypted", False):
+            try:
+                reader.decrypt("")
+            except Exception:
+                logger.warning("PDF cifrado no descifrable: %s", nombre_archivo)
+
         full_text = ""
         for page in reader.pages:
             t = page.extract_text()
-            if t: full_text += t + "\n"
+            if t:
+                full_text += t + "\n"
 
         if not full_text.strip():
             # PDF sin texto extraíble (típico de un escaneo/imagen). No hay
             # base para afirmar "sin coincidencias" — se marca sin confianza.
-            resultado = _resultado_no_confiable("PDF SIN TEXTO EXTRAIBLE - REQUIERE LECTURA MANUAL")
+            logger.warning("PDF sin texto extraible: %s", nombre_archivo)
+            resultado = _resultado_no_confiable(
+                "PDF sin texto extraíble (documento escaneado o imagen). Requiere lectura manual."
+            )
         else:
             resultado = parsear_texto_infolaft(full_text)
     except Exception:
-        resultado = _resultado_no_confiable("ERROR AL PROCESAR EL PDF - REQUIERE LECTURA MANUAL")
+        logger.exception("Fallo al procesar el PDF '%s'", nombre_archivo)
+        resultado = _resultado_no_confiable(
+            "El archivo no pudo abrirse o está dañado. Requiere lectura manual."
+        )
 
     return _aplicar_fallback_nombre_archivo(resultado, nombre_archivo)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# CLASIFICACIÓN ÚNICA DE RIESGO  [FIX-03]
+# ══════════════════════════════════════════════════════════════════════
+
+def _clasificar_entidad(ent: dict, es_prospecto: bool = False) -> dict:
+    """Decide el estatus visual de UNA entidad evaluada.
+
+    Es la única función autorizada a decidir el color de una entidad; la
+    Sección 2 y la barra resumen la consultan. El orden de las ramas es
+    deliberado: una coincidencia real gana siempre, y una lectura fallida
+    nunca puede caer en la rama verde.
+    """
+    resultados = str(ent.get("resultados", "0")).strip() or "0"
+    intensificada = "SI" if _norm(ent.get("intensificada", "NO")) == "SI" else "NO"
+    error_lectura = bool(ent.get("error_lectura"))
+    revision = bool(ent.get("requiere_revision_manual"))
+    radicado = _fmt(ent.get("radicado"), "")
+
+    coincidencias = resultados not in ("0", "")
+    # Entidades Pagadoras Cross-Border (Modo Express): screening_ui las
+    # inyecta con radicado "N/A - Sin Consulta InfoLAFT". Son declarativas,
+    # nunca consultadas: no pueden verse como un vinculado más.
+    sin_consulta = "SIN CONSULTA" in _norm(radicado)
+
+    if coincidencias or intensificada == "SI":
+        clave, etiqueta = "alerta", "COINCIDENCIA EN LISTAS - AUDITORÍA LAFT"
+        motivo = "Se hallaron coincidencias o monitoreo intensificado GAFI. Escalar al Oficial de Cumplimiento."
+    elif sin_consulta:
+        clave, etiqueta = "revision", "DECLARADA - SIN CONSULTA EN LISTAS"
+        motivo = ("Entidad declarada por el area comercial sin consulta InfoLAFT en esta etapa. "
+                  "Debe screenearse en el Onboarding Formal SARLAFT.")
+    elif error_lectura:
+        clave, etiqueta = "revision", "LECTURA NO CONFIABLE - VALIDAR MANUALMENTE"
+        motivo = ent.get("motivo_revision") or (
+            "El certificado no entregó texto legible; el resultado no pudo verificarse."
+        )
+    elif revision:
+        clave, etiqueta = "revision", "DATOS INCOMPLETOS - VALIDAR MANUALMENTE"
+        motivo = ent.get("motivo_revision") or (
+            "No se pudo confirmar el número de coincidencias ni el monitoreo GAFI."
+        )
+    elif es_prospecto and (not radicado or "BDM" in radicado.upper() or "EXP" in radicado.upper()):
+        clave, etiqueta = "preliminar", "VERIFICACIÓN PRELIMINAR (EXPRESS)"
+        motivo = "Verificación comercial preliminar: no reemplaza el screening formal SARLAFT."
+    else:
+        clave, etiqueta = "limpio", "SIN COINCIDENCIAS"
+        motivo = ""
+
+    paleta = SEMAFORO[clave]
+    return {
+        "clave": clave,
+        "etiqueta": etiqueta,
+        "motivo": motivo,
+        "coincidencias": coincidencias,
+        "pendiente": clave == "revision",
+        **paleta,
+    }
+
+
+def _nombre_de_respaldo(ent: dict, datos_master: dict) -> str:
+    """Nombre a mostrar cuando el certificado no permitió extraerlo.
+
+    Antes la tarjeta imprimía literalmente "REPRESENTANTE LEGAL: LISTAS"
+    (una etiqueta del PDF confundida con el nombre). Ahora se recurre al
+    dato que el usuario ya capturó en el formulario, por rol.
+    """
+    rol = _norm(ent.get("rol_interno", ""))
+    if "REPRESENTANTE" in rol or "REP. LEGAL" in rol:
+        candidato = datos_master.get("rep_legal_nom", "")
+    elif "ACCIONISTA" in rol or "BENEFICIARIO" in rol or "SOCIO" in rol or "UBO" in rol:
+        candidato = datos_master.get("accionista_nom", "")
+    else:
+        candidato = datos_master.get("empresa_principal") or datos_master.get("nombre_completo", "")
+
+    candidato = _fmt(candidato, "")
+    if not candidato:
+        candidato = _fmt(datos_master.get("empresa_principal") or datos_master.get("nombre_completo"), "")
+    return candidato.upper() if candidato else "VINCULADO NO IDENTIFICADO"
+
+
+def _resolver_nombre_entidad(ent: dict, datos_master: dict) -> tuple:
+    """Devuelve (nombre_a_mostrar, viene_del_formulario)."""
+    if ent.get("error_lectura"):
+        return _nombre_de_respaldo(ent, datos_master), True
+
+    nombre = _norm(ent.get("nombre", ""))
+    if not nombre or nombre in _NOMBRES_BASURA or len(nombre) < 3:
+        return _nombre_de_respaldo(ent, datos_master), True
+    return nombre, False
+
+
+# ══════════════════════════════════════════════════════════════════════
+# LOGOS
+# ══════════════════════════════════════════════════════════════════════
+
 def resolver_ruta_logo(nombre_base: str) -> str:
-    folder = os.path.join("app", "static", "img", "logos")
-    if not os.path.exists(folder):
-        folder = os.path.join("static", "img", "logos")
-        
-    if os.path.exists(folder):
-        for archivo in os.listdir(folder):
-            if archivo.lower().startswith(nombre_base.lower().replace(" ", "_")):
-                return os.path.join(folder, archivo)
-            elif archivo.lower().startswith(nombre_base.lower()):
-                return os.path.join(folder, archivo)
+    """Busca el logo relativo al módulo (no al cwd) y de forma determinista."""
+    base_modulo = Path(__file__).resolve()
+    candidatos = []
+    for parent in base_modulo.parents[:4]:
+        candidatos.append(parent / "app" / "static" / "img" / "logos")
+        candidatos.append(parent / "static" / "img" / "logos")
+    candidatos.append(Path("app") / "static" / "img" / "logos")
+    candidatos.append(Path("static") / "img" / "logos")
+
+    prefijos = {
+        nombre_base.lower(),
+        nombre_base.lower().replace(" ", "_"),
+        nombre_base.lower().replace(" ", "-"),
+    }
+
+    for carpeta in candidatos:
+        if not carpeta.is_dir():
+            continue
+        # sorted() -> el mismo logo siempre; os.listdir no garantiza orden.
+        for archivo in sorted(p.name for p in carpeta.iterdir() if p.is_file()):
+            if any(archivo.lower().startswith(p) for p in prefijos):
+                return str(carpeta / archivo)
     return None
 
 
-def _s(texto) -> str:
-    if not texto:
-        return ""
-    return str(texto).replace("\u00bf", "").encode("latin-1", "ignore").decode("latin-1")
-
+# ══════════════════════════════════════════════════════════════════════
+# GENERACIÓN DEL EXPEDIENTE
+# ══════════════════════════════════════════════════════════════════════
 
 def generar_pdf_base(datos_master: dict) -> bytes:
+    datos_master = datos_master or {}
     tipo_persona = datos_master.get("tipo_persona", TIPO_PERSONA_JURIDICA)
     es_juridica = tipo_persona == TIPO_PERSONA_JURIDICA
     # Modo Screening Express (Clientes Prospectos / BDM): VoBo comercial
@@ -301,175 +661,226 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     path_holdings = resolver_ruta_logo("Logo Holdings")
 
     pdf = ComplianceMaestroPDF(logo_adamo=path_adamo, logo_holdings=path_holdings, tipo_persona=tipo_persona)
+
+    # Metadatos: cadena de custodia mínima del documento probatorio.
+    pdf.set_title(f"Expediente de Debida Diligencia - {datos_master.get('radicado_caso', 'S/N')}")
+    pdf.set_author("HBPO Compliance Hub")
+    pdf.set_creator("PayShield & Compliance Hub")
+    pdf.set_subject("Verificación SARLAFT / Screening en listas de control")
+
     pdf.alias_nb_pages()
     pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=18)
 
-    # 🛡️ DECLARACIÓN TEMPRANA DE FUNCIONES AUXILIARES
-    def _limitar_texto(texto, max_caracteres=38):
-        if len(texto) > max_caracteres:
-            return texto[:max_caracteres - 3] + "..."
-        return texto
+    # ══════════════════════════════════════════════════════════════════
+    # HELPERS DE RENDER
+    # ══════════════════════════════════════════════════════════════════
 
     def render_subseccion_moderna(titulo):
-        # 🛡️ Control de desborde preventivo para encabezados de sección
-        if pdf.get_y() > 245:
-            pdf.add_page()
+        pdf.asegurar_espacio(14)
         pdf.set_text_color(*COLOR_PRIMARY)
         pdf.set_font("Helvetica", "B", 10)
         current_y = pdf.get_y()
         pdf.set_draw_color(*COLOR_ACCENT)
         pdf.set_line_width(0.7)
-        pdf.line(15, current_y + 1.2, 15, current_y + 5.2)
+        pdf.line(PAGE_X0, current_y + 1.2, PAGE_X0, current_y + 5.2)
         pdf.cell(4, 6, "")
-        pdf.cell(0, 6, _s(titulo).upper(), ln=1)
+        pdf.cell(0, 6, _s(titulo).upper(), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.ln(2)
-
-    def render_infolaft_snippet(ent):
-        """
-        Pinta una tarjeta de evidencia por cada entidad ya procesada
-        (1 por PDF de Infolaft subido). No busca por nombre de rol — solo
-        recorre entidades_processed en orden, así funciona igual para los 3
-        vinculados fijos de Persona Jurídica o para N evidencias sueltas de
-        Persona Natural (Beneficiario Final, Cripto/VASP, PEP, etc.).
-        """
-        # Determinar estatus y paleta de colores semánticos (semáforo).
-        # Orden de prioridad: una lectura fallida del PDF NUNCA debe verse
-        # igual que "sin coincidencias" — aunque resultados/intensificada
-        # hayan quedado en sus valores por defecto ("0"/"NO"), lo que refleja
-        # es que no se pudo leer el dato, no que se verificó y salió limpio.
-        es_limpio = ent.get('resultados', '0') == "0" and ent.get('intensificada', 'NO') == "NO"
-        requiere_manual = ent.get('requiere_revision_manual', False)
-
-        # Nota: fpdf2 con fuentes core (Helvetica) solo soporta latin-1 — los
-        # emoji de semáforo (🟢/⚠️/🔴) rompen la generación del PDF
-        # (FPDFUnicodeEncodingException, igual que el guion largo "—" antes).
-        # El semáforo se transmite con el color del badge, no con el emoji.
-        # Paleta Bootstrap alert (bg/border/text) — colores exactos pedidos.
-        if requiere_manual:
-            badge_bg = (255, 243, 205)      # #fff3cd
-            badge_border = (255, 238, 186)  # #ffeeba
-            badge_text = (133, 100, 4)      # #856404
-            est_texto = "LECTURA NO CONFIABLE - REVISAR MANUALMENTE"
-        elif es_limpio:
-            badge_bg = (212, 237, 218)      # #d4edda
-            badge_border = (195, 230, 203)  # #c3e6cb
-            badge_text = (21, 87, 36)       # #155724
-            est_texto = "SIN COINCIDENCIAS - CONFORME"
-        else:
-            badge_bg = (248, 215, 218)      # #f8d7da
-            badge_border = (245, 198, 203)  # #f5c6cb
-            badge_text = (114, 28, 36)      # #721c24
-            est_texto = "ALERTA LAFT - COINCIDENCIA DETECTADA"
-
-        # ── Parámetros de alineación síncrona ──
-        SNIP_IZQ = 23
-        SNIP_DER = 109
-        SNIP_W   = 82
-        H_LBL    = 3.0
-        H_DET    = 3.5
-        PAD_TOP  = 3.5
-        PAD_BOT  = 3.0
-
-        etiqueta_rol = ent.get('rol_interno', 'VINCULADO')
-        texto_completo = f"{etiqueta_rol.upper()}: {ent.get('nombre', 'N/D')}"
-
-        # Cálculo dinámico de líneas requeridas por el nombre
-        pdf.set_font("Helvetica", "B", 8.5)
-        ancho_texto_medido = pdf.get_string_width(texto_completo)
-        lineas_nombre = max(1, int(ancho_texto_medido / SNIP_W) + 1)
-        h_nombre = lineas_nombre * 3.8
-        h_row_contenido = max(h_nombre, 6.0)
-
-        # Altura Bento de esta tarjeta
-        H_SNIP = PAD_TOP + H_LBL + 1.2 + h_row_contenido + 2.0 + 1.5 + H_DET + PAD_BOT
-
-        # 🛡️ CONTROL DE DESBORDE DE TARJETA INDIVIDUAL (Si no cabe en la página, salta de página)
-        if pdf.get_y() + H_SNIP > 262:
-            pdf.add_page()
-
-        pdf.ln(2.0)
-        s_y = pdf.get_y()
-
-        # Dibujar Bento
-        pdf.set_fill_color(255, 255, 255)
-        pdf.set_draw_color(*COLOR_LINE_TENUE)
-        pdf.set_line_width(0.2)
-        pdf.rect(19, s_y, 172, H_SNIP, style="FD")
-
-        # Ejes Y calculados dinámicamente
-        y_lbl = s_y + PAD_TOP
-        y_val_bdg = y_lbl + H_LBL + 1.2
-        y_div = y_val_bdg + h_row_contenido + 2.0
-        y_det = y_div + 1.5
-
-        # Divisor horizontal interno
-        pdf.set_draw_color(*COLOR_LINE_TENUE)
-        pdf.set_line_width(0.15)
-        pdf.line(SNIP_IZQ, y_div, 187, y_div)
-
-        # Columna Izquierda: Nombre
-        pdf.set_xy(SNIP_IZQ, y_lbl)
-        pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(SNIP_W, H_LBL, "VINCULADO / ROL EVALUADO")
-        
-        pdf.set_xy(SNIP_IZQ, y_val_bdg)
-        pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-        pdf.multi_cell(SNIP_W, 3.8, _s(texto_completo))
-
-        # Columna Derecha: Badge
-        pdf.set_xy(SNIP_DER, y_lbl)
-        pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(74, H_LBL, "ESTATUS DE EVALUACIÓN LAFT")
-        
-        pdf.set_fill_color(*badge_bg)
-        pdf.set_draw_color(*badge_border)
-        pdf.set_line_width(0.15)
-        pdf.rect(SNIP_DER, y_val_bdg, 74, 6.0, style="FD")
-        
-        pdf.set_xy(SNIP_DER + 3, y_val_bdg + 1.0)
-        pdf.set_font("Helvetica", "B", 7.0); pdf.set_text_color(*badge_text)
-        pdf.cell(68, 4.2, est_texto)
-
-        # Detalle técnico
-        pdf.set_xy(SNIP_IZQ, y_det)
-        pdf.set_font("Helvetica", "", 7.0); pdf.set_text_color(*COLOR_TEXT_MUTED)
-        detalle_str = f"No. Registro Consulta: {ent.get('radicado', 'N/A')}   |   Coincidencias Halladas: {ent.get('resultados', '0')}   |   Monitoreo Intensificado (GAFI): {ent.get('intensificada', 'NO')}"
-        pdf.cell(164, H_DET, _s(detalle_str))
-
-        pdf.set_y(s_y + H_SNIP)
 
     def render_banner_prospecto():
         """
         Barra de advertencia comercial para el Modo Screening Express. Un
         VoBo de prospecto (datos mínimos, sin Rep. Legal/Accionista
         verificados) nunca debe poder confundirse visualmente con el
-        Onboarding Formal SARLAFT completo — se sella en la primera página,
-        antes de cualquier otro contenido del cuerpo.
+        Onboarding Formal SARLAFT completo.
         """
         texto_banner = "CERTIFICADO PRELIMINAR COMERCIAL (MODO PROSPECTO) - NO REEMPLAZA EL ONBOARDING SARLAFT DEFINITIVO"
         banner_h = 8.0
         y0 = pdf.get_y()
-        pdf.set_fill_color(255, 243, 205)      # #fff3cd — mismo amber "requiere revisión" ya usado en el resto del documento
-        pdf.set_draw_color(255, 193, 7)        # #ffc107
+        pal = SEMAFORO["revision"]
+        pdf.set_fill_color(*pal["bg"])
+        pdf.set_draw_color(255, 193, 7)
         pdf.set_line_width(0.4)
-        pdf.rect(15, y0, 180, banner_h, style="FD")
-        pdf.set_xy(15, y0 + 1.8)
+        pdf.rect(PAGE_X0, y0, PAGE_W, banner_h, style="FD")
+        pdf.set_xy(PAGE_X0, y0 + 1.8)
         pdf.set_font("Helvetica", "B", 8.5)
-        pdf.set_text_color(133, 100, 4)        # #856404
-        pdf.cell(180, 4.5, texto_banner, align="C")
+        pdf.set_text_color(*pal["texto"])
+        pdf.cell(PAGE_W, 4.5, texto_banner, align="C")
         pdf.set_y(y0 + banner_h + 4)
 
+    def render_resumen_screening(entidades):
+        """Barra de totales: qué se evaluó y qué queda pendiente, de un vistazo.
+
+        Sin esto el lector tenía que contar tarjetas para saber si el
+        expediente estaba completo.
+        """
+        total = len(entidades)
+        con_coincidencia = sum(1 for e in entidades if _clasificar_entidad(e, es_prospecto)["coincidencias"])
+        pendientes = sum(1 for e in entidades if _clasificar_entidad(e, es_prospecto)["pendiente"])
+
+        h = 10.0
+        pdf.asegurar_espacio(h + 4)
+        y0 = pdf.get_y()
+        pdf.set_fill_color(*COLOR_BG_GRID)
+        pdf.set_draw_color(*COLOR_LINE_TENUE)
+        pdf.set_line_width(0.2)
+        pdf.rect(PAGE_X0, y0, PAGE_W, h, style="FD")
+
+        bloques = [
+            ("VINCULADOS EVALUADOS", str(total), COLOR_PRIMARY),
+            ("CON COINCIDENCIAS EN LISTAS", str(con_coincidencia),
+             SEMAFORO["alerta"]["texto"] if con_coincidencia else COLOR_TEXT_BODY),
+            ("PENDIENTES DE VALIDACIÓN", str(pendientes),
+             SEMAFORO["revision"]["texto"] if pendientes else COLOR_TEXT_BODY),
+        ]
+        ancho_bloque = PAGE_W / 3.0
+        for i, (etiqueta, valor, color) in enumerate(bloques):
+            x = PAGE_X0 + i * ancho_bloque
+            if i:
+                pdf.set_draw_color(*COLOR_LINE_TENUE)
+                pdf.set_line_width(0.15)
+                pdf.line(x, y0 + 2.0, x, y0 + h - 2.0)
+            pdf.set_xy(x + 4, y0 + 2.2)
+            pdf.set_font("Helvetica", "B", 6.0)
+            pdf.set_text_color(*COLOR_TEXT_MUTED)
+            pdf.cell(ancho_bloque - 8, 2.8, etiqueta, new_x=XPos.LEFT, new_y=YPos.NEXT)
+            pdf.set_xy(x + 4, y0 + 5.2)
+            pdf.set_font("Helvetica", "B", 9.5)
+            pdf.set_text_color(*color)
+            pdf.cell(ancho_bloque - 8, 4.2, valor)
+
+        pdf.set_y(y0 + h + 4)
+
+    def render_infolaft_snippet(ent: dict, datos_master: dict):
+        """Microtarjeta de UNA entidad evaluada.
+
+        Jerarquía de lectura: (1) franja de color + badge = veredicto,
+        (2) rol y nombre = a quién se evaluó, (3) grilla = con qué datos
+        se sustenta, (4) pie = de qué archivo salió y, si algo falló, por
+        qué. Antes la tarjeta solo repetía "No detectado" tres veces sin
+        explicar nada.
+        """
+        estado = _clasificar_entidad(ent, es_prospecto)
+        rol = _norm(ent.get("rol_interno", "")) or "VINCULADO EVALUADO"
+        nombre, nombre_del_formulario = _resolver_nombre_entidad(ent, datos_master)
+
+        identificacion = _fmt(ent.get("identificacion"))
+        radicado = _fmt(ent.get("radicado"))
+        if "SIN CONSULTA" in _norm(radicado):
+            radicado = SIN_DATO   # el motivo del pie ya lo explica
+        fecha_consulta = _fmt(ent.get("fecha_consulta"))
+        resultados = str(ent.get("resultados", "0")).strip() or "0"
+        intensificada = "SI" if _norm(ent.get("intensificada", "NO")) == "SI" else "NO"
+        fuente = _fmt(ent.get("fuente_archivo"), "")
+
+        # Notas del pie: motivo de la alerta + trazabilidad del nombre.
+        notas = []
+        if estado["motivo"]:
+            notas.append(estado["motivo"])
+        if nombre_del_formulario:
+            notas.append("Nombre tomado del formulario: el certificado no permitió extraerlo.")
+        if ent.get("radicado_via_nombre_archivo"):
+            notas.append("No. de consulta recuperado del nombre del archivo.")
+
+        H_CABECERA = 13.6
+        H_GRILLA = 9.6
+        H_PIE = 4.0
+        H_NOTA = 3.6
+        alto = H_CABECERA + H_GRILLA + H_PIE + (len(notas) * H_NOTA) + 3.0
+
+        pdf.asegurar_espacio(alto + 3)
+        y0 = pdf.get_y()
+
+        # Cuerpo de la tarjeta
+        pdf.set_fill_color(*COLOR_BG_CARD)
+        pdf.set_draw_color(*COLOR_LINE_TENUE)
+        pdf.set_line_width(0.2)
+        pdf.rect(PAGE_X0, y0, PAGE_W, alto, style="FD")
+
+        # Franja lateral de estado: permite escanear la página entera sin leer
+        pdf.set_fill_color(*estado["franja"])
+        pdf.set_draw_color(*estado["franja"])
+        pdf.rect(PAGE_X0, y0, 1.8, alto, style="FD")
+
+        # ── Badge (derecha, ancho ajustado al texto) ──
+        pdf.set_font("Helvetica", "B", 6.8)
+        badge_w = min(78.0, max(42.0, pdf.get_string_width(estado["etiqueta"]) + 7))
+        badge_x = PAGE_X1 - 3.5 - badge_w
+        pdf.set_fill_color(*estado["bg"])
+        pdf.set_draw_color(*estado["borde"])
+        pdf.set_line_width(0.2)
+        pdf.rect(badge_x, y0 + 3.4, badge_w, 6.0, style="FD")
+        pdf.set_xy(badge_x, y0 + 4.6)
+        pdf.set_text_color(*estado["texto"])
+        pdf.cell(badge_w, 3.6, estado["etiqueta"], align="C")
+
+        # ── Rol + nombre (izquierda) ──
+        ancho_nombre = badge_x - (PAGE_X0 + 5.5) - 4
+        pdf.set_xy(PAGE_X0 + 5.5, y0 + 3.2)
+        pdf.set_font("Helvetica", "B", 6.2)
+        pdf.set_text_color(*COLOR_TEXT_MUTED)
+        pdf.cell(ancho_nombre, 2.8, pdf.recortar(rol, ancho_nombre), new_x=XPos.LEFT, new_y=YPos.NEXT)
+
+        pdf.set_xy(PAGE_X0 + 5.5, y0 + 6.4)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_text_color(*COLOR_TEXT_MAIN)
+        pdf.cell(ancho_nombre, 5.0, pdf.recortar(nombre, ancho_nombre))
+
+        # ── Divisor ──
+        pdf.set_draw_color(*COLOR_LINE_TENUE)
+        pdf.set_line_width(0.15)
+        pdf.line(PAGE_X0 + 5.5, y0 + H_CABECERA, PAGE_X1 - 3.5, y0 + H_CABECERA)
+
+        # ── Grilla de metadatos ──
+        columnas = [
+            ("IDENTIFICACIÓN", identificacion, COLOR_TEXT_BODY, "B" if identificacion != SIN_DATO else ""),
+            ("No. DE CONSULTA", radicado, COLOR_TEXT_BODY, "B" if radicado != SIN_DATO else ""),
+            ("FECHA DE CONSULTA", fecha_consulta, COLOR_TEXT_BODY, ""),
+            ("COINCIDENCIAS", resultados,
+             SEMAFORO["alerta"]["texto"] if estado["coincidencias"] else COLOR_TEXT_BODY, "B"),
+            ("MONITOREO GAFI", intensificada,
+             SEMAFORO["alerta"]["texto"] if intensificada == "SI" else COLOR_TEXT_BODY, "B"),
+        ]
+        anchos = [44.0, 34.0, 40.0, 30.0, 26.0]
+        x = PAGE_X0 + 5.5
+        y_lbl = y0 + H_CABECERA + 2.4
+        for (etiqueta, valor, color, estilo), w in zip(columnas, anchos):
+            pdf.set_xy(x, y_lbl)
+            pdf.set_font("Helvetica", "B", 5.8)
+            pdf.set_text_color(*COLOR_TEXT_MUTED)
+            pdf.cell(w, 2.6, etiqueta, new_x=XPos.LEFT, new_y=YPos.NEXT)
+            pdf.set_xy(x, y_lbl + 3.0)
+            pdf.set_font("Helvetica", estilo, 8.2)
+            pdf.set_text_color(*color)
+            pdf.cell(w, 3.8, pdf.recortar(valor, w - 2))
+            x += w
+
+        # ── Pie: archivo fuente y notas ──
+        y_pie = y0 + H_CABECERA + H_GRILLA + 1.4
+        pdf.set_xy(PAGE_X0 + 5.5, y_pie)
+        pdf.set_font("Helvetica", "I", 6.4)
+        pdf.set_text_color(*COLOR_TEXT_MUTED)
+        texto_fuente = f"Fuente documental: {fuente}" if fuente else "Fuente documental: no registrada"
+        pdf.cell(PAGE_W - 10, 3.2, pdf.recortar(texto_fuente, PAGE_W - 12))
+
+        for i, nota in enumerate(notas):
+            pdf.set_xy(PAGE_X0 + 5.5, y_pie + 3.4 + i * H_NOTA)
+            pdf.set_font("Helvetica", "I", 6.4)
+            pdf.set_text_color(*estado["texto"])
+            pdf.cell(PAGE_W - 10, 3.2, pdf.recortar(_s(nota), PAGE_W - 12))
+
+        pdf.set_y(y0 + alto + 3.0)
+
     # ─── SANITIZACIÓN ESTRUCTURAL DE DATOS ───
-    # Campos comunes a ambos tipos de entidad.
-    s_radicado  = _s(datos_master['radicado_caso'])
-    s_direccion = _s(datos_master['direccion'])
-    s_telefono  = _s(datos_master['telefono'])
+    # [FIX-08] Todo por .get(): una clave faltante ya no aborta el expediente.
+    s_radicado  = _s(datos_master.get('radicado_caso', 'N/D'))
+    s_direccion = _s(datos_master.get('direccion', 'No Registrada'))
+    s_telefono  = _s(datos_master.get('telefono', 'No Registrado'))
     s_correo    = _s(datos_master.get('correo_contacto', 'No Registrado'))
-    s_estado    = _s(datos_master['estado_global'])
-    s_dictamen  = _s(datos_master['dictamen_motivo'])
-    s_rues      = _s(datos_master['rues_noticias_raw'])
-    s_fecha     = _s(datos_master['fecha'])
+    s_estado    = _s(datos_master.get('estado_global', 'REQUIERE REVISIÓN MANUAL'))
+    s_dictamen  = _s(datos_master.get('dictamen_motivo', ''))
+    s_rues      = _s(datos_master.get('rues_noticias_raw', ''))
+    s_fecha     = _s(datos_master.get('fecha', ''))
 
     # Campos exclusivos de Persona Jurídica.
     s_empresa   = _s(datos_master.get('empresa_principal', ''))
@@ -490,9 +901,9 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         render_banner_prospecto()
 
     # ─── ENCABEZADO ESTILO DASHBOARD ───
-    # El nombre grande y la línea de identificación cambian según el tipo
-    # de entidad: Razón Social + NIT (Jurídica) o Nombre + Documento (Natural).
     nombre_principal = s_empresa if es_juridica else s_nombre_completo
+    if not nombre_principal.strip():
+        nombre_principal = "ENTIDAD NO IDENTIFICADA"
     if es_juridica:
         linea_identificacion = f"Identificación Comercial: {s_nit}   |   ID Expediente: {s_radicado}"
     else:
@@ -500,25 +911,17 @@ def generar_pdf_base(datos_master: dict) -> bytes:
 
     pdf.set_font("Helvetica", "B", 15)
     pdf.set_text_color(*COLOR_PRIMARY)
-    pdf.cell(0, 8, nombre_principal.upper(), ln=1)
+    pdf.cell(0, 8, pdf.recortar(nombre_principal.upper(), PAGE_W), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(0, 4, linea_identificacion, ln=1)
+    pdf.cell(0, 4, linea_identificacion, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(6)
-
 
     # 🗂️ ─── SECCIÓN 1: IDENTIFICACIÓN CORPORATIVA Y DE CONTACTO ───
     render_subseccion_moderna("1. Identificación de la Entidad Evaluada")
 
-    # El bloque de Representante Legal / Estructura Accionaria SOLO aplica a
-    # Persona Jurídica. Un expediente de Persona Natural es un dossier
-    # individual autónomo: no lleva Razón Social, NIT, Rep. Legal ni UBOs —
-    # esas celdas se reemplazan por Documento y Calidad/Rol Evaluado.
     if es_juridica:
-        # En Modo Express (Prospectos/BDM) el Rep. Legal y el Accionista no
-        # se exigen — sin este reemplazo, un valor vacío se vería como una
-        # celda en blanco indistinguible de un dato faltante por error.
         placeholder_no_exigido = "No Requerido en Prospecto"
         rep_legal_val = s_rep_nom if (s_rep_nom.strip() and s_rep_nom != "N/D") else (placeholder_no_exigido if es_prospecto else s_rep_nom)
         accionista_val = s_acc_nom if (s_acc_nom.strip() and s_acc_nom != "N/D") else (placeholder_no_exigido if es_prospecto else s_acc_nom)
@@ -533,7 +936,6 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         row2_der_label, row2_der_val = "CALIDAD / ROL EVALUADO", s_rol_relacion
         row4_izq_label, row4_izq_val = "TIPO DE EXPEDIENTE", "INDIVIDUAL - PERSONA NATURAL"
 
-    # Parámetros de la grilla adaptada a 4 filas
     COL_IZQ_X   = 19
     COL_DER_X   = 109
     ANCHO_COL   = 82
@@ -543,200 +945,167 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     PADDING_TOP = 3.5
     PADDING_BOT = 3.0
 
-    # Pre-cálculo de alturas dinámicas
+    # [FIX-07] Conteo real de líneas (respeta el corte por palabra).
     pdf.set_font("Helvetica", "", 8.5)
-    lineas_direccion = max(1, int(pdf.get_string_width(s_direccion) / ANCHO_COL) + 1)
+    lineas_direccion = pdf.contar_lineas(ANCHO_COL, s_direccion)
     h_row1 = H_LABEL + (lineas_direccion * H_VALUE)
-    h_row2 = H_LABEL + H_VALUE
-    h_row3 = H_LABEL + H_VALUE
-    h_row4 = H_LABEL + H_VALUE
+    h_row2 = h_row3 = h_row4 = H_LABEL + H_VALUE
     altura_bento_dinamica = PADDING_TOP + h_row1 + H_GAP + h_row2 + H_GAP + h_row3 + H_GAP + h_row4 + PADDING_BOT
 
-    # 🛡️ CONTROL DE DESBORDE DE BENTO SECCIÓN 1
-    if pdf.get_y() + altura_bento_dinamica > 262:
-        pdf.add_page()
-
+    pdf.asegurar_espacio(altura_bento_dinamica)
     start_y = pdf.get_y()
 
-    # Contenedor Bento principal
     pdf.set_fill_color(*COLOR_BG_GRID)
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.2)
-    pdf.rect(15, start_y, 180, altura_bento_dinamica, style="FD")
+    pdf.rect(PAGE_X0, start_y, PAGE_W, altura_bento_dinamica, style="FD")
 
-    # Ejes Y calculados
     y_row1 = start_y + PADDING_TOP
     y_row2 = y_row1 + h_row1 + H_GAP
     y_row3 = y_row2 + h_row2 + H_GAP
     y_row4 = y_row3 + h_row3 + H_GAP
 
-    # Divisores horizontales
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.15)
-    pdf.line(COL_IZQ_X, y_row2 - H_GAP / 2, 191, y_row2 - H_GAP / 2)
-    pdf.line(COL_IZQ_X, y_row3 - H_GAP / 2, 191, y_row3 - H_GAP / 2)
-    pdf.line(COL_IZQ_X, y_row4 - H_GAP / 2, 191, y_row4 - H_GAP / 2)
+    for y_div in (y_row2, y_row3, y_row4):
+        pdf.line(COL_IZQ_X, y_div - H_GAP / 2, 191, y_div - H_GAP / 2)
+
+    def _celda(x, y, etiqueta, valor, negrita_valor=False, color_valor=COLOR_TEXT_BODY):
+        pdf.set_xy(x, y)
+        pdf.set_font("Helvetica", "B", 6.5)
+        pdf.set_text_color(*COLOR_TEXT_MUTED)
+        pdf.cell(ANCHO_COL, H_LABEL, etiqueta, new_x=XPos.LEFT, new_y=YPos.NEXT)
+        pdf.set_xy(x, y + H_LABEL)
+        pdf.set_font("Helvetica", "B" if negrita_valor else "", 8.5)
+        pdf.set_text_color(*color_valor)
+        pdf.cell(ANCHO_COL, H_VALUE, pdf.recortar(valor, ANCHO_COL))
 
     # Fila 1
     pdf.set_xy(COL_IZQ_X, y_row1)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, "DIRECCIÓN FISCAL", ln=1)
+    pdf.set_font("Helvetica", "B", 6.5)
+    pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(ANCHO_COL, H_LABEL, "DIRECCIÓN FISCAL", new_x=XPos.LEFT, new_y=YPos.NEXT)
     pdf.set_x(COL_IZQ_X)
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(*COLOR_TEXT_BODY)
     pdf.multi_cell(ANCHO_COL, H_VALUE, s_direccion)
+    _celda(COL_DER_X, y_row1, row1_der_label, row1_der_val)
 
-    pdf.set_xy(COL_DER_X, y_row1)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, row1_der_label, ln=1)
-    pdf.set_xy(COL_DER_X, y_row1 + H_LABEL)
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(row1_der_val, max_caracteres=38))
-
-    # Fila 2
-    pdf.set_xy(COL_IZQ_X, y_row2)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, row2_izq_label, ln=1)
-    pdf.set_xy(COL_IZQ_X, y_row2 + H_LABEL)
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(row2_izq_val, max_caracteres=38))
-
-    pdf.set_xy(COL_DER_X, y_row2)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, row2_der_label, ln=1)
-    pdf.set_xy(COL_DER_X, y_row2 + H_LABEL)
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(row2_der_val, max_caracteres=38))
-
-    # Fila 3
-    pdf.set_xy(COL_IZQ_X, y_row3)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, "TELÉFONO DE CONTACTO", ln=1)
-    pdf.set_xy(COL_IZQ_X, y_row3 + H_LABEL)
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(ANCHO_COL, H_VALUE, s_telefono)
-
-    pdf.set_xy(COL_DER_X, y_row3)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, "CORREO ELECTRÓNICO DE CONTACTO", ln=1)
-    pdf.set_xy(COL_DER_X, y_row3 + H_LABEL)
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_correo, max_caracteres=38))
-
-    # Fila 4
-    pdf.set_xy(COL_IZQ_X, y_row4)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, row4_izq_label, ln=1)
-    pdf.set_xy(COL_IZQ_X, y_row4 + H_LABEL)
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
-    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(row4_izq_val, max_caracteres=38))
-
-    pdf.set_xy(COL_DER_X, y_row4)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(ANCHO_COL, H_LABEL, "IDENTIFICADOR ÚNICO DE EXPEDIENTE", ln=1)
-    pdf.set_xy(COL_DER_X, y_row4 + H_LABEL)
-    pdf.set_font("Helvetica", "B", 8.5); pdf.set_text_color(*COLOR_PRIMARY)
-    pdf.cell(ANCHO_COL, H_VALUE, _limitar_texto(s_radicado, max_caracteres=38))
+    # Filas 2 a 4
+    _celda(COL_IZQ_X, y_row2, row2_izq_label, row2_izq_val)
+    _celda(COL_DER_X, y_row2, row2_der_label, row2_der_val)
+    _celda(COL_IZQ_X, y_row3, "TELÉFONO DE CONTACTO", s_telefono)
+    _celda(COL_DER_X, y_row3, "CORREO ELECTRÓNICO DE CONTACTO", s_correo)
+    _celda(COL_IZQ_X, y_row4, row4_izq_label, row4_izq_val)
+    _celda(COL_DER_X, y_row4, "IDENTIFICADOR ÚNICO DE EXPEDIENTE", s_radicado,
+           negrita_valor=True, color_valor=COLOR_PRIMARY)
 
     pdf.set_y(start_y + altura_bento_dinamica)
     pdf.ln(6)
 
-
     # 🗂️ ─── SECCIÓN 2: EVIDENCIAS ANALIZADAS Y SCREENING LAFT ───
-    # Persona Jurídica trae 3 vinculados fijos (Empresa/Rep. Legal/Accionista).
-    # Persona Natural trae 1..N evidencias sueltas (uno por PDF subido) — la
-    # tarjeta se pinta por cada entidad ya procesada, sin importar cuántas
-    # sean, en vez de buscar un rol fijo por nombre.
     render_subseccion_moderna("2. Evidencias Analizadas y Screening LAFT")
 
-    entidades_evidencia = datos_master.get('entidades_processed', datos_master.get('entidades_procesadas', []))
-    for ent in entidades_evidencia:
-        if isinstance(ent, dict):
-            render_infolaft_snippet(ent)
+    entidades_evidencia = [
+        e for e in datos_master.get('entidades_processed', datos_master.get('entidades_procesadas', []) or [])
+        if isinstance(e, dict)
+    ]
+
+    if entidades_evidencia:
+        render_resumen_screening(entidades_evidencia)
+        for ent in entidades_evidencia:
+            render_infolaft_snippet(ent, datos_master)
+    else:
+        # Antes la sección quedaba simplemente vacía, indistinguible de un
+        # error de render. Ahora deja constancia explícita.
+        pdf.asegurar_espacio(14)
+        y0 = pdf.get_y()
+        pal = SEMAFORO["revision"]
+        pdf.set_fill_color(*pal["bg"])
+        pdf.set_draw_color(*pal["borde"])
+        pdf.set_line_width(0.2)
+        pdf.rect(PAGE_X0, y0, PAGE_W, 11, style="FD")
+        pdf.set_xy(PAGE_X0 + 4, y0 + 3.4)
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_text_color(*pal["texto"])
+        pdf.cell(PAGE_W - 8, 4.2,
+                 "NO SE ADJUNTARON CERTIFICADOS DE SCREENING PARA ESTE EXPEDIENTE.",
+                 new_x=XPos.LEFT, new_y=YPos.NEXT)
+        pdf.set_x(PAGE_X0 + 4)
+        pdf.set_font("Helvetica", "I", 7)
+        pdf.cell(PAGE_W - 8, 3.4, "El expediente no puede considerarse completo sin la consulta en listas de control.")
+        pdf.set_y(y0 + 11 + 3)
 
     # ── Anexos de Soporte Adjuntos (SIN badge de evaluación LAFT) ──────
-    # Evidencia documental de respaldo (capturas, RUES, prensa, etc.) — se
-    # deja constancia de qué se adjuntó y cuándo, pero nunca se screenea
-    # como si fuera una consulta oficial de InfoLAFT.
-    anexos_soporte = datos_master.get('anexos_soporte', [])
+    anexos_soporte = datos_master.get('anexos_soporte', []) or []
     if anexos_soporte:
-        if pdf.get_y() > 250:
-            pdf.add_page()
-        pdf.ln(3)
-        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.asegurar_espacio(16)
+        pdf.ln(2)
+        pdf.set_font("Helvetica", "B", 7.0)
         pdf.set_text_color(*COLOR_TEXT_MUTED)
-        pdf.cell(0, 5, "ANEXOS DE SOPORTE ADJUNTOS", ln=1)
+        pdf.cell(0, 4.5, "ANEXOS DE SOPORTE ADJUNTOS", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font("Helvetica", "I", 6.4)
+        pdf.cell(0, 3.4,
+                 "Evidencia documental de respaldo. No constituye consulta en listas de control ni sustituye el screening.",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(1)
         pdf.set_font("Helvetica", "", 7.5)
         pdf.set_text_color(*COLOR_TEXT_BODY)
         for anexo in anexos_soporte:
-            if pdf.get_y() > 265:
-                pdf.add_page()
+            pdf.asegurar_espacio(6)
             linea = f"- {anexo.get('nombre', 'N/D')} (adjuntado: {anexo.get('fecha', 'N/D')})"
-            pdf.cell(0, 4.2, _s(linea), ln=1)
+            pdf.cell(0, 4.2, pdf.recortar(_s(linea), PAGE_W), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     pdf.ln(6)
-
 
     # 🗂️ ─── SECCIÓN 3: CONCEPTO TÉCNICO Y DECLARACIÓN DE CUMPLIMIENTO ───
     render_subseccion_moderna("3. Concepto Técnico de Cumplimiento")
 
     # Tres veredictos posibles — ver estado_global en screening_ui.py:
-    #   "APROBADO S/ANOMALÍAS"          → screening completo, sin coincidencias
-    #   "REQUIERE REVISIÓN MANUAL"      → uno o más PDF no se pudieron leer con confianza
-    #   "REQUIERE REVISIÓN INTENSIFICADA" → coincidencia real en listas / GAFI
-    # Una lectura fallida NUNCA debe imprimirse como si fuera un "aprobado".
-    es_aprobado       = "APROBADO" in s_estado
-    es_revision_manual = "MANUAL" in s_estado
+    #   "APROBADO S/ANOMALÍAS"            -> screening completo, sin coincidencias
+    #   "REQUIERE REVISIÓN MANUAL"        -> uno o más PDF no se pudieron leer
+    #   "REQUIERE REVISIÓN INTENSIFICADA" -> coincidencia real en listas / GAFI
+    estado_norm = _norm(s_estado)
+    es_aprobado = "APROBADO" in estado_norm
+    es_revision_manual = "MANUAL" in estado_norm
 
-    # Misma paleta Bootstrap-alert que la Sección 2 (render_infolaft_snippet)
-    # — un mismo caso nunca debe verse verde en una sección y amarillo en
-    # la otra, porque ambas leen del mismo estado_global/entidades ya
-    # corregido en procesar_archivo_pdf() / _aplicar_fallback_nombre_archivo().
+    # Coherencia dura: si alguna tarjeta de la Sección 2 quedó en ámbar o
+    # rojo, el dictamen NO puede imprimirse como aprobado aunque
+    # estado_global llegue mal calculado desde la UI.
+    clasificaciones = [_clasificar_entidad(e, es_prospecto) for e in entidades_evidencia]
+    hay_alerta = any(c["clave"] == "alerta" for c in clasificaciones)
+    hay_pendiente = any(c["pendiente"] for c in clasificaciones)
+    if hay_alerta:
+        es_aprobado, es_revision_manual = False, False
+    elif hay_pendiente and es_aprobado:
+        es_aprobado, es_revision_manual = False, True
+
     if es_aprobado:
-        estado_str    = "CONFORME - SIN COINCIDENCIAS"
-        categoria_str = "RIESGO BAJO"
-        badge_bg = (212, 237, 218)      # #d4edda
-        badge_border = (195, 230, 203)  # #c3e6cb
-        badge_text = (21, 87, 36)       # #155724
+        estado_str, categoria_str, pal = "CONFORME - SIN COINCIDENCIAS", "RIESGO BAJO", SEMAFORO["limpio"]
     elif es_revision_manual:
-        estado_str    = "PENDIENTE - LECTURA NO CONFIABLE"
-        categoria_str = "REQUIERE VALIDACIÓN MANUAL"
-        badge_bg = (255, 243, 205)      # #fff3cd
-        badge_border = (255, 238, 186)  # #ffeeba
-        badge_text = (133, 100, 4)      # #856404
+        estado_str, categoria_str, pal = "PENDIENTE - LECTURA NO CONFIABLE", "REQUIERE VALIDACIÓN MANUAL", SEMAFORO["revision"]
     else:
-        estado_str    = "NO CONFORME - ALERTA LAFT"
-        categoria_str = "RIESGO ALTO"
-        badge_bg = (248, 215, 218)      # #f8d7da
-        badge_border = (245, 198, 203)  # #f5c6cb
-        badge_text = (114, 28, 36)      # #721c24
+        estado_str, categoria_str, pal = "NO CONFORME - ALERTA LAFT", "RIESGO ALTO", SEMAFORO["alerta"]
 
-    S3_IZQ   = 19
-    S3_DER   = 109
-    S3_W     = 82
-    S3_H_LBL = 3.0
-    S3_H_BDG = 6.0
-    S3_GAP   = 5.5
-    S3_PAD_T = 4.5
-    S3_PAD_B = 4.5
+    badge_bg, badge_border, badge_text = pal["bg"], pal["borde"], pal["texto"]
+
+    S3_IZQ, S3_DER, S3_W = 19, 109, 82
+    S3_H_LBL, S3_H_BDG, S3_GAP, S3_PAD_T, S3_PAD_B = 3.0, 6.0, 5.5, 4.5, 4.5
+
+    if not s_dictamen.strip():
+        s_dictamen = ("No se registró sustento técnico del Oficial de Cumplimiento para este expediente.")
 
     pdf.set_font("Helvetica", "I", 8)
-    saltos_dict  = s_dictamen.count('\n')
-    lineas_dict  = max(1, int(pdf.get_string_width(s_dictamen.replace('\n', ' ')) / 168) + 1) + saltos_dict
-    h_dictamen   = lineas_dict * 4.2
-    
-    # Altura del Bento de Sección 3
+    h_dictamen = pdf.contar_lineas(172, s_dictamen) * 4.2
     altura_bento_s3 = S3_PAD_T + S3_H_LBL + 1.2 + S3_H_BDG + S3_GAP + S3_H_LBL + 1.2 + h_dictamen + S3_PAD_B
 
-    # 🛡️ CONTROL DE DESBORDE DE BENTO SECCIÓN 3
-    if pdf.get_y() + altura_bento_s3 > 262:
-        pdf.add_page()
-
+    pdf.asegurar_espacio(altura_bento_s3)
     start_y = pdf.get_y()
 
     pdf.set_fill_color(*COLOR_BG_GRID)
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.2)
-    pdf.rect(15, start_y, 180, altura_bento_s3, style="FD")
+    pdf.rect(PAGE_X0, start_y, PAGE_W, altura_bento_s3, style="FD")
 
     y_r1_lbl = start_y + S3_PAD_T
     y_r1_bdg = y_r1_lbl + S3_H_LBL + 1.2
@@ -744,201 +1113,228 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     y_r2_lbl = y_divisor + (S3_GAP / 2.0)
     y_r2_val = y_r2_lbl + S3_H_LBL + 1.2
 
-    # Divisor horizontal
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.15)
     pdf.line(S3_IZQ, y_divisor, 191, y_divisor)
 
-    # Fila 1 - Badges
-    pdf.set_xy(S3_IZQ, y_r1_lbl)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(S3_W, S3_H_LBL, "RESULTADO FORMAL DE EVALUACIÓN LAFT")
-    
-    pdf.set_fill_color(*badge_bg)
-    pdf.set_draw_color(*badge_border)
-    pdf.rect(S3_IZQ, y_r1_bdg, 74, S3_H_BDG, style="FD")
-    
-    pdf.set_xy(S3_IZQ + 3, y_r1_bdg + 1.0)
-    pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*badge_text)
-    pdf.cell(68, 4.2, estado_str)
+    for x_col, etiqueta, valor in (
+        (S3_IZQ, "RESULTADO FORMAL DE EVALUACIÓN LAFT", estado_str),
+        (S3_DER, "CATEGORÍA DE RIESGO FINAL", categoria_str),
+    ):
+        pdf.set_xy(x_col, y_r1_lbl)
+        pdf.set_font("Helvetica", "B", 6.5)
+        pdf.set_text_color(*COLOR_TEXT_MUTED)
+        pdf.cell(S3_W, S3_H_LBL, etiqueta)
 
-    pdf.set_xy(S3_DER, y_r1_lbl)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(S3_W, S3_H_LBL, "CATEGORÍA DE RIESGO FINAL")
-    
-    pdf.set_fill_color(*badge_bg)
-    pdf.set_draw_color(*badge_border)
-    pdf.rect(S3_DER, y_r1_bdg, 74, S3_H_BDG, style="FD")
-    
-    pdf.set_xy(S3_DER + 3, y_r1_bdg + 1.0)
-    pdf.set_font("Helvetica", "B", 7.5); pdf.set_text_color(*badge_text)
-    pdf.cell(68, 4.2, categoria_str)
+        pdf.set_fill_color(*badge_bg)
+        pdf.set_draw_color(*badge_border)
+        pdf.set_line_width(0.2)
+        pdf.rect(x_col, y_r1_bdg, 74, S3_H_BDG, style="FD")
 
-    # Fila 2 - Dictamen
+        pdf.set_xy(x_col + 3, y_r1_bdg + 1.0)
+        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.set_text_color(*badge_text)
+        pdf.cell(68, 4.2, valor)
+
     pdf.set_xy(S3_IZQ, y_r2_lbl)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(172, S3_H_LBL, "SUSTENTO TÉCNICO DEL OFICIAL DE CUMPLIMIENTO", ln=1)
-    
+    pdf.set_font("Helvetica", "B", 6.5)
+    pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(172, S3_H_LBL, "SUSTENTO TÉCNICO DEL OFICIAL DE CUMPLIMIENTO",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
     pdf.set_xy(S3_IZQ, y_r2_val)
-    pdf.set_font("Helvetica", "I", 8); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(*COLOR_TEXT_BODY)
     pdf.multi_cell(172, 4.2, s_dictamen)
 
     pdf.set_y(start_y + altura_bento_s3)
     pdf.ln(6)
 
-
     # 🗂️ ─── SECCIÓN 4: ANÁLISIS DE FUENTES ABIERTAS COMPLEMENTARIO ───
     render_subseccion_moderna("4. Análisis de Contexto y Registro Público")
 
-    contenido_rues = s_rues.strip() if s_rues.strip() else \
-        "El análisis de screening y medios adversos concluyó sin hallazgos de referencias de prensa negativa, sanciones administrativas o anomalías mercantiles en las fuentes públicas consultadas."
+    # [FIX-05] Sin datos NO es lo mismo que sin hallazgos.
+    hay_analisis_rues = bool(s_rues.strip())
+    contenido_rues = s_rues.strip() if hay_analisis_rues else (
+        "No se registró análisis de fuentes abiertas ni de registro mercantil para este expediente. "
+        "La ausencia de información en esta sección no debe interpretarse como ausencia de hallazgos."
+    )
 
     pdf.set_font("Helvetica", "", 8.5)
-    saltos_rues  = contenido_rues.count('\n')
-    lineas_rues  = max(1, int(pdf.get_string_width(contenido_rues.replace('\n', ' ')) / 172) + 1) + saltos_rues
-    h_rues       = lineas_rues * 4.2
-    
+    h_rues = pdf.contar_lineas(172, contenido_rues) * 4.2
     altura_bento_rues = 4.5 + 3.0 + 1.5 + h_rues + 4.5
 
-    # 🛡️ CONTROL DE DESBORDE DE BENTO SECCIÓN 4 (¡Evita el desborde de Image 2!)
-    if pdf.get_y() + altura_bento_rues > 262:
-        pdf.add_page()
-
+    pdf.asegurar_espacio(altura_bento_rues)
     start_y = pdf.get_y()
 
-    # Dibujo del contenedor Bento principal
     pdf.set_fill_color(*COLOR_BG_GRID)
     pdf.set_draw_color(*COLOR_LINE_TENUE)
     pdf.set_line_width(0.2)
-    pdf.rect(15, start_y, 180, altura_bento_rues, style="FD")
+    pdf.rect(PAGE_X0, start_y, PAGE_W, altura_bento_rues, style="FD")
 
     pdf.set_xy(19, start_y + 4.5)
-    pdf.set_font("Helvetica", "B", 6.5); pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(172, 3.0, "ANÁLISIS DE ADVERSE MEDIA Y VALIDACIÓN EN REGISTRO MERCANTIL", ln=1)
-    
+    pdf.set_font("Helvetica", "B", 6.5)
+    pdf.set_text_color(*COLOR_TEXT_MUTED)
+    pdf.cell(172, 3.0, "ANÁLISIS DE ADVERSE MEDIA Y VALIDACIÓN EN REGISTRO MERCANTIL",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
     pdf.set_xy(19, start_y + 4.5 + 3.0 + 1.5)
-    pdf.set_font("Helvetica", "", 8.5); pdf.set_text_color(*COLOR_TEXT_BODY)
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(*COLOR_TEXT_BODY if hay_analisis_rues else COLOR_TEXT_MUTED)
     pdf.multi_cell(172, 4.2, contenido_rues)
 
     pdf.set_y(start_y + altura_bento_rues)
 
     # Sello de seguridad
+    # [FIX-04] En Persona Natural el identificador es el documento, no el NIT.
+    identificador_sello = s_nit if es_juridica else s_num_doc
+    identificador_sello = re.sub(r"\W", "", identificador_sello) or "SIN-ID"
+    pdf.asegurar_espacio(12)
     pdf.ln(8)
     pdf.set_font("Helvetica", "", 7.5)
     pdf.set_text_color(*COLOR_TEXT_MUTED)
-    pdf.cell(0, 3.5, f"Estampa de Tiempo de Evaluación: {s_fecha} COT", ln=1)
-    pdf.cell(0, 3.5, f"Código de Verificación del Reporte: HBPO-COMPLIANCE-{s_nit.replace('-', '')}-{s_radicado.upper()}", ln=1)
+    sello_fecha = f"{s_fecha} COT" if s_fecha.strip() else "No registrada"
+    pdf.cell(0, 3.5, f"Estampa de Tiempo de Evaluación: {sello_fecha}",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.cell(0, 3.5,
+             f"Código de Verificación del Reporte: HBPO-COMPLIANCE-{identificador_sello}-{s_radicado.upper()}",
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
+    # 🗂️ ─── ANEXO: REGISTRO DE EVIDENCIAS DIGITALES (IMÁGENES) ───
+    imagenes_evidencia = datos_master.get("evidencias_imagenes", []) or []
 
-    # 🗂️ ─── SECCIÓN DE ANEXOS: REGISTRO DE EVIDENCIAS DIGITALES (IMÁGENES) ───
-    imagenes_evidencia = datos_master.get("evidencias_imagenes", [])
-    
     if imagenes_evidencia:
-        pdf.add_page()  # Abrir página limpia para el anexo
-        
+        pdf.add_page()
+
         pdf.set_text_color(*COLOR_PRIMARY)
         pdf.set_font("Helvetica", "B", 12)
-        pdf.cell(0, 8, "ANEXO: REGISTRO DE EVIDENCIAS DIGITALES", ln=1)
-        
+        pdf.cell(0, 8, "ANEXO: REGISTRO DE EVIDENCIAS DIGITALES",
+                 new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
         pdf.set_draw_color(*COLOR_PRIMARY)
         pdf.set_line_width(0.4)
-        pdf.line(15, pdf.get_y() + 1, 195, pdf.get_y() + 1)
+        pdf.line(PAGE_X0, pdf.get_y() + 1, PAGE_X1, pdf.get_y() + 1)
         pdf.ln(6)
-        
+
         pdf.set_font("Helvetica", "", 8.5)
         pdf.set_text_color(*COLOR_TEXT_BODY)
-        pdf.multi_cell(0, 4.2, "Como respaldo del proceso de debida diligencia y validación en fuentes abiertas, se adjuntan de manera íntegra las capturas de pantalla tomadas de los portales de verificación pública:")
+        pdf.multi_cell(0, 4.2,
+                       "Como respaldo del proceso de debida diligencia y validación en fuentes abiertas, "
+                       "se adjuntan de manera íntegra las capturas de pantalla tomadas de los portales de "
+                       "verificación pública:")
         pdf.ln(4)
 
-        import tempfile
-        
         for idx, img_bytes in enumerate(imagenes_evidencia):
-            # 🛡️ Defensa en profundidad: esta lista debería traer solo
-            # imágenes (los PDF de soporte se clasifican y desvían al
-            # pipeline de screening antes de llegar aquí — ver
-            # callback_ejecutar_compilacion en screening_ui.py). Si de
-            # todos modos llega un PDF, se informa en vez de que PIL
-            # truene con un error críptico de "formato no soportado".
-            if img_bytes[:4] == b"%PDF":
+            # Defensa en profundidad: esta lista debería traer solo imágenes
+            # (los PDF de soporte se desvían al pipeline de screening en
+            # callback_ejecutar_compilacion). Si llega un PDF, se informa.
+            if not img_bytes:
+                continue
+            if bytes(img_bytes[:4]) == b"%PDF":
                 pdf.set_font("Helvetica", "I", 8.0)
                 pdf.set_text_color(*COLOR_TEXT_MUTED)
-                pdf.cell(0, 5, _s(f"[Evidencia {idx + 1}: documento PDF adjunto - analizado en la Seccion 2, no se renderiza como imagen]"), ln=1)
+                pdf.cell(0, 5, _s(f"[Evidencia {idx + 1}: documento PDF adjunto - analizado en la Sección 2, "
+                                  f"no se renderiza como imagen]"),
+                         new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 pdf.ln(4)
                 continue
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as temp_img:
-                temp_img.write(img_bytes)
-                temp_path = temp_img.name
-
             try:
-                # 🚀 LECTURA DINÁMICA DEL ASPECT RATIO DE LA IMAGEN (¡Para solucionar Image 1!)
-                with PILImage.open(temp_path) as img:
+                # [FIX-09] En memoria: las capturas contienen datos KYC y ya
+                # no quedan escritas en el %TEMP% del servidor.
+                with PILImage.open(io.BytesIO(img_bytes)) as img:
+                    img.load()
                     img_w, img_h = img.size
-                
-                aspect = img_h / img_w  # Proporción de la imagen (alto / ancho)
-                
-                # Definir límites de la caja contenedora de la imagen
-                max_width = 160.0
-                max_height = 145.0  # Límite vertical estricto para evitar golpear el footer
-                
-                # Escalado proporcional de la imagen
-                render_w = max_width
-                render_h = max_width * aspect
-                
-                if render_h > max_height:
-                    render_h = max_height
-                    render_w = max_height / aspect
-                
-                # Centrado horizontal exacto dentro de los márgenes de 15mm y 195mm
-                pos_x = 15.0 + (180.0 - render_w) / 2.0
-                
-                # 🛡️ CONTROL DE DESBORDE DE IMAGEN (Si no cabe verticalmente en la página actual, salta)
-                espacio_disponible = 270.0 - pdf.get_y()  # Límite seguro antes del pie de página (270mm)
-                if (render_h + 10) > espacio_disponible:
-                    pdf.add_page()
-                
-                # Etiqueta de identificación
-                pdf.set_font("Helvetica", "B", 8.0)
-                pdf.set_text_color(*COLOR_TEXT_MUTED)
-                pdf.cell(0, 5, f"EVIDENCIA DIGITAL NO. {idx + 1} - SOPORTE DE CONSULTA", ln=1)
-                pdf.ln(2)
-                
-                # Renderizado simétrico escalado
-                pdf.image(temp_path, x=pos_x, y=pdf.get_y(), w=render_w, h=render_h)
-                
-                # Cursor Y avanza exactamente lo que mide la imagen + separación
-                pdf.set_y(pdf.get_y() + render_h + 8)
-                
+                    if img.mode not in ("RGB", "RGBA", "L", "P"):
+                        img = img.convert("RGB")
+
+                    aspect = (img_h / img_w) if img_w else 1.0
+
+                    max_width = 160.0
+                    max_height = 145.0
+
+                    render_w = max_width
+                    render_h = max_width * aspect
+                    if render_h > max_height:
+                        render_h = max_height
+                        render_w = max_height / aspect
+                    # Una captura muy vertical se reducía a una tira ilegible:
+                    # se respeta un ancho mínimo legible y se deja crecer el
+                    # alto hasta el máximo de página.
+                    if render_w < 70.0:
+                        render_w = 70.0
+                        render_h = min(max_height, render_w * aspect)
+
+                    pos_x = PAGE_X0 + (PAGE_W - render_w) / 2.0
+
+                    if pdf.get_y() + render_h + 12 > LIMITE_Y:
+                        pdf.add_page()
+
+                    pdf.set_font("Helvetica", "B", 8.0)
+                    pdf.set_text_color(*COLOR_TEXT_MUTED)
+                    pdf.cell(0, 5, f"EVIDENCIA DIGITAL NO. {idx + 1} - SOPORTE DE CONSULTA",
+                             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+                    pdf.ln(2)
+
+                    pdf.image(img, x=pos_x, y=pdf.get_y(), w=render_w, h=render_h)
+                    pdf.set_y(pdf.get_y() + render_h + 8)
+
             except Exception:
+                logger.exception("No se pudo renderizar la evidencia %s", idx + 1)
                 pdf.set_font("Helvetica", "I", 8.0)
-                pdf.set_text_color(220, 38, 38)
-                pdf.cell(0, 5, f"[Error al compilar la evidencia {idx + 1}: Formato no soportado]", ln=1)
+                pdf.set_text_color(*SEMAFORO["alerta"]["texto"])
+                pdf.cell(0, 5, f"[Evidencia {idx + 1} no renderizable: formato de imagen no soportado. "
+                               f"El archivo original se conserva adjunto al expediente.]",
+                         new_x=XPos.LMARGIN, new_y=YPos.NEXT)
                 pdf.ln(4)
-            finally:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
 
     # Retorno seguro
     out = pdf.output()
     if isinstance(out, (bytes, bytearray)):
         return bytes(out)
-    return str(out).encode('latin-1')
+    return str(out).encode("latin-1", "ignore")
 
 
-def compilar_expediente_completo(bytes_base: bytes, infolaft_bytes_list: list) -> bytes:
-    """Fusiona el expediente de salida con las evidencias PDF de Infolaft."""
+# ══════════════════════════════════════════════════════════════════════
+# FUSIÓN DEL EXPEDIENTE
+# ══════════════════════════════════════════════════════════════════════
+
+def compilar_expediente_completo(bytes_base: bytes, infolaft_bytes_list: list, nombres: list = None) -> bytes:
+    """Fusiona el expediente de salida con las evidencias PDF de Infolaft.
+
+    [FIX-11] Una evidencia que falla al fusionar ya no desaparece en
+    silencio: se registra en el log con su nombre para que el Oficial de
+    Cumplimiento pueda reclamarla. `nombres` es opcional y solo se usa para
+    esa traza.
+    """
     writer = pypdf.PdfWriter()
+    fallidos = []
+
     reader_base = pypdf.PdfReader(io.BytesIO(bytes_base))
     for page in reader_base.pages:
         writer.add_page(page)
-    for b in infolaft_bytes_list:
-        if not b: continue
+
+    for i, b in enumerate(infolaft_bytes_list or []):
+        etiqueta = (nombres[i] if nombres and i < len(nombres) else f"evidencia_{i + 1}")
+        if not b:
+            fallidos.append(etiqueta)
+            continue
         try:
             reader_evi = pypdf.PdfReader(io.BytesIO(b))
+            if getattr(reader_evi, "is_encrypted", False):
+                reader_evi.decrypt("")
             for page in reader_evi.pages:
                 writer.add_page(page)
         except Exception:
+            logger.exception("No se pudo anexar la evidencia '%s' al expediente", etiqueta)
+            fallidos.append(etiqueta)
             continue
+
+    if fallidos:
+        logger.warning(
+            "Expediente compilado SIN %d evidencia(s): %s", len(fallidos), ", ".join(fallidos)
+        )
+
     out = io.BytesIO()
     writer.write(out)
     return out.getvalue()
