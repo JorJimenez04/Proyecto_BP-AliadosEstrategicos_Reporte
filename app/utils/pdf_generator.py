@@ -278,13 +278,67 @@ _KEYWORDS_SISTEMA = (
     "TIPO DE DOCUMENTO", "INFOLAFT", "WWW.", "HTTP",
 )
 
-# Etiquetas que en el certificado preceden al nombre del vinculado. Se
-# intentan PRIMERO: la heurística de "primera línea que no es del sistema"
-# es la que producía nombres fantasma como "LISTAS".
+# ─── ANCLAJES REALES DEL REPORTE INFOLAFT ─────────────────────────────
+# Extraídos de reportes de produccion ("...-SearchByNameAndId.pdf"). El
+# layout del PDF intercala las etiquetas, así que el texto plano queda
+# pegado de formas poco intuitivas:
+#
+#   RESUMEN DE RESULTADOS:
+#   LISTAS
+#   CONSULTADAS:
+#   316No se obtuvieron resultados
+#   para la busqueda realizada.DATOS CONSULTADOS
+#   DOCUMENTO DE IDENTIDAD:
+#   0901787129SU CONSULTA FUE: ARIMETRIX SAS
+#   ¿REQUIERE DEBIDA DILIGENCIA INTENSIFICADA POR CONCEPTO PEP O JURISDICCION DE RIESGO GAFI?: NO
+#   ...
+#   PAGINA  1 /2 389617601 NUMERO DE CONSULTA:
+#   CONSULTADO POR: Adrian  Cardona  FECHA Y HORA DE CONSULTA: 10/09/2026 15:22:03
+#
+# Detalles que importan y que rompían la extraccion anterior:
+#   - "316" es el numero de LISTAS CONSULTADAS, NO el de coincidencias.
+#     Jamas debe leerse como resultado del screening.
+#   - El numero de consulta va ANTES de su etiqueta, no despues.
+#   - El documento viene con un cero de relleno al frente (0901787129).
+#   - El nombre vive en "SU CONSULTA FUE:", no en "DATOS CONSULTADOS".
+# ──────────────────────────────────────────────────────────────────────
+
+# Etiquetas que preceden al nombre del vinculado, en orden de fiabilidad.
 _RE_NOMBRE_ETIQUETADO = (
-    re.compile(r"(?:NOMBRE|RAZ[OÓ]N SOCIAL|NOMBRE COMPLETO|NOMBRE / RAZ[OÓ]N SOCIAL)\s*[:\-]\s*([^\n\|]{3,90})", re.IGNORECASE),
-    re.compile(r"DATOS CONSULTADOS\s*[:\-]?\s*\n\s*([^\n\|]{3,90})", re.IGNORECASE),
+    re.compile(r"SU CONSULTA FUE\s*[:\-]\s*([^\n¿|]{3,90})", re.IGNORECASE),
+    re.compile(r"(?:RAZ[OÓ]N SOCIAL|NOMBRE COMPLETO|NOMBRE)\s*[:\-]\s*([^\n¿|]{3,90})", re.IGNORECASE),
+    re.compile(r"DATOS CONSULTADOS\s*[:\-]?\s*\n\s*([^\n¿|]{3,90})", re.IGNORECASE),
 )
+
+# Documento de identidad / NIT. InfoLAFT antepone un cero de relleno.
+_RE_DOCUMENTO = re.compile(r"DOCUMENTO DE IDENTIDAD\s*[:\-]?\s*([\d\.\-]{6,20})", re.IGNORECASE)
+
+# Veredicto explícito de "sin coincidencias". Es la ÚNICA frase que
+# autoriza a dar por confirmado un screening limpio en este formato.
+_RE_SIN_RESULTADOS = re.compile(
+    r"NO SE OBTUVIERON RESULTADOS\s+PARA LA B[UÚ]SQUEDA REALIZADA", re.IGNORECASE
+)
+# Cantidad de listas de control consultadas (316 en los reportes actuales).
+_RE_LISTAS_CONSULTADAS = re.compile(r"LISTAS\s*CONSULTADAS\s*[:\-]?\s*(\d{1,5})", re.IGNORECASE)
+# Analista que ejecutó la consulta — trazabilidad de quién screeneó.
+_RE_CONSULTADO_POR = re.compile(r"CONSULTADO POR\s*[:\-]?\s*(.{3,60}?)\s*FECHA Y HORA", re.IGNORECASE)
+# El radicado precede a su etiqueta: "PAGINA 1 /2 389617601 NUMERO DE CONSULTA:"
+_RE_RADICADO_ANTEPUESTO = re.compile(r"\b(\d{8,10})\s*N[UÚ]MERO DE CONSULTA", re.IGNORECASE)
+
+
+def _es_nombre_valido(candidato: str) -> bool:
+    """Un nombre capturado por etiqueta no puede ser a su vez una etiqueta.
+
+    Sin esta validacion, el patron de "DATOS CONSULTADOS" devolvia la
+    línea siguiente tal cual — que en estos reportes es "DOCUMENTO DE
+    IDENTIDAD:" — y ese texto terminaba impreso como razón social.
+    """
+    cand = _norm(candidato).rstrip(":").strip()
+    if len(cand) < 3 or cand in _NOMBRES_BASURA:
+        return False
+    if any(kw in cand for kw in _KEYWORDS_SISTEMA):
+        return False
+    return any(c.isalpha() for c in cand)
 
 
 def parsear_texto_infolaft(texto: str) -> dict:
@@ -304,15 +358,22 @@ def parsear_texto_infolaft(texto: str) -> dict:
         "resultados_detectado": False,
         "intensificada_detectado": False,
         "motivo_revision": "",
+        # Datos de trazabilidad que el reporte sí trae y antes se perdían.
+        "listas_consultadas": "",
+        "consultado_por": "",
     }
 
     texto = texto or ""
     texto_plano = " ".join(texto.split())
 
-    # 1. Extracción del Radicado / Número de Consulta (Busca números de 8 a 10 dígitos)
-    rad_match = re.search(r"N[UÚ]MERO DE CONSULTA.*?\b(\d{8,10})\b", texto_plano, re.IGNORECASE)
-    if not rad_match:
-        rad_match = re.search(r"\b(3\d{8}|1\d{8})\b", texto_plano)
+    # 1. Radicado / Número de Consulta.
+    #    En InfoLAFT el número va ANTES de la etiqueta ("... 389617601
+    #    NÚMERO DE CONSULTA:"), por eso se intenta ese orden primero.
+    rad_match = (
+        _RE_RADICADO_ANTEPUESTO.search(texto_plano)
+        or re.search(r"N[UÚ]MERO DE CONSULTA\D{0,40}?\b(\d{8,10})\b", texto_plano, re.IGNORECASE)
+        or re.search(r"\b(3\d{8}|1\d{8})\b", texto_plano)
+    )
     if rad_match:
         res["radicado"] = rad_match.group(1)
 
@@ -321,11 +382,36 @@ def parsear_texto_infolaft(texto: str) -> dict:
     if fecha_match:
         res["fecha_consulta"] = fecha_match.group(1).strip()
 
-    # 3. Resumen de Resultados (Coincidencias en listas)
-    res_match = re.search(r"RESUMEN DE RESULTADOS[:\s]*(\d+)", texto_plano, re.IGNORECASE)
-    if res_match:
-        res["resultados"] = res_match.group(1)
+    # 2.b Trazabilidad: cuántas listas se barrieron y quién ejecutó la consulta.
+    listas_match = _RE_LISTAS_CONSULTADAS.search(texto_plano)
+    if listas_match:
+        res["listas_consultadas"] = listas_match.group(1)
+    analista_match = _RE_CONSULTADO_POR.search(texto_plano)
+    if analista_match:
+        res["consultado_por"] = " ".join(analista_match.group(1).split())
+
+    # 3. Coincidencias en listas.
+    #    El orden es deliberado: primero la frase explícita de veredicto.
+    #    El número que sigue a "RESUMEN DE RESULTADOS" en este layout es el
+    #    de LISTAS CONSULTADAS (316), no el de coincidencias — leerlo como
+    #    resultado convertiría un certificado limpio en "316 coincidencias".
+    if _RE_SIN_RESULTADOS.search(texto_plano):
+        res["resultados"] = "0"
         res["resultados_detectado"] = True
+    else:
+        res_match = re.search(
+            r"RESUMEN DE RESULTADOS\s*[:\-]?\s*(\d{1,4})\b", texto_plano, re.IGNORECASE
+        )
+        if res_match and res_match.group(1) != res["listas_consultadas"]:
+            res["resultados"] = res_match.group(1)
+            res["resultados_detectado"] = True
+        else:
+            coinc_match = re.search(
+                r"LISTA DE COINCIDENCIAS\s*[:\-]?\s*(\d{1,4})\b", texto_plano, re.IGNORECASE
+            )
+            if coinc_match:
+                res["resultados"] = coinc_match.group(1)
+                res["resultados_detectado"] = True
 
     # 4. Monitoreo Intensificado / GAFI / PEP
     #    [FIX-02] \b obligatorio: sin él, "GAFI: SIN COINCIDENCIAS" capturaba
@@ -347,24 +433,29 @@ def parsear_texto_infolaft(texto: str) -> dict:
             res["intensificada"] = "NO"
             res["intensificada_detectado"] = True
 
-    # 5. Identificación / Tax ID / NIT / Cédula (ej: 35-2938958 o formato estándar)
-    id_match = re.search(r"\b(\d{2,3}-\d{6,8}|\d{7,10}-\d)\b", texto_plano)
-    if id_match:
-        res["identificacion"] = id_match.group(1).strip()
-    else:
-        id_gen = re.search(r"DOCUMENTO DE IDENTIDAD.*?\b([\d\.-]{6,15})\b", texto_plano, re.IGNORECASE)
-        if id_gen and id_gen.group(1) != res["radicado"]:
-            res["identificacion"] = id_gen.group(1).strip()
+    # 5. Identificación / Tax ID / NIT / Cédula.
+    #    La etiqueta del reporte manda; el cero de relleno que antepone
+    #    InfoLAFT ("0901787129") se descarta para que el NIT impreso
+    #    coincida con el del formulario.
+    doc_match = _RE_DOCUMENTO.search(texto)
+    if doc_match:
+        crudo = doc_match.group(1).strip().strip(".-")
+        limpio = re.sub(r"^0+(?=\d)", "", crudo)
+        if limpio and limpio != res["radicado"]:
+            res["identificacion"] = limpio
+    if res["identificacion"] == "No detectado":
+        id_match = re.search(r"\b(\d{2,3}-\d{6,8}|\d{7,10}-\d)\b", texto_plano)
+        if id_match:
+            res["identificacion"] = id_match.group(1).strip()
 
     # 6. Nombre del Vinculado
-    #    6.a Primero por etiqueta explícita (fiable).
+    #    6.a Primero por etiqueta explícita (fiable). En InfoLAFT es
+    #    "SU CONSULTA FUE:", que devuelve el término exacto consultado.
     for patron in _RE_NOMBRE_ETIQUETADO:
         m = patron.search(texto)
-        if m:
-            candidato = _norm(m.group(1))
-            if candidato and candidato not in _NOMBRES_BASURA and len(candidato) >= 3:
-                res["nombre"] = candidato
-                break
+        if m and _es_nombre_valido(m.group(1)):
+            res["nombre"] = _norm(m.group(1)).rstrip(":").strip()
+            break
 
     #    6.b Si no hay etiqueta, se recurre a la heurística por exclusión.
     if res["nombre"] == "No detectado":
@@ -425,6 +516,32 @@ def _resultado_no_confiable(motivo: str) -> dict:
 
 _RE_CERTIFICADO_NOMBRE = re.compile(r"Certificado_(\d+)", re.IGNORECASE)
 
+# InfoLAFT exporta con el patrón "<radicado>-<NOMBRE>___<documento>-SearchByNameAndId.pdf"
+# (ej. "389617601-ARIMETRIX_SAS___901787129-SearchByNameAndId.pdf"). El nombre
+# del archivo es entonces una fuente de respaldo legítima para los tres
+# campos, útil cuando el texto del PDF no se pudo leer del todo.
+_RE_EXPORT_INFOLAFT = re.compile(
+    r"^(\d{8,10})[-_](.+?)_{2,}(\d{6,15})[-_]", re.IGNORECASE
+)
+
+
+def _datos_desde_nombre_archivo(nombre_archivo: str) -> dict:
+    """Radicado, nombre y documento deducibles del nombre del archivo."""
+    datos = {}
+    nombre_archivo = nombre_archivo or ""
+    m = _RE_EXPORT_INFOLAFT.search(nombre_archivo)
+    if m:
+        datos["radicado"] = m.group(1)
+        datos["nombre"] = _norm(m.group(2).replace("_", " "))
+        datos["identificacion"] = re.sub(r"^0+(?=\d)", "", m.group(3))
+        return datos
+    m = _RE_CERTIFICADO_NOMBRE.search(nombre_archivo)
+    if m:
+        datos["radicado"] = m.group(1)
+    elif re.match(r"^(\d{8,10})[-_]", nombre_archivo):
+        datos["radicado"] = re.match(r"^(\d{8,10})[-_]", nombre_archivo).group(1)
+    return datos
+
 
 def _aplicar_fallback_nombre_archivo(res: dict, nombre_archivo: str) -> dict:
     """
@@ -450,12 +567,25 @@ def _aplicar_fallback_nombre_archivo(res: dict, nombre_archivo: str) -> dict:
     donde una coincidencia real siempre pinta alerta roja.
     """
     res.setdefault("motivo_revision", "")
-    match = _RE_CERTIFICADO_NOMBRE.search(nombre_archivo or "")
-    res["certificado_nombre_valido"] = bool(match)
     res["fuente_archivo"] = nombre_archivo or ""
-    if res.get("radicado") in (None, "", "No detectado") and match:
-        res["radicado"] = match.group(1)
+
+    del_archivo = _datos_desde_nombre_archivo(nombre_archivo)
+    res["certificado_nombre_valido"] = bool(del_archivo.get("radicado"))
+
+    def _vacio(clave):
+        return res.get(clave) in (None, "", "No detectado")
+
+    if _vacio("radicado") and del_archivo.get("radicado"):
+        res["radicado"] = del_archivo["radicado"]
         res["radicado_via_nombre_archivo"] = True
+    # El nombre y el documento del archivo solo rellenan huecos: nunca
+    # pisan lo que sí se pudo leer del texto del certificado.
+    if _vacio("identificacion") and del_archivo.get("identificacion"):
+        res["identificacion"] = del_archivo["identificacion"]
+        res["identificacion_via_nombre_archivo"] = True
+    if _vacio("nombre") and del_archivo.get("nombre"):
+        res["nombre"] = del_archivo["nombre"]
+        res["nombre_via_nombre_archivo"] = True
 
     coincidencias_reales = str(res.get("resultados", "0")).strip() not in ("0", "")
     gafi_alerta = _norm(res.get("intensificada", "NO")) == "SI"
@@ -752,7 +882,14 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.set_y(y0 + h + 4)
 
     def render_infolaft_snippet(ent: dict, datos_master: dict):
-        """Microtarjeta de UNA entidad evaluada con sanitización y anchos calibrados."""
+        """Microtarjeta de UNA entidad evaluada.
+
+        Jerarquía de lectura: (1) franja de color + badge = veredicto,
+        (2) rol y nombre = a quién se evaluó, (3) grilla = con qué datos
+        se sustenta, (4) pie = de qué archivo salió y, si algo falló, por
+        qué. Antes la tarjeta solo repetía "No detectado" tres veces sin
+        explicar nada.
+        """
         estado = _clasificar_entidad(ent, es_prospecto)
         rol = _norm(ent.get("rol_interno", "")) or "VINCULADO EVALUADO"
         nombre, nombre_del_formulario = _resolver_nombre_entidad(ent, datos_master)
@@ -760,22 +897,25 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         identificacion = _fmt(ent.get("identificacion"))
         radicado = _fmt(ent.get("radicado"))
         if "SIN CONSULTA" in _norm(radicado):
-            radicado = SIN_DATO
-
-        # Fallback de fecha si el objeto no la incluye individualmente
+            radicado = SIN_DATO   # el motivo del pie ya lo explica
         fecha_consulta = _fmt(ent.get("fecha_consulta"))
-        if (not fecha_consulta or fecha_consulta == SIN_DATO) and datos_master.get("fecha"):
+        # Fallback de fecha si el objeto no la trae individualmente. Se
+        # aplica solo a entidades que SI fueron consultadas: una entidad
+        # declarada sin consulta, o un PDF ilegible, no pueden exhibir una
+        # fecha de consulta que nunca existio.
+        hubo_consulta = radicado != SIN_DATO and not ent.get("error_lectura")
+        if fecha_consulta == SIN_DATO and hubo_consulta and datos_master.get("fecha"):
             fecha_consulta = str(datos_master.get("fecha"))[:10]
-
         resultados = str(ent.get("resultados", "0")).strip() or "0"
         intensificada = "SI" if _norm(ent.get("intensificada", "NO")) == "SI" else "NO"
+        listas_consultadas = _fmt(ent.get("listas_consultadas"))
+        analista = _fmt(ent.get("consultado_por"), "")
         fuente = _fmt(ent.get("fuente_archivo"), "")
 
-        # Notas al pie: eliminación de dos puntos flotantes al final
+        # Notas del pie: motivo de la alerta + trazabilidad del nombre.
         notas = []
         if estado.get("motivo"):
-            motivo_limpio = str(estado["motivo"]).rstrip(" :")
-            notas.append(motivo_limpio)
+            notas.append(str(estado["motivo"]).rstrip(" :"))
         if nombre_del_formulario:
             notas.append("Nombre tomado del formulario: el certificado no permitió extraerlo.")
         if ent.get("radicado_via_nombre_archivo"):
@@ -796,12 +936,12 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.set_line_width(0.2)
         pdf.rect(PAGE_X0, y0, PAGE_W, alto, style="FD")
 
-        # Franja lateral de estado
+        # Franja lateral de estado: permite escanear la página entera sin leer
         pdf.set_fill_color(*estado["franja"])
         pdf.set_draw_color(*estado["franja"])
         pdf.rect(PAGE_X0, y0, 1.8, alto, style="FD")
 
-        # ── Badge (derecha) ──
+        # ── Badge (derecha, ancho ajustado al texto) ──
         pdf.set_font("Helvetica", "B", 6.8)
         badge_w = min(78.0, max(42.0, pdf.get_string_width(estado["etiqueta"]) + 7))
         badge_x = PAGE_X1 - 3.5 - badge_w
@@ -830,23 +970,27 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.set_line_width(0.15)
         pdf.line(PAGE_X0 + 5.5, y0 + H_CABECERA, PAGE_X1 - 3.5, y0 + H_CABECERA)
 
-        # ── Grilla de metadatos (Anchos recalibrados para evitar truncado '...') ──
+        # ── Grilla de metadatos ──
         columnas = [
             ("IDENTIFICACIÓN", identificacion, COLOR_TEXT_BODY, "B" if identificacion != SIN_DATO else ""),
             ("No. DE CONSULTA", radicado, COLOR_TEXT_BODY, "B" if radicado != SIN_DATO else ""),
             ("FECHA DE CONSULTA", fecha_consulta, COLOR_TEXT_BODY, ""),
-            ("COINCIDENCIAS", resultados, SEMAFORO["alerta"]["texto"] if estado.get("coincidencias") else COLOR_TEXT_BODY, "B"),
-            ("MONITOREO GAFI", intensificada, SEMAFORO["alerta"]["texto"] if intensificada == "SI" else COLOR_TEXT_BODY, "B"),
+            # Cuántas listas de control barrió el proveedor: es la medida
+            # del alcance del screening y el reporte sí la trae (316).
+            ("LISTAS CONSULTADAS", listas_consultadas, COLOR_TEXT_BODY, ""),
+            ("COINCIDENCIAS", resultados,
+             SEMAFORO["alerta"]["texto"] if estado.get("coincidencias") else COLOR_TEXT_BODY, "B"),
+            ("MONITOREO GAFI", intensificada,
+             SEMAFORO["alerta"]["texto"] if intensificada == "SI" else COLOR_TEXT_BODY, "B"),
         ]
-        # Se amplía No. DE CONSULTA de 34.0 a 44.0 para evitar 'BDM-ARIMETRIX-202...'
-        anchos = [36.0, 44.0, 36.0, 30.0, 28.0]
+        anchos = [32.0, 36.0, 33.0, 26.0, 22.0, 22.0]   # suma 171 = ancho interior
         x = PAGE_X0 + 5.5
         y_lbl = y0 + H_CABECERA + 2.4
         for (etiqueta, valor, color, estilo), w in zip(columnas, anchos):
             pdf.set_xy(x, y_lbl)
             pdf.set_font("Helvetica", "B", 5.8)
             pdf.set_text_color(*COLOR_TEXT_MUTED)
-            pdf.cell(w, 2.6, etiqueta, new_x=XPos.LEFT, new_y=YPos.NEXT)
+            pdf.cell(w, 2.6, pdf.recortar(etiqueta, w - 1.5), new_x=XPos.LEFT, new_y=YPos.NEXT)
             pdf.set_xy(x, y_lbl + 3.0)
             pdf.set_font("Helvetica", estilo, 8.2)
             pdf.set_text_color(*color)
@@ -859,6 +1003,8 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.set_font("Helvetica", "I", 6.4)
         pdf.set_text_color(*COLOR_TEXT_MUTED)
         texto_fuente = f"Fuente documental: {fuente}" if fuente else "Fuente documental: no registrada"
+        if analista:
+            texto_fuente += f"   |   Consulta ejecutada por: {analista}"
         pdf.cell(PAGE_W - 10, 3.2, pdf.recortar(texto_fuente, PAGE_W - 12))
 
         for i, nota in enumerate(notas):
