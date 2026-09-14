@@ -56,3 +56,4 @@ htmlcov/
 review_screening.pdf
 # SQL generado con hashes de contraseña — no versionar
 scripts/_cic_sergio_generado.sql
+test_output.pdf
