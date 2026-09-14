@@ -983,7 +983,11 @@ def generar_pdf_base(datos_master: dict) -> bytes:
             ("MONITOREO GAFI", intensificada,
              SEMAFORO["alerta"]["texto"] if intensificada == "SI" else COLOR_TEXT_BODY, "B"),
         ]
-        anchos = [32.0, 36.0, 33.0, 26.0, 22.0, 22.0]   # suma 171 = ancho interior
+        # Radicados cross-border ("BDM-ARIMETRIX-2026-EXT1", 39.1mm a 8.2pt
+        # Bold) seguian truncando en el ancho anterior (36.0). No. DE
+        # CONSULTA sube a 44.0; el resto se reparte por su peor caso real
+        # (ver medicion de anchos) para que la fila siga sumando 171mm.
+        anchos = [26.0, 44.0, 32.0, 27.0, 20.0, 22.0]   # suma 171 = ancho interior
         x = PAGE_X0 + 5.5
         y_lbl = y0 + H_CABECERA + 2.4
         for (etiqueta, valor, color, estilo), w in zip(columnas, anchos):
