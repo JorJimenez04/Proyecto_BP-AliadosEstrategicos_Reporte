@@ -752,14 +752,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.set_y(y0 + h + 4)
 
     def render_infolaft_snippet(ent: dict, datos_master: dict):
-        """Microtarjeta de UNA entidad evaluada.
-
-        Jerarquía de lectura: (1) franja de color + badge = veredicto,
-        (2) rol y nombre = a quién se evaluó, (3) grilla = con qué datos
-        se sustenta, (4) pie = de qué archivo salió y, si algo falló, por
-        qué. Antes la tarjeta solo repetía "No detectado" tres veces sin
-        explicar nada.
-        """
+        """Microtarjeta de UNA entidad evaluada con sanitización y anchos calibrados."""
         estado = _clasificar_entidad(ent, es_prospecto)
         rol = _norm(ent.get("rol_interno", "")) or "VINCULADO EVALUADO"
         nombre, nombre_del_formulario = _resolver_nombre_entidad(ent, datos_master)
@@ -767,16 +760,22 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         identificacion = _fmt(ent.get("identificacion"))
         radicado = _fmt(ent.get("radicado"))
         if "SIN CONSULTA" in _norm(radicado):
-            radicado = SIN_DATO   # el motivo del pie ya lo explica
+            radicado = SIN_DATO
+
+        # Fallback de fecha si el objeto no la incluye individualmente
         fecha_consulta = _fmt(ent.get("fecha_consulta"))
+        if (not fecha_consulta or fecha_consulta == SIN_DATO) and datos_master.get("fecha"):
+            fecha_consulta = str(datos_master.get("fecha"))[:10]
+
         resultados = str(ent.get("resultados", "0")).strip() or "0"
         intensificada = "SI" if _norm(ent.get("intensificada", "NO")) == "SI" else "NO"
         fuente = _fmt(ent.get("fuente_archivo"), "")
 
-        # Notas del pie: motivo de la alerta + trazabilidad del nombre.
+        # Notas al pie: eliminación de dos puntos flotantes al final
         notas = []
-        if estado["motivo"]:
-            notas.append(estado["motivo"])
+        if estado.get("motivo"):
+            motivo_limpio = str(estado["motivo"]).rstrip(" :")
+            notas.append(motivo_limpio)
         if nombre_del_formulario:
             notas.append("Nombre tomado del formulario: el certificado no permitió extraerlo.")
         if ent.get("radicado_via_nombre_archivo"):
@@ -797,12 +796,12 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.set_line_width(0.2)
         pdf.rect(PAGE_X0, y0, PAGE_W, alto, style="FD")
 
-        # Franja lateral de estado: permite escanear la página entera sin leer
+        # Franja lateral de estado
         pdf.set_fill_color(*estado["franja"])
         pdf.set_draw_color(*estado["franja"])
         pdf.rect(PAGE_X0, y0, 1.8, alto, style="FD")
 
-        # ── Badge (derecha, ancho ajustado al texto) ──
+        # ── Badge (derecha) ──
         pdf.set_font("Helvetica", "B", 6.8)
         badge_w = min(78.0, max(42.0, pdf.get_string_width(estado["etiqueta"]) + 7))
         badge_x = PAGE_X1 - 3.5 - badge_w
@@ -831,17 +830,16 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         pdf.set_line_width(0.15)
         pdf.line(PAGE_X0 + 5.5, y0 + H_CABECERA, PAGE_X1 - 3.5, y0 + H_CABECERA)
 
-        # ── Grilla de metadatos ──
+        # ── Grilla de metadatos (Anchos recalibrados para evitar truncado '...') ──
         columnas = [
             ("IDENTIFICACIÓN", identificacion, COLOR_TEXT_BODY, "B" if identificacion != SIN_DATO else ""),
             ("No. DE CONSULTA", radicado, COLOR_TEXT_BODY, "B" if radicado != SIN_DATO else ""),
             ("FECHA DE CONSULTA", fecha_consulta, COLOR_TEXT_BODY, ""),
-            ("COINCIDENCIAS", resultados,
-             SEMAFORO["alerta"]["texto"] if estado["coincidencias"] else COLOR_TEXT_BODY, "B"),
-            ("MONITOREO GAFI", intensificada,
-             SEMAFORO["alerta"]["texto"] if intensificada == "SI" else COLOR_TEXT_BODY, "B"),
+            ("COINCIDENCIAS", resultados, SEMAFORO["alerta"]["texto"] if estado.get("coincidencias") else COLOR_TEXT_BODY, "B"),
+            ("MONITOREO GAFI", intensificada, SEMAFORO["alerta"]["texto"] if intensificada == "SI" else COLOR_TEXT_BODY, "B"),
         ]
-        anchos = [44.0, 34.0, 40.0, 30.0, 26.0]
+        # Se amplía No. DE CONSULTA de 34.0 a 44.0 para evitar 'BDM-ARIMETRIX-202...'
+        anchos = [36.0, 44.0, 36.0, 30.0, 28.0]
         x = PAGE_X0 + 5.5
         y_lbl = y0 + H_CABECERA + 2.4
         for (etiqueta, valor, color, estilo), w in zip(columnas, anchos):
@@ -852,7 +850,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
             pdf.set_xy(x, y_lbl + 3.0)
             pdf.set_font("Helvetica", estilo, 8.2)
             pdf.set_text_color(*color)
-            pdf.cell(w, 3.8, pdf.recortar(valor, w - 2))
+            pdf.cell(w, 3.8, pdf.recortar(valor, w - 1.5))
             x += w
 
         # ── Pie: archivo fuente y notas ──
