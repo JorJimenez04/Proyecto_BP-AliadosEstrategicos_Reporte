@@ -493,12 +493,16 @@ def _render_bloque_juridica():
         col_m2_left, col_m2_right = st.columns([1.1, 0.9])
 
         with col_m2_left:
-            st.text_input(f"Nombre Completo (Representante Legal){req_formal}", placeholder="Nombre del firmante legal", key="v6_rep_legal_nom", disabled=es_prospecto)
-            st.text_input(f"Documento de Identidad (Representante Legal){req_formal}", placeholder="Número de cédula o pasaporte", key="v6_rep_legal_id", disabled=es_prospecto)
+            # No se deshabilitan: "Opcional en Prospecto" significa que no
+            # bloquean la compilación si quedan vacíos (ver
+            # _validar_y_construir_juridica), no que el analista no pueda
+            # diligenciarlos si ya cuenta con la información.
+            st.text_input(f"Nombre Completo (Representante Legal){req_formal}", placeholder="Nombre del firmante legal", key="v6_rep_legal_nom")
+            st.text_input(f"Documento de Identidad (Representante Legal){req_formal}", placeholder="Número de cédula o pasaporte", key="v6_rep_legal_id")
 
         with col_m2_right:
             st.markdown(f"<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-bottom:5px;'>📄 Reporte Infolaft (Representante){req_formal}</p>", unsafe_allow_html=True)
-            file_replegal = st.file_uploader("Subir PDF Infolaft del Rep. Legal", type=["pdf"], key="v6_pdf_rep", label_visibility="collapsed", disabled=es_prospecto)
+            file_replegal = st.file_uploader("Subir PDF Infolaft del Rep. Legal", type=["pdf"], key="v6_pdf_rep", label_visibility="collapsed")
             parsed_replegal = procesar_archivo_pdf(file_replegal)
             if parsed_replegal:
                 parsed_replegal["rol_interno"] = "Representante Legal"
@@ -522,15 +526,15 @@ def _render_bloque_juridica():
                 st.text_input("Nombre Completo (Accionista Mayoritario)", value=current_rep_nom, disabled=True, key="v6_acc_nom_dis")
                 st.text_input("Identificación (Accionista Mayoritario)", value=current_rep_id, disabled=True, key="v6_acc_id_dis")
             else:
-                st.text_input(f"Nombre Completo (Accionista Mayoritario){req_formal}", placeholder="Nombre del socio principal", key="v6_acc_nom_en", disabled=es_prospecto)
-                st.text_input(f"Identificación (Accionista Mayoritario){req_formal}", placeholder="ID del socio principal", key="v6_acc_id_en", disabled=es_prospecto)
+                st.text_input(f"Nombre Completo (Accionista Mayoritario){req_formal}", placeholder="Nombre del socio principal", key="v6_acc_nom_en")
+                st.text_input(f"Identificación (Accionista Mayoritario){req_formal}", placeholder="ID del socio principal", key="v6_acc_id_en")
 
         with col_m3_right:
             if st.session_state.get("v6_chk_accionista_es_rep", False):
                 st.info("ℹ️ Sistema en modo de duplicidad cero.")
             else:
                 st.markdown(f"<p style='font-size:0.75rem; font-weight:700; color:var(--ai); text-transform:uppercase; margin-bottom:5px;'>📄 Reporte Infolaft (Accionista){req_formal}</p>", unsafe_allow_html=True)
-                file_accionista = st.file_uploader("Subir PDF Infolaft del Accionista", type=["pdf"], key="v6_pdf_acc", label_visibility="collapsed", disabled=es_prospecto)
+                file_accionista = st.file_uploader("Subir PDF Infolaft del Accionista", type=["pdf"], key="v6_pdf_acc", label_visibility="collapsed")
                 parsed_accionista = procesar_archivo_pdf(file_accionista)
                 if parsed_accionista:
                     parsed_accionista["rol_interno"] = "Accionista / Beneficiario Final"
