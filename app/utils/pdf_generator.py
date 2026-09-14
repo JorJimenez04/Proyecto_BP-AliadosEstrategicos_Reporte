@@ -677,6 +677,14 @@ def _clasificar_entidad(ent: dict, es_prospecto: bool = False) -> dict:
     # nunca consultadas: no pueden verse como un vinculado más.
     sin_consulta = "SIN CONSULTA" in _norm(radicado)
 
+    # subtipo_pendiente distingue POR QUÉ una entidad quedó en "revision" —
+    # la Sección 3 lo necesita para no imprimir "LECTURA NO CONFIABLE" (que
+    # implica un PDF técnicamente defectuoso) cuando la causa real es que
+    # una entidad se declaró sin consultar todavía (dato de negocio, no
+    # falla de lectura). Sin esta distinción, un expediente con TODOS sus
+    # certificados leídos con éxito se ve igual que uno con un PDF corrupto.
+    subtipo_pendiente = None
+
     if coincidencias or intensificada == "SI":
         clave, etiqueta = "alerta", "COINCIDENCIA EN LISTAS - AUDITORÍA LAFT"
         motivo = "Se hallaron coincidencias o monitoreo intensificado GAFI. Escalar al Oficial de Cumplimiento."
@@ -684,16 +692,19 @@ def _clasificar_entidad(ent: dict, es_prospecto: bool = False) -> dict:
         clave, etiqueta = "revision", "DECLARADA - SIN CONSULTA EN LISTAS"
         motivo = ("Entidad declarada por el area comercial sin consulta InfoLAFT en esta etapa. "
                   "Debe screenearse en el Onboarding Formal SARLAFT.")
+        subtipo_pendiente = "sin_consulta"
     elif error_lectura:
         clave, etiqueta = "revision", "LECTURA NO CONFIABLE - VALIDAR MANUALMENTE"
         motivo = ent.get("motivo_revision") or (
             "El certificado no entregó texto legible; el resultado no pudo verificarse."
         )
+        subtipo_pendiente = "lectura_no_confiable"
     elif revision:
         clave, etiqueta = "revision", "DATOS INCOMPLETOS - VALIDAR MANUALMENTE"
         motivo = ent.get("motivo_revision") or (
             "No se pudo confirmar el número de coincidencias ni el monitoreo GAFI."
         )
+        subtipo_pendiente = "lectura_no_confiable"
     elif es_prospecto and (not radicado or "BDM" in radicado.upper() or "EXP" in radicado.upper()):
         clave, etiqueta = "preliminar", "VERIFICACIÓN PRELIMINAR (EXPRESS)"
         motivo = "Verificación comercial preliminar: no reemplaza el screening formal SARLAFT."
@@ -708,6 +719,7 @@ def _clasificar_entidad(ent: dict, es_prospecto: bool = False) -> dict:
         "motivo": motivo,
         "coincidencias": coincidencias,
         "pendiente": clave == "revision",
+        "subtipo_pendiente": subtipo_pendiente,
         **paleta,
     }
 
@@ -1219,6 +1231,25 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     hay_alerta = any(c["clave"] == "alerta" for c in clasificaciones)
     hay_pendiente = any(c["pendiente"] for c in clasificaciones)
 
+    # subtipo_pendiente distingue la causa real del "pendiente": si TODOS
+    # los certificados subidos se leyeron bien y lo único pendiente es una
+    # entidad declarada sin consultar (ej. pagadora cross-border), decirle
+    # al lector "LECTURA NO CONFIABLE" es engañoso — insinúa un PDF
+    # defectuoso que en realidad nunca existió. Cada causa tiene su propio
+    # texto para que el oficial sepa exactamente qué falta.
+    hay_lectura_no_confiable = any(c.get("subtipo_pendiente") == "lectura_no_confiable" for c in clasificaciones)
+
+    def _veredicto_pendiente():
+        if not entidades_evidencia:
+            return "PENDIENTE - SIN EVIDENCIA DE SCREENING", "ADJUNTAR CERTIFICADOS INFOLAFT", SEMAFORO["revision"]
+        if hay_lectura_no_confiable:
+            return "PENDIENTE - LECTURA NO CONFIABLE", "REQUIERE VALIDACIÓN MANUAL", SEMAFORO["revision"]
+        # Único caso restante: solo hay entidades declaradas-sin-consultar.
+        # Los certificados que sí se subieron están limpios; falta
+        # completar la consulta de la(s) entidad(es) declarada(s).
+        return ("PENDIENTE - CONSULTA INFOLAFT INCOMPLETA",
+                "COMPLETAR SCREENING DE ENTIDAD(ES) DECLARADA(S)", SEMAFORO["revision"])
+
     if es_prospecto:
         # Modo Screening Express: mismo criterio (alerta > pendiente >
         # limpio), pero el veredicto limpio se marca explícitamente como
@@ -1228,8 +1259,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
             estado_str, categoria_str = "REQUIERE AUDITORÍA LAFT", "RIESGO ALTO / EN OBSERVACIÓN"
             pal = SEMAFORO["alerta"]
         elif hay_pendiente or not entidades_evidencia:
-            estado_str, categoria_str = "PENDIENTE - LECTURA NO CONFIABLE", "REQUIERE VALIDACIÓN MANUAL"
-            pal = SEMAFORO["revision"]
+            estado_str, categoria_str, pal = _veredicto_pendiente()
         else:
             estado_str, categoria_str = "CONFORME (PRELIMINAR)", "RIESGO BAJO (PRELIMINAR)"
             pal = {"bg": (220, 252, 231), "borde": (187, 247, 208), "texto": (21, 128, 61)}
@@ -1248,7 +1278,7 @@ def generar_pdf_base(datos_master: dict) -> bytes:
         if es_aprobado:
             estado_str, categoria_str, pal = "CONFORME - SIN COINCIDENCIAS", "RIESGO BAJO", SEMAFORO["limpio"]
         elif es_revision_manual:
-            estado_str, categoria_str, pal = "PENDIENTE - LECTURA NO CONFIABLE", "REQUIERE VALIDACIÓN MANUAL", SEMAFORO["revision"]
+            estado_str, categoria_str, pal = _veredicto_pendiente()
         else:
             estado_str, categoria_str, pal = "NO CONFORME - ALERTA LAFT", "RIESGO ALTO", SEMAFORO["alerta"]
 
