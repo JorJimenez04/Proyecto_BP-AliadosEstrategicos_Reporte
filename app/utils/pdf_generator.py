@@ -1209,31 +1209,48 @@ def generar_pdf_base(datos_master: dict) -> bytes:
     # 🗂️ ─── SECCIÓN 3: CONCEPTO TÉCNICO Y DECLARACIÓN DE CUMPLIMIENTO ───
     render_subseccion_moderna("3. Concepto Técnico de Cumplimiento")
 
-    # Tres veredictos posibles — ver estado_global en screening_ui.py:
-    #   "APROBADO S/ANOMALÍAS"            -> screening completo, sin coincidencias
-    #   "REQUIERE REVISIÓN MANUAL"        -> uno o más PDF no se pudieron leer
-    #   "REQUIERE REVISIÓN INTENSIFICADA" -> coincidencia real en listas / GAFI
-    estado_norm = _norm(s_estado)
-    es_aprobado = "APROBADO" in estado_norm
-    es_revision_manual = "MANUAL" in estado_norm
-
-    # Coherencia dura: si alguna tarjeta de la Sección 2 quedó en ámbar o
-    # rojo, el dictamen NO puede imprimirse como aprobado aunque
-    # estado_global llegue mal calculado desde la UI.
+    # El veredicto SIEMPRE se decide a partir de lo que InfoLAFT reportó por
+    # entidad (_clasificar_entidad), nunca a partir del dictamen del oficial
+    # a solas: "sin alertas" solo cuenta si además se pudo confirmar que se
+    # consultó y se leyó con confianza. Un PDF ilegible o una entidad
+    # declarada sin consulta (ej. pagadora cross-border) NO son "limpio",
+    # son "no se pudo determinar" — igual en Modo Express que en Formal.
     clasificaciones = [_clasificar_entidad(e, es_prospecto) for e in entidades_evidencia]
     hay_alerta = any(c["clave"] == "alerta" for c in clasificaciones)
     hay_pendiente = any(c["pendiente"] for c in clasificaciones)
-    if hay_alerta:
-        es_aprobado, es_revision_manual = False, False
-    elif hay_pendiente and es_aprobado:
-        es_aprobado, es_revision_manual = False, True
 
-    if es_aprobado:
-        estado_str, categoria_str, pal = "CONFORME - SIN COINCIDENCIAS", "RIESGO BAJO", SEMAFORO["limpio"]
-    elif es_revision_manual:
-        estado_str, categoria_str, pal = "PENDIENTE - LECTURA NO CONFIABLE", "REQUIERE VALIDACIÓN MANUAL", SEMAFORO["revision"]
+    if es_prospecto:
+        # Modo Screening Express: mismo criterio (alerta > pendiente >
+        # limpio), pero el veredicto limpio se marca explícitamente como
+        # preliminar — es un VoBo comercial, no el Onboarding Formal SARLAFT.
+        # Sin entidades evaluadas no hay nada que confirmar como limpio.
+        if hay_alerta:
+            estado_str, categoria_str = "REQUIERE AUDITORÍA LAFT", "RIESGO ALTO / EN OBSERVACIÓN"
+            pal = SEMAFORO["alerta"]
+        elif hay_pendiente or not entidades_evidencia:
+            estado_str, categoria_str = "PENDIENTE - LECTURA NO CONFIABLE", "REQUIERE VALIDACIÓN MANUAL"
+            pal = SEMAFORO["revision"]
+        else:
+            estado_str, categoria_str = "CONFORME (PRELIMINAR)", "RIESGO BAJO (PRELIMINAR)"
+            pal = {"bg": (220, 252, 231), "borde": (187, 247, 208), "texto": (21, 128, 61)}
     else:
-        estado_str, categoria_str, pal = "NO CONFORME - ALERTA LAFT", "RIESGO ALTO", SEMAFORO["alerta"]
+        # Modo Formal: idéntico al comportamiento previo. estado_global es
+        # el veredicto declarado por la UI, pero la Sección 2 puede
+        # degradarlo (nunca mejorarlo) si alguna entidad quedó en ámbar/rojo.
+        estado_norm = _norm(s_estado)
+        es_aprobado = "APROBADO" in estado_norm
+        es_revision_manual = "MANUAL" in estado_norm
+        if hay_alerta:
+            es_aprobado, es_revision_manual = False, False
+        elif hay_pendiente and es_aprobado:
+            es_aprobado, es_revision_manual = False, True
+
+        if es_aprobado:
+            estado_str, categoria_str, pal = "CONFORME - SIN COINCIDENCIAS", "RIESGO BAJO", SEMAFORO["limpio"]
+        elif es_revision_manual:
+            estado_str, categoria_str, pal = "PENDIENTE - LECTURA NO CONFIABLE", "REQUIERE VALIDACIÓN MANUAL", SEMAFORO["revision"]
+        else:
+            estado_str, categoria_str, pal = "NO CONFORME - ALERTA LAFT", "RIESGO ALTO", SEMAFORO["alerta"]
 
     badge_bg, badge_border, badge_text = pal["bg"], pal["borde"], pal["texto"]
 
